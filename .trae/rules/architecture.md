@@ -156,3 +156,24 @@ QuantFlow/
      * 测试文件：`tests/domain/account/test_entities.py`
      * 源文件：`src/infrastructure/gateway/qmt_trade.py`
      * 测试文件：`tests/infrastructure/gateway/test_qmt_trade.py`
+
+## 8. QMT (xtquant) 数据获取与基础设施规范 (Infrastructure Constraints)
+
+在使用 QMT (`xtquant`) 作为底层数据源或交易网关时，必须严格遵守以下 API 调用规范，以绕过底层 C++ 接口的常见陷阱：
+
+### 5.1 历史行情获取接口规范 (Market Data API)
+1. **禁用旧版 API**: 绝对禁止使用 `xtdata.get_market_data()`。该接口返回的数据结构（`{字段: DataFrame}`）极不符合常规数据处理逻辑。
+2. **强制使用 EX 接口**: 必须使用 `xtdata.get_market_data_ex()`。该接口返回标准的 `{stock_code: DataFrame}` 结构，且 DataFrame 包含 open, high, low, close, volume 等完整字段。
+3. **复权要求**: 在调用接口获取用于回测和技术指标计算的 K 线时，必须强制指定 `dividend_type='front'`（前复权）。
+
+### 5.2 时间格式与解析规范 (Time Format & Parsing)
+1. **请求参数时间格式**: QMT 的 C++ 底层对时间字符串要求极其严格。外部传入的 `YYYY-MM-DD` 格式（如 "2024-01-01"）在传递给 `download_history_data` 和 `get_market_data_ex` 之前，**必须**去除横杠，转换为紧凑型的 `YYYYMMDD`（如 "20240101"）或 `YYYYMMDDHHMMSS` 格式。
+2. **返回结果时间解析**: `get_market_data_ex` 返回的 DataFrame 中，时间信息通常隐藏在 `index` 中。必须显式使用 `pandas.to_datetime(df.index)` 将其转换为标准的 datetime 对象，再向下游领域模型传递。
+
+### 5.3 透明缓存与多维度隔离 (Transparent Caching)
+1. **多粒度文件隔离**: 历史数据落盘保存时，必须将 `symbol` 和 `timeframe` 结合作为联合主键。缓存文件命名规范须为 `data/{symbol}_{timeframe}.csv`（例如 `000021.SZ_1d.csv` 或 `000021.SZ_5m.csv`）。
+2. **透明读取机制**: 所有 `IHistoryDataFetcher` 的实现必须是防备性的。在向 QMT 发起耗时的下载请求前，必须先检查本地是否存在对应的缓存文件。若存在，则直接走本地 IO 并解析返回，避免重复调用 QMT 接口。
+
+### 5.4 账户网关无状态连接 (Gateway Connection)
+1. **行情模块 (xtdata)**: 纯数据获取属于无状态调用。在代码层面不需要（也不支持）编写连接、登录代码，直接 `import xtdata` 并调用即可。依赖前提是本地终端已开启。
+2. **交易模块 (xttrader)**: 必须显式实例化 `XtQuantTrader`，提供 `qmt_path` 和 `session_id`，并严格执行 `connect()` 和 `subscribe()` 的握手流程。

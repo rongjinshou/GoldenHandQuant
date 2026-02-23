@@ -1,4 +1,3 @@
-import os
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -7,12 +6,12 @@ from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
 
 try:
-    from xtquant import xtdata
+    from src.infrastructure.libs.xtquant import xtdata
 except ImportError:
     xtdata = None
 
 class QmtHistoryDataFetcher(IHistoryDataFetcher):
-    """QMT 历史数据获取器实现。"""
+    """QMT 历史数据获取器实现 (基于 xtquant.xtdata)。"""
 
     def fetch_history_bars(
         self, 
@@ -23,133 +22,145 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
     ) -> list[Bar]:
         """获取历史 K 线数据。
 
-        优先从本地 CSV 读取，若不存在则调用 xtdata 下载并保存。
+        优先从本地 CSV 读取，若不存在或数据缺失则调用 xtdata 下载并保存。
+        遵循 QMT 实盘接口规范：
+        1. 时间格式转换 (YYYY-MM-DD -> YYYYMMDD)
+        2. 使用 get_market_data_ex 获取标准数据结构
+        3. 强制前复权 (dividend_type='front')
         """
         # 1. 构造缓存路径
-        # 确保 data 目录存在
         data_dir = Path("data")
         data_dir.mkdir(parents=True, exist_ok=True)
         
         csv_filename = f"{symbol}_{timeframe.value}.csv"
         csv_path = data_dir / csv_filename
 
+        # 统一处理时间格式
+        # 输入格式: YYYY-MM-DD
+        # QMT 要求格式: YYYYMMDD
+        qmt_start_date = start_date.replace("-", "")
+        qmt_end_date = end_date.replace("-", "")
+        
+        # Pandas 过滤用的 datetime 对象
+        pd_start_dt = pd.to_datetime(start_date)
+        pd_end_dt = pd.to_datetime(end_date)
+
         df = None
         
-        # 2. 检查缓存是否存在
+        # 2. 尝试读取本地缓存
         if csv_path.exists():
             try:
-                # 尝试读取 CSV
-                # 假设 CSV 包含 datetime, open, high, low, close, volume 等列
-                # 注意: 这里简单假设文件存在即包含所需数据，实际生产中可能需要校验时间范围覆盖
-                # 为简化逻辑，若文件存在直接读取，若需更新数据可手动删除文件或增强逻辑
-                df = pd.read_csv(csv_path)
+                # 读取 CSV，解析 datetime 列
+                cached_df = pd.read_csv(csv_path)
                 
-                # 转换 datetime 列
-                if 'time' in df.columns:
-                     df['datetime'] = pd.to_datetime(df['time'])
-                elif 'datetime' in df.columns:
-                     df['datetime'] = pd.to_datetime(df['datetime'])
-                
-                # 筛选时间范围
-                # 统一 start_date/end_date 格式处理
-                start_dt = pd.to_datetime(start_date)
-                end_dt = pd.to_datetime(end_date)
-                
-                mask = (df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)
-                if not mask.any():
-                    # 缓存中没有所需时间段的数据，可能需要重新下载
-                    # 这里简化处理：如果缓存存在但没有数据，尝试重新下载覆盖 (或者追加? 简单起见覆盖)
-                    print(f"Cache miss for time range in {csv_path}, re-downloading...")
-                    df = None
+                if 'datetime' in cached_df.columns:
+                    cached_df['datetime'] = pd.to_datetime(cached_df['datetime'])
+                    
+                    # 检查缓存数据是否覆盖请求的时间段
+                    # 简单策略：检查缓存中是否有处于请求时间范围内的数据
+                    # 更严格策略：检查 min(date) <= start 和 max(date) >= end (但考虑到停牌等因素，这里只做简单检查)
+                    mask = (cached_df['datetime'] >= pd_start_dt) & (cached_df['datetime'] <= pd_end_dt)
+                    
+                    if mask.any():
+                        # 有数据命中，使用缓存 (截取所需片段)
+                        df = cached_df[mask].copy()
+                        # print(f"Loaded {len(df)} bars from cache: {csv_path}")
+                    else:
+                        # 缓存存在但无匹配数据 (可能是时间段不重合)，需要重新下载
+                        # print(f"Cache miss (time range mismatch) for {symbol}, re-downloading...")
+                        df = None
                 else:
-                    df = df[mask]
+                    # 格式不对，重新下载
+                    df = None
             except Exception as e:
                 print(f"Error reading cache {csv_path}: {e}, re-downloading...")
                 df = None
 
-        # 3. 若无缓存或读取失败，从 QMT 获取
+        # 3. 调用 QMT 接口下载 (如果缓存未命中)
         if df is None:
             if xtdata is None:
                 raise ImportError("xtquant module not found. Please install it or use cached data.")
             
-            # 下载数据
-            # xtdata.download_history_data 的 period 参数即 timeframe.value (如 '1d', '5m')
-            # start_time, end_time 格式通常为 'YYYYMMDD' 或 'YYYYMMDDHHMMSS'
-            # 这里的 start_date, end_date 是 'YYYY-MM-DD'，需要转换格式
-            xt_start = start_date.replace("-", "")
-            xt_end = end_date.replace("-", "")
-            
-            print(f"Downloading history data for {symbol} ({timeframe.value})...")
-            xtdata.download_history_data(symbol, period=timeframe.value, start_time=xt_start, end_time=xt_end)
-            
-            # 获取数据 (前复权)
-            # dividend_type="front"
-            market_data = xtdata.get_market_data(
-                field_list=[],  # 空列表获取所有字段
-                stock_list=[symbol],
-                period=timeframe.value,
-                start_time=xt_start,
-                end_time=xt_end,
-                dividend_type="front",
-                count=-1
+            # 3.1 下载历史数据
+            # print(f"Downloading history data for {symbol} ({timeframe.value})...")
+            xtdata.download_history_data(
+                stock_code=symbol, 
+                period=timeframe.value, 
+                start_time=qmt_start_date, 
+                end_time=qmt_end_date
             )
             
-            # market_data 是一个 dict {symbol: DataFrame}
-            if symbol not in market_data:
-                 print(f"No data found for {symbol}")
-                 return []
+            # 3.2 获取数据 (get_market_data_ex)
+            # 必须使用 ex 接口以获取标准 DataFrame 结构
+            # 字段: time, open, high, low, close, volume (amount, settl_price, etc. optional)
+            field_list = ['time', 'open', 'high', 'low', 'close', 'volume']
             
-            df = market_data[symbol]
+            data_map = xtdata.get_market_data_ex(
+                field_list=field_list,
+                stock_list=[symbol],
+                period=timeframe.value,
+                start_time=qmt_start_date,
+                end_time=qmt_end_date,
+                dividend_type='front',  # 强制前复权
+                fill_data=True
+            )
             
-            if df.empty:
-                print(f"Empty data for {symbol}")
+            # data_map 结构: { "000001.SZ": DataFrame }
+            if symbol not in data_map or data_map[symbol].empty:
+                print(f"No data found for {symbol} via QMT.")
                 return []
-            
-            # 处理 DataFrame 列名和索引
-            # xtdata 返回的 DataFrame index 通常是 time (int64 ms) 或 string
-            # 列名通常是 open, high, low, close, volume, amount, ...
-            
-            # 重置索引以将 time 变为列 (如果它是索引)
-            df = df.reset_index()
-            
-            # 确保有 datetime 列
-            # xtdata 的 time 列通常是 毫秒时间戳 (int) 或 字符串
-            # 常见的列名是 'time'
-            if 'time' in df.columns:
-                # 尝试转换 time 列
-                # 如果是 int (ms)
-                if pd.api.types.is_integer_dtype(df['time']):
-                    df['datetime'] = pd.to_datetime(df['time'], unit='ms')
-                else:
-                    df['datetime'] = pd.to_datetime(df['time'])
-            elif 'index' in df.columns: # sometimes reset_index creates 'index'
-                 df['datetime'] = pd.to_datetime(df['index'])
-            
-            # 4. 落盘保存
-            # 保存所有列，以便下次读取
-            df.to_csv(csv_path, index=False)
-            print(f"Saved history data to {csv_path}")
-
-        # 5. 转换为 Bar 对象列表
-        bars = []
-        for _, row in df.iterrows():
-            # 确保必要的字段存在
-            # 假设列名: open, high, low, close, volume
-            # 如果是 xtdata，通常是小写
-            try:
-                bar = Bar(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    timestamp=row['datetime'].to_pydatetime(),
-                    open=float(row['open']),
-                    high=float(row['high']),
-                    low=float(row['low']),
-                    close=float(row['close']),
-                    volume=float(row['volume'])
-                )
-                bars.append(bar)
-            except KeyError as e:
-                print(f"Missing column in data for {symbol}: {e}")
-                continue
                 
+            raw_df = data_map[symbol]
+            
+            # 3.3 数据清洗与格式化
+            # get_market_data_ex 返回的 DataFrame index 通常是时间戳 (int64 ms) 或 字符串
+            # 必须强制转换为 datetime
+            raw_df.index.name = 'datetime'
+            # 这里的 index 可能是 "20230101093000" (str) 或 timestamp
+            # 统一转换为 datetime 对象
+            try:
+                # 尝试智能推断格式
+                raw_df.index = pd.to_datetime(raw_df.index)
+            except Exception:
+                # 如果失败，可能需要指定格式，视 QMT 版本而定，通常 to_datetime 足够智能
+                pass
+            
+            # 重置索引，将 datetime 变为普通列，方便保存 CSV
+            df = raw_df.reset_index()
+            
+            # 确保列名存在 (open, high, low, close, volume)
+            # QMT 返回的列名通常就是 field_list 中的名字
+            
+            # 3.4 更新缓存 (覆盖写入)
+            # 注意：这里直接覆盖了旧文件。如果需要增量更新，逻辑会更复杂。
+            # 鉴于回测场景通常是一次性拉取一段，覆盖是可接受的。
+            df.to_csv(csv_path, index=False)
+            # print(f"Saved history data to {csv_path}")
+
+        # 4. 转换为实体对象列表
+        bars = []
+        if df is not None and not df.empty:
+            # 确保按时间排序
+            df = df.sort_values('datetime')
+            
+            for _, row in df.iterrows():
+                try:
+                    # 转换 volume 为 int (根据用户要求)
+                    vol = int(row['volume'])
+                    
+                    bar = Bar(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        timestamp=row['datetime'].to_pydatetime(),  # 转换为 python datetime
+                        open=float(row['open']),
+                        high=float(row['high']),
+                        low=float(row['low']),
+                        close=float(row['close']),
+                        volume=float(vol) # 实体定义是 float，但数值要是整数
+                    )
+                    bars.append(bar)
+                except (KeyError, ValueError) as e:
+                    # print(f"Error parsing row for {symbol}: {e}")
+                    continue
+                    
         return bars
