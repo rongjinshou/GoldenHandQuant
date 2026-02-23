@@ -4,8 +4,8 @@ import numpy as np
 
 from src.infrastructure.libs.xtquant import xtdata
 
-from src.domain.market.entities import Bar
-from src.domain.market.gateways import IMarketGateway
+from src.domain.market.value_objects.bar import Bar
+from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 
 logger = logging.getLogger(__name__)
 

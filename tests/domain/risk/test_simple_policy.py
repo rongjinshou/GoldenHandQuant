@@ -1,6 +1,7 @@
-from src.domain.risk.simple_policy import SimpleRiskPolicy
-from src.domain.trade.order import Order, OrderDirection
-from src.domain.risk.policy import RiskCheckResult
+from src.domain.risk.services.simple_risk_policy import SimpleRiskPolicy
+from src.domain.trade.entities.order import Order
+from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.domain.risk.value_objects.risk_check_result import RiskCheckResult
 
 class TestSimpleRiskPolicy:
     def test_check_should_pass_valid_order(self):

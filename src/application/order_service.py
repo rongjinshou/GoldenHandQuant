@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from typing import Self
 
-from src.domain.risk.policy import RiskCheckResult, RiskPolicy
-from src.domain.trade.gateways import ITradeGateway
-from src.domain.trade.order import Order
+from src.domain.risk.value_objects.risk_check_result import RiskCheckResult
+from src.domain.risk.interfaces.policies.risk_policy import RiskPolicy
+from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
+from src.domain.trade.entities.order import Order
 
 
 @dataclass(slots=True, kw_only=True)

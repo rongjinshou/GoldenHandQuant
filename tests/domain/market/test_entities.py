@@ -1,5 +1,5 @@
 from datetime import datetime
-from src.domain.market.entities import Bar
+from src.domain.market.value_objects.bar import Bar
 
 class TestBar:
     def test_init_should_store_values_correctly(self):

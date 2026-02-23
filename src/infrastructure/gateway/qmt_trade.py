@@ -4,12 +4,14 @@ from src.infrastructure.libs.xtquant import xtconstant
 from src.infrastructure.libs.xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from src.infrastructure.libs.xtquant.xttype import StockAccount
 
-from src.domain.account.asset import Asset
-from src.domain.account.gateways import IAccountGateway
-from src.domain.account.position import Position
+from src.domain.account.entities.asset import Asset
+from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
+from src.domain.account.entities.position import Position
 from src.domain.trade.exceptions import OrderSubmitError
-from src.domain.trade.gateways import ITradeGateway
-from src.domain.trade.order import Order, OrderDirection, OrderType
+from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
+from src.domain.trade.entities.order import Order
+from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.domain.trade.value_objects.order_type import OrderType
 
 logger = logging.getLogger(__name__)
 

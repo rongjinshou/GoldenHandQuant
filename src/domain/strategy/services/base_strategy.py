@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 
-from src.domain.account.position import Position
-from src.domain.market.entities import Bar
-from src.domain.strategy.entities import Signal
+from src.domain.account.entities.position import Position
+from src.domain.market.value_objects.bar import Bar
+from src.domain.strategy.value_objects.signal import Signal
 
 
 class BaseStrategy(ABC):

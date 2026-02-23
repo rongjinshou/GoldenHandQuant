@@ -1,7 +1,10 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from src.infrastructure.gateway.qmt_trade import QmtTradeGateway
-from src.domain.trade.order import Order, OrderDirection, OrderType, OrderStatus
+from src.domain.trade.entities.order import Order
+from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.domain.trade.value_objects.order_type import OrderType
+from src.domain.trade.value_objects.order_status import OrderStatus
 from src.infrastructure.libs.xtquant import xtconstant
 from src.infrastructure.libs.xtquant.xttype import XtAsset, XtPosition
 

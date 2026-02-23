@@ -1,5 +1,5 @@
 import pytest
-from src.domain.account.asset import Asset
+from src.domain.account.entities.asset import Asset
 
 class TestAsset:
     def test_init_should_set_default_values(self):

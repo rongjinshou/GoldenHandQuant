@@ -1,5 +1,5 @@
 import pytest
-from src.domain.account.position import Position
+from src.domain.account.entities.position import Position
 
 class TestPosition:
     def test_on_buy_filled_should_increase_total_volume_but_not_available_volume(self):

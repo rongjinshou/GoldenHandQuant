@@ -1,13 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import StrEnum, auto
 
-
-class SignalDirection(StrEnum):
-    """策略信号方向。"""
-    BUY = "BUY"
-    SELL = "SELL"
-
+from src.domain.strategy.value_objects.signal_direction import SignalDirection
 
 @dataclass(slots=True, kw_only=True)
 class Signal:

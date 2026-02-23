@@ -1,26 +1,9 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import StrEnum, auto
 
-
-class OrderStatus(StrEnum):
-    CREATED = "CREATED"
-    SUBMITTED = "SUBMITTED"
-    PARTIAL_FILLED = "PARTIAL_FILLED"
-    FILLED = "FILLED"
-    CANCELED = "CANCELED"
-    REJECTED = "REJECTED"
-    PARTIAL_CANCELED = "PARTIAL_CANCELED"
-
-
-class OrderDirection(StrEnum):
-    BUY = "BUY"
-    SELL = "SELL"
-
-
-class OrderType(StrEnum):
-    LIMIT = "LIMIT"
-    MARKET = "MARKET"
+from src.domain.trade.value_objects.order_status import OrderStatus
+from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.domain.trade.value_objects.order_type import OrderType
 
 
 @dataclass(slots=True, kw_only=True)

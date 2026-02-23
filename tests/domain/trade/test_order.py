@@ -1,5 +1,8 @@
 import pytest
-from src.domain.trade.order import Order, OrderStatus, OrderDirection, OrderType
+from src.domain.trade.entities.order import Order
+from src.domain.trade.value_objects.order_status import OrderStatus
+from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.domain.trade.value_objects.order_type import OrderType
 
 class TestOrder:
     def test_init_should_validate_volume_and_price(self):

@@ -2,15 +2,17 @@ import pytest
 from unittest.mock import MagicMock
 from datetime import datetime
 from src.application.trading_app import TradingAppService
-from src.domain.market.gateways import IMarketGateway
-from src.domain.account.gateways import IAccountGateway
-from src.domain.trade.gateways import ITradeGateway
-from src.domain.strategy.base import BaseStrategy
-from src.domain.market.entities import Bar
-from src.domain.account.asset import Asset
-from src.domain.account.position import Position
-from src.domain.strategy.entities import Signal, SignalDirection
-from src.domain.trade.order import Order, OrderDirection
+from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
+from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
+from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
+from src.domain.strategy.services.base_strategy import BaseStrategy
+from src.domain.market.value_objects.bar import Bar
+from src.domain.account.entities.asset import Asset
+from src.domain.account.entities.position import Position
+from src.domain.strategy.value_objects.signal import Signal
+from src.domain.strategy.value_objects.signal_direction import SignalDirection
+from src.domain.trade.entities.order import Order
+from src.domain.trade.value_objects.order_direction import OrderDirection
 
 class TestTradingAppService:
     @pytest.fixture

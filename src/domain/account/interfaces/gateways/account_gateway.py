@@ -1,6 +1,6 @@
 from typing import Protocol
-from src.domain.account.asset import Asset
-from src.domain.account.position import Position
+from src.domain.account.entities.asset import Asset
+from src.domain.account.entities.position import Position
 
 class IAccountGateway(Protocol):
     """账户网关接口。

@@ -1,6 +1,6 @@
 from typing import Protocol
 from src.domain.trade.exceptions import OrderSubmitError
-from src.domain.trade.order import Order
+from src.domain.trade.entities.order import Order
 
 class ITradeGateway(Protocol):
     """交易网关接口。

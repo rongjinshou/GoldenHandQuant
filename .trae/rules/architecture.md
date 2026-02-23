@@ -29,7 +29,8 @@ QuantFlow/
     │   ├── trade/          # 交易执行子域
     │   ├── market/         # 行情与因子子域
     │   ├── strategy/       # 策略信号子域
-    │   └── risk/           # 风控拦截子域
+    │   ├── risk/           # 风控拦截子域
+    │   └── backtest/       # 回测模拟子域
     ├── application/        # 【应用层】用例编排，协调领域对象与基础设施
     ├── infrastructure/     # 【基础设施层】脏活累活，外部依赖的具体实现
     │   ├── gateway/        # QMT/xtquant 的具体对接实现 (数据获取、下单执行)
@@ -41,15 +42,49 @@ QuantFlow/
         ├── cli/            # 命令行入口模块
         └── events/         # 外部回调接收器 (如 QMT 推送的回调转换)
 
+每个子域必须有一个对应的目录，目录名就是子域的名称。每个目录下必须按照如下的方式编排：
+
+1. **entities包**: 定义该子域的核心实体（如 Account, Position, Order 等），每个实体必须是一个独立的 Python 模块（如 `account.py`, `position.py`, `order.py` 等）。
+2. **value_objects包**: 定义该子域的不可变值对象（如 Price, Volume, DateTimeRange 等），每个值对象必须是一个独立的 Python 模块（如 `price.py`, `volume.py`, `date_time_range.py` 等）。
+3. **services包**: 实现该子域的业务逻辑（如 OrderService, RiskService 等），每个服务必须是一个独立的 Python 模块（如 `order_service.py`, `risk_service.py` 等）。
+4. **interfaces包**: 定义该子域的外部接口（如 API 路由、事件接收器等），根据功能不同，可分为以下子目录：
+   * **repositories包**: 定义该子域的持久化接口（如 AccountRepository, PositionRepository 等），每个接口必须是一个独立的 Python 模块（如 `account_repository.py`, `position_repository.py` 等）。
+   * **gateways包**: 定义该子域的外部依赖接口（如 QMT 交易网关、CatBoost 模型网关等），每个网关接口定义必须是一个独立的 Python 模块（如 `qmt_gateway.py`, `catboost_gateway.py` 等）。
+   * **events包**: 定义外部事件接收器（如 QMT 推送的回调转换），每个接收器必须是一个独立的 Python 模块（如 `qmt_events.py` 等）。
+
 ## 4. A 股领域知识建模规范 (Domain Knowledge Constraints)
-在设计领域模型时，必须内置以下 A 股特定业务规则：
-1. **T+1 结算规则**: Position (持仓实体) 必须明确区分 total_volume (总持仓) 和 available_volume (可用持仓)。当日买入成交后，只能增加 total_volume，不可增加 available_volume。
-2. **资金冻结规则**: Asset (资产实体) 必须包含 total_asset (总资产)、available_cash (可用资金) 和 frozen_cash (冻结资金)。Order 提交时必须立即冻结资金，成交或撤单时进行解冻/扣减。
-3. **订单状态机**: Order 实体的 status 必须遵循以下严格的单向状态扭转：
-   * CREATED (已创建) -> SUBMITTED (已报)
-   * SUBMITTED -> PARTIAL_FILLED (部成) / FILLED (已成) / CANCELED (已撤) / REJECTED (废单)
-   * PARTIAL_FILLED -> FILLED / PARTIAL_CANCELED (部成撤)
-4. **价格与数量规则**: 买入数量必须为 100 的整数倍（一手）；行情特征计算必须使用**前复权 (Forward Adjusted)** 数据。
+
+在设计领域模型（Domain Model）及实现回测/实盘网关（Gateway）时，必须严格内置以下 A 股特定业务规则，以确保回测与实盘逻辑的一致性：
+
+### 4.1 核心结算与资产规则
+1. **T+1 结算规则**: `Position` (持仓实体) 必须明确区分 `total_volume` (总持仓) 和 `available_volume` (可用持仓)。当日买入成交后，只能增加 `total_volume`，不可增加 `available_volume`（当日不可卖）。
+2. **资金冻结规则**: `Asset` (资产实体) 必须包含 `total_asset` (总资产)、`available_cash` (可用资金) 和 `frozen_cash` (冻结资金)。`Order` 提交（SUBMITTED）时必须立即计算并转移资金至 `frozen_cash`，成交（FILLED）或撤单（CANCELED）时进行对应的解冻与扣减。
+3. **订单状态机**: `Order` 实体的 `status` 必须遵循严格的单向状态扭转，禁止逆向修改：
+   * `CREATED` (已创建) -> `SUBMITTED` (已报)
+   * `SUBMITTED` -> `PARTIAL_FILLED` (部成) / `FILLED` (已成) / `CANCELED` (已撤) / `REJECTED` (废单)
+   * `PARTIAL_FILLED` -> `FILLED` / `PARTIAL_CANCELED` (部成撤)
+4. **价格与数量约束**: 
+   * 买入申报数量必须为 100 的整数倍（一手）。
+   * 所有的行情特征计算（Indicator Calculation）必须强制使用 **前复权 (Forward Adjusted)** 数据。
+
+### 4.2 真实交易成本建模 (Transaction Costs)
+严禁在回测中使用“无摩擦”假设。无论是实盘资金计算还是回测模拟撮合，必须内置以下计算逻辑：
+1. **佣金 (Commission)**: 买卖双向收取，费率按万分之 2.5 (0.00025) 计算，且**单笔最低收取 5 元**（此规则用于滤除在实盘中无法获利的无效微利信号）。
+2. **印花税 (Stamp Duty)**: 仅在**卖出**时单向收取，现行标准为万分之 5 (0.0005)。
+3. **过户费 (Transfer Fee)**: 买卖双向收取，现行标准为十万分之 1 (0.00001)。
+
+### 4.3 滑点与流动性惩罚模型 (Slippage & Liquidity)
+为弥合历史回测与真实交易的鸿沟，回测网关（Mock Gateway）必须实现以下机制：
+1. **价格滑点 (Price Slippage)**: 
+   * 模拟买入实际成交价 = `参考价 * (1 + 0.001)` (向上偏移 0.1% 或 1~2 个 Tick)。
+   * 模拟卖出实际成交价 = `参考价 * (1 - 0.001)` (向下偏移 0.1%)。
+2. **成交容量限制 (Capacity Limit)**: 
+   * 必须校验订单体积对盘口的冲击。单笔订单的 `volume` 默认不得超过当前行情 K 线总 `volume` 的 10%。
+   * 若超出，超出部分必须标记为未能成交（`PARTIAL_CANCELED`），严禁在无流动性的假定下完成巨额成交。
+
+### 4.4 订单生命周期映射
+1. **收盘强制撤单**: 在跨日回测时，所有未成交订单（`SUBMITTED`, `PARTIAL_FILLED`）在每日收盘后必须强制流转为 `CANCELED` 状态，模拟 A 股当日有效的报单机制。
+2. **账户体系对齐**: K 线数据使用复权价保证策略连续性，但账户体系（持仓成本、资金余额）的更新必须以真实成交价（不复权价）为准。
 
 ## 5. AI 执行协议 (AI Workflow Protocol)
 每次接收到新任务时，AI 需按以下步骤执行：

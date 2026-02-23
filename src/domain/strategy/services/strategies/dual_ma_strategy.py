@@ -1,7 +1,8 @@
-from src.domain.account.position import Position
-from src.domain.market.entities import Bar
-from src.domain.strategy.base import BaseStrategy
-from src.domain.strategy.entities import Signal, SignalDirection
+from src.domain.account.entities.position import Position
+from src.domain.market.value_objects.bar import Bar
+from src.domain.strategy.services.base_strategy import BaseStrategy
+from src.domain.strategy.value_objects.signal import Signal
+from src.domain.strategy.value_objects.signal_direction import SignalDirection
 
 
 class DualMaStrategy(BaseStrategy):

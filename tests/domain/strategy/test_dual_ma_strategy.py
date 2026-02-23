@@ -1,9 +1,9 @@
 import pytest
 from datetime import datetime, timedelta
-from src.domain.strategy.implementations.dual_ma_strategy import DualMaStrategy
-from src.domain.market.entities import Bar
-from src.domain.account.position import Position
-from src.domain.strategy.entities import SignalDirection
+from src.domain.strategy.services.strategies.dual_ma_strategy import DualMaStrategy
+from src.domain.market.value_objects.bar import Bar
+from src.domain.account.entities.position import Position
+from src.domain.strategy.value_objects.signal_direction import SignalDirection
 
 class TestDualMaStrategy:
     def _create_bars(self, prices: list[float]) -> list[Bar]:
