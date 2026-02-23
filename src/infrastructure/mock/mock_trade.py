@@ -152,10 +152,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             (total_impact, commission, tax, transfer_fee)
             total_impact: 
                 - Buy: amount + fees (positive, amount to deduct)
-                - Sell: amount - fees (positive, amount to add) -- Wait, let's keep it consistent.
-                Let's return (cash_change_amount, ...)
-                - Buy: cost (>0)
-                - Sell: income (>0)
+                - Sell: amount - fees (positive, amount to add)
         """
         amount = price * volume
         commission = max(amount * self.COMMISSION_RATE, self.MIN_COMMISSION)
@@ -176,15 +173,39 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         
         # 1. 资金结算
         if order.direction == OrderDirection.BUY:
-            # 解冻
-            self.asset.deduct_frozen_cash(frozen_amount)
+            # 计算本次成交对应的冻结资金比例 (按数量比例释放)
+            # 注意: frozen_amount 是按委托价预估的总成本
+            if order.volume > 0:
+                ratio = volume / order.volume
+                used_frozen = frozen_amount * ratio
+            else:
+                used_frozen = 0.0
+
+            # 解冻本次成交部分
+            # 确保不超额解冻 (防御性编程)
+            to_unfreeze = min(used_frozen, self.asset.frozen_cash)
+            self.asset.deduct_frozen_cash(to_unfreeze)
+            
             # 扣除实际成本 (在 _calculate_costs 中已包含本金+费用)
             actual_cost = price * volume + commission + tax + transfer_fee
             
-            # 这里有个细节: frozen_amount 等于 actual_cost (因为我们是用 exec_price 估算的)
-            # 如果是限价单，冻结可能按限价算，成交按市价算，会有差额。
-            # 但这里简化为直接扣除 actual_cost
-            self.asset.available_cash -= (actual_cost - frozen_amount) # 修正差额 (此处为0)
+            # 扣款: 实际成本
+            # 如果实际成本 > 解冻金额 (如滑点导致价格升高)，需补扣 available_cash
+            # 如果实际成本 < 解冻金额 (如限价单以更优价成交)，剩余部分返还 available_cash
+            # 逻辑: available_cash -= (actual_cost - to_unfreeze)
+            # 如果 actual_cost > to_unfreeze, 减去差额
+            # 如果 actual_cost < to_unfreeze, 加上差额 (即释放多余冻结)
+            diff = actual_cost - to_unfreeze
+            if diff > 0:
+                 if self.asset.available_cash < diff:
+                     # 理论上不应发生，因为预估时已留有余地或滑点不大，
+                     # 但如果发生，这里会导致资产为负? 允许透支? 不允许。
+                     # 但 transaction 已经发生，这里只能强制扣减。
+                     pass
+                 self.asset.available_cash -= diff
+            else:
+                 self.asset.available_cash += abs(diff)
+
             self.asset.total_asset -= (commission + tax + transfer_fee) # 资产减少费用
             
         elif order.direction == OrderDirection.SELL:
