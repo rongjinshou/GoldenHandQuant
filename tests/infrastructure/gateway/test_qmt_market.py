@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime
 import pandas as pd
 from src.infrastructure.gateway.qmt_market import QmtMarketGateway
+from src.domain.market.value_objects.timeframe import Timeframe
 
 class TestQmtMarketGateway:
     @pytest.fixture
@@ -14,7 +15,7 @@ class TestQmtMarketGateway:
         # Arrange
         gateway = QmtMarketGateway()
         symbol = "600000.SH"
-        timeframe = "1d"
+        timeframe = Timeframe.DAY_1
         limit = 10
         
         # Create mock data
@@ -71,7 +72,7 @@ class TestQmtMarketGateway:
         mock_xtdata.get_market_data.return_value = {}
 
         # Act
-        bars = gateway.get_recent_bars(symbol, "1d")
+        bars = gateway.get_recent_bars(symbol, Timeframe.DAY_1)
 
         # Assert
         assert bars == []
@@ -93,7 +94,7 @@ class TestQmtMarketGateway:
         mock_xtdata.get_market_data.return_value = mock_return
 
         # Act
-        bars = gateway.get_recent_bars(symbol, "1d")
+        bars = gateway.get_recent_bars(symbol, Timeframe.DAY_1)
 
         # Assert
         assert bars == []

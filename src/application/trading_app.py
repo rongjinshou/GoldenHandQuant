@@ -7,6 +7,7 @@ from src.domain.account.interfaces.gateways.account_gateway import IAccountGatew
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.strategy.services.base_strategy import BaseStrategy
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
@@ -46,7 +47,7 @@ class TradingAppService:
         market_data: dict[str, list[Bar]] = {}
         for symbol in symbols:
             # 默认获取日线，100根用于计算
-            bars = self.market_gateway.get_recent_bars(symbol, timeframe="1d", limit=100)
+            bars = self.market_gateway.get_recent_bars(symbol, timeframe=Timeframe.DAY_1, limit=100)
             if bars:
                 market_data[symbol] = bars
             else:

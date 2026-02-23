@@ -7,106 +7,74 @@
 
 import sys
 import os
-from datetime import datetime, timedelta
-import numpy as np
-import pandas as pd
+from datetime import datetime
 
 # 确保项目根目录在 sys.path 中
 sys.path.append(os.getcwd())
 
 from src.infrastructure.mock.mock_market import MockMarketGateway
 from src.infrastructure.mock.mock_trade import MockTradeGateway
+from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
 from src.application.backtest_app import BacktestAppService
 from src.domain.strategy.services.strategies.dual_ma_strategy import DualMaStrategy
 from src.domain.backtest.services.performance_evaluator import PerformanceEvaluator
-from src.domain.market.value_objects.bar import Bar  # 虽然主要用 pandas 注入，但类型检查可能需要
-
-def generate_mock_data(symbol: str, days: int = 250, start_price: float = 10.0) -> pd.DataFrame:
-    """生成模拟日线数据 (随机漫步)。"""
-    end_date = datetime.now().replace(hour=15, minute=0, second=0, microsecond=0)
-    start_date = end_date - timedelta(days=days * 1.5) # 多生成一些以确保工作日足够
-    
-    # 生成日期序列 (仅工作日)
-    dates = pd.bdate_range(start=start_date, end=end_date)[-days:]
-    
-    # 生成价格序列
-    np.random.seed(42) # 固定种子以便复现
-    returns = np.random.normal(loc=0.0005, scale=0.02, size=len(dates)) # 每日预期万5收益，2%波动
-    
-    prices = [start_price]
-    data = []
-    
-    for i, date in enumerate(dates):
-        prev_close = prices[-1]
-        ret = returns[i]
-        
-        # 模拟 OHLC
-        # 假设: Open = PrevClose * (1 + gap_noise)
-        # Close = PrevClose * (1 + ret)
-        # High = Max(Open, Close) * (1 + high_noise)
-        # Low = Min(Open, Close) * (1 - low_noise)
-        
-        open_price = prev_close * (1 + np.random.normal(0, 0.005))
-        close_price = prev_close * (1 + ret)
-        high_price = max(open_price, close_price) * (1 + abs(np.random.normal(0, 0.01)))
-        low_price = min(open_price, close_price) * (1 - abs(np.random.normal(0, 0.01)))
-        
-        volume = int(np.random.randint(10000, 100000) * 100) # 1万手到10万手
-        
-        data.append({
-            "datetime": date.to_pydatetime(),
-            "symbol": symbol,
-            "open": round(open_price, 2),
-            "high": round(high_price, 2),
-            "low": round(low_price, 2),
-            "close": round(close_price, 2),
-            "volume": volume
-        })
-        
-        prices.append(close_price)
-        
-    return pd.DataFrame(data)
+from src.domain.market.value_objects.timeframe import Timeframe
 
 def main():
-    print("=== Starting Backtest Simulation ===")
+    print("=== Starting Backtest Simulation (with QMT History Data) ===")
     
-    # 1. 准备数据
-    symbol = "600000.SH"
-    print(f"Generating mock data for {symbol}...")
-    df = generate_mock_data(symbol, days=250)
-    print(f"Generated {len(df)} bars from {df['datetime'].iloc[0]} to {df['datetime'].iloc[-1]}")
-    
-    # 2. 初始化网关
-    print("Initializing gateways...")
+    # 1. 定义回测参数
+    symbols = ["000001.SZ"]  # 使用平安银行作为示例
+    tf = Timeframe.DAY_1     # 设定回测周期
+    start_date = "2023-01-01" # 稍微往前一点，保证有足够数据
+    end_date = datetime.now().strftime("%Y-%m-%d")
+
+    print(f"Target: {symbols}")
+    print(f"Timeframe: {tf.value}")
+    print(f"Range: {start_date} to {end_date}")
+
+    # 2. 初始化基础设施
+    print("\nInitializing infrastructure...")
+    fetcher = QmtHistoryDataFetcher()
     market_gateway = MockMarketGateway()
-    market_gateway.load_data(df)
     
-    trade_gateway = MockTradeGateway(market_gateway, initial_capital=1_000_000.0)
+    # MockTradeGateway 需要 market_gateway 来查询价格 (假设构造函数如此设计)
+    # 如果 MockTradeGateway 不需要 market_gateway，则只需传入 initial_capital
+    # 检查之前的 run_backtest.py: trade_gateway = MockTradeGateway(market_gateway, initial_capital=1_000_000.0)
+    trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=1_000_000.0)
     
     # 3. 初始化策略与应用
     print("Initializing strategy and app service...")
     strategy = DualMaStrategy()
     evaluator = PerformanceEvaluator()
     
-    app_service = BacktestAppService(
+    app = BacktestAppService(
         market_gateway=market_gateway,
         trade_gateway=trade_gateway,
         strategy=strategy,
-        evaluator=evaluator
+        evaluator=evaluator,
+        history_fetcher=fetcher
     )
     
-    # 4. 执行回测
-    print("Running backtest...")
-    start_date = df['datetime'].iloc[0]
-    end_date = df['datetime'].iloc[-1]
+    # 4. 自动拉取/读取指定周期数据
+    print("\n[Step 1] Preparing Data...")
+    try:
+        app.prepare_data(symbols, tf, start_date, end_date)
+        print("Data preparation completed.")
+    except Exception as e:
+        print(f"Error preparing data: {e}")
+        print("Please ensure 'xtquant' is installed or data is cached in 'data/' directory.")
+        return
+
+    # 5. 执行回测循环
+    print("\n[Step 2] Running Backtest...")
+    # 转换日期字符串为 datetime 对象用于 run_backtest
+    dt_start = datetime.strptime(start_date, "%Y-%m-%d")
+    dt_end = datetime.strptime(end_date, "%Y-%m-%d")
     
-    report = app_service.run_backtest(
-        symbols=[symbol],
-        start_date=start_date,
-        end_date=end_date
-    )
+    report = app.run_backtest(symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf)
     
-    # 5. 输出报告
+    # 6. 输出报告
     print("\n" + "="*40)
     print("       BACKTEST PERFORMANCE REPORT       ")
     print("="*40)
@@ -120,9 +88,13 @@ def main():
     print(f"Total Trades:      {report.trade_count}")
     print("-" * 40)
     print("First 5 Trades:")
-    for trade in report.trades[:5]:
-        print(f"[{trade.execute_at.strftime('%Y-%m-%d')}] {trade.direction.value} {trade.volume} @ {trade.price:.2f} (PnL: {trade.realized_pnl:.2f})")
-    print("..." if len(report.trades) > 5 else "")
+    if report.trades:
+        for trade in report.trades[:5]:
+            print(f"[{trade.execute_at.strftime('%Y-%m-%d')}] {trade.direction.value} {trade.volume} @ {trade.price:.2f} (PnL: {trade.realized_pnl:.2f})")
+        if len(report.trades) > 5:
+            print("...")
+    else:
+        print("No trades executed.")
     print("="*40)
 
 if __name__ == "__main__":

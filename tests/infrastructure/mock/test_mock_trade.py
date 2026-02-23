@@ -3,6 +3,7 @@ from datetime import datetime
 from src.infrastructure.mock.mock_trade import MockTradeGateway
 from src.infrastructure.mock.mock_market import MockMarketGateway
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
@@ -20,6 +21,7 @@ class TestMockTradeGatewayNewRules:
         gateway = MockMarketGateway()
         bar = Bar(
             symbol="600000.SH",
+            timeframe=Timeframe.DAY_1,
             timestamp=datetime(2023, 1, 1),
             open=10.0,
             high=10.5,

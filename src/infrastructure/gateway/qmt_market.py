@@ -5,6 +5,7 @@ import numpy as np
 from src.infrastructure.libs.xtquant import xtdata
 
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 
 logger = logging.getLogger(__name__)
@@ -13,20 +14,25 @@ logger = logging.getLogger(__name__)
 class QmtMarketGateway(IMarketGateway):
     """QMT 行情网关实现。"""
 
-    def get_recent_bars(self, symbol: str, timeframe: str, limit: int = 100) -> list[Bar]:
+    def get_recent_bars(self, symbol: str, timeframe: Timeframe, limit: int = 100) -> list[Bar]:
         """获取最近的 K 线数据。
 
         Args:
             symbol: 标的代码，如 '600000.SH'
-            timeframe: 周期，如 '1d', '1m', '5m'
+            timeframe: 周期
             limit: 获取数量
 
         Returns:
             list[Bar]: K 线列表
         """
         try:
+            # 转换 timeframe 为 xtquant 格式字符串
+            # Timeframe 枚举值本身就是字符串 ("1d", "1m" 等)，可能需要适配
+            # 假设 Timeframe 定义的值与 xtquant 兼容
+            tf_str = timeframe.value
+
             # 确保数据已下载 (可选，根据需求，这里假设数据已订阅或下载)
-            # xtdata.download_history_data(symbol, period=timeframe, count=limit)
+            # xtdata.download_history_data(symbol, period=tf_str, count=limit)
 
             field_list = ["time", "open", "high", "low", "close", "volume"]
             # 调用 xtdata 获取数据
@@ -36,11 +42,12 @@ class QmtMarketGateway(IMarketGateway):
             data = xtdata.get_market_data(
                 field_list=field_list,
                 stock_list=[symbol],
-                period=timeframe,
+                period=tf_str,
                 count=limit,
                 dividend_type="front",
                 fill_data=True,
             )
+
 
             if not data:
                 logger.warning(f"No data returned for {symbol} {timeframe}")
@@ -97,6 +104,7 @@ class QmtMarketGateway(IMarketGateway):
 
                 bar = Bar(
                     symbol=symbol,
+                    timeframe=timeframe,
                     timestamp=dt,
                     open=float(opens[t]),
                     high=float(highs[t]),
@@ -111,3 +119,10 @@ class QmtMarketGateway(IMarketGateway):
         except Exception as e:
             logger.error(f"Failed to get market data for {symbol}: {e}", exc_info=True)
             return []
+
+    def get_all_timestamps(self, timeframe: Timeframe) -> list[datetime]:
+        """获取指定周期下的所有去重时间戳。
+        
+        注意：实盘网关不支持获取全量历史时间戳，此方法仅用于回测。
+        """
+        raise NotImplementedError("QmtMarketGateway does not support get_all_timestamps. Use MockMarketGateway for backtesting.")

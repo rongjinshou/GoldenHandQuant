@@ -7,6 +7,7 @@ from src.domain.account.interfaces.gateways.account_gateway import IAccountGatew
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.strategy.services.base_strategy import BaseStrategy
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
 from src.domain.strategy.value_objects.signal import Signal
@@ -49,6 +50,7 @@ class TestTradingAppService:
         # 1. Mock Market Data
         bar = Bar(
             symbol=symbol,
+            timeframe=Timeframe.DAY_1,
             timestamp=datetime.now(),
             open=10.0, high=11.0, low=9.0, close=10.0, volume=1000
         )
@@ -76,7 +78,7 @@ class TestTradingAppService:
 
         # Assert
         # Verify market data fetched
-        mock_market_gateway.get_recent_bars.assert_called_with(symbol, timeframe="1d", limit=100)
+        mock_market_gateway.get_recent_bars.assert_called_with(symbol, timeframe=Timeframe.DAY_1, limit=100)
         
         # Verify account data fetched
         mock_account_gateway.get_asset.assert_called_once()
@@ -117,6 +119,7 @@ class TestTradingAppService:
         # 1. Market Data (Price 100.0)
         bar = Bar(
             symbol=symbol,
+            timeframe=Timeframe.DAY_1,
             timestamp=datetime.now(),
             open=100.0, high=110.0, low=90.0, close=100.0, volume=1000
         )

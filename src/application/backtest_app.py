@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
+from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
 from src.domain.strategy.services.base_strategy import BaseStrategy
@@ -12,6 +13,7 @@ from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
 from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.timeframe import Timeframe
 from src.infrastructure.mock.mock_trade import MockTradeGateway  # 需要访问 mock 特有的属性
 from src.domain.account.services.settlement_service import DailySettlementService
 
@@ -24,19 +26,47 @@ class BacktestAppService:
         trade_gateway: MockTradeGateway,  # 使用具体类型以便访问 mock 方法
         strategy: BaseStrategy,
         evaluator: PerformanceEvaluator,
+        history_fetcher: IHistoryDataFetcher | None = None,
     ) -> None:
         self.market_gateway = market_gateway
         self.trade_gateway = trade_gateway
         self.strategy = strategy
         self.evaluator = evaluator
+        self.history_fetcher = history_fetcher
         self.snapshots: list[DailySnapshot] = []
         self.settlement_service = DailySettlementService()
+
+    def prepare_data(
+        self, 
+        symbols: list[str], 
+        timeframe: Timeframe, 
+        start_date: str, 
+        end_date: str
+    ) -> None:
+        """准备回测数据。
+        
+        通过历史数据获取器拉取数据，并加载到行情网关中。
+        """
+        if not self.history_fetcher:
+            raise ValueError("History fetcher not configured.")
+            
+        for symbol in symbols:
+            # 1. 拉取数据
+            bars = self.history_fetcher.fetch_history_bars(symbol, timeframe, start_date, end_date)
+            
+            # 2. 加载到行情网关
+            if hasattr(self.market_gateway, 'load_bars'):
+                self.market_gateway.load_bars(bars)
+            else:
+                # 若网关不支持加载数据 (例如实盘网关)，则跳过或报错
+                print(f"Warning: market_gateway does not support load_bars for {symbol}")
 
     def run_backtest(
         self,
         symbols: list[str],
         start_date: datetime,
         end_date: datetime,
+        base_timeframe: Timeframe = Timeframe.DAY_1,
     ) -> BacktestReport:
         """执行回测。
 
@@ -44,17 +74,33 @@ class BacktestAppService:
             symbols: 回测标的列表。
             start_date: 开始日期。
             end_date: 结束日期。
+            base_timeframe: 回测基准周期。
 
         Returns:
             BacktestReport: 回测报告。
         """
-        current_date = start_date
         initial_capital = self.trade_gateway.get_asset().total_asset
 
-        while current_date <= end_date:
+        # 1. 获取所有时间戳
+        all_timestamps = self.market_gateway.get_all_timestamps(base_timeframe)
+        valid_timestamps = [
+            ts for ts in all_timestamps 
+            if start_date <= ts <= end_date
+        ]
+
+        if not valid_timestamps:
+            print("Warning: No valid timestamps found for backtest range.")
+            return self.evaluator.evaluate(
+                start_date=start_date,
+                end_date=end_date,
+                initial_capital=initial_capital,
+                snapshots=[],
+                trades=[]
+            )
+
+        for current_time in valid_timestamps:
             # 1. 推进时间
-            # 假设每日回测，时间设为当日收盘 15:00
-            market_time = current_date.replace(hour=15, minute=0, second=0)
+            market_time = current_time
             self.market_gateway.set_current_time(market_time)
             
             # 2. 获取行情数据
@@ -62,7 +108,7 @@ class BacktestAppService:
             current_prices: dict[str, float] = {}
             
             for symbol in symbols:
-                bars = self.market_gateway.get_recent_bars(symbol, "1d", 100)
+                bars = self.market_gateway.get_recent_bars(symbol, base_timeframe, 100)
                 if bars:
                     market_data[symbol] = bars
                     current_prices[symbol] = bars[-1].close
@@ -119,9 +165,6 @@ class BacktestAppService:
             # 7. 记录每日快照 (结算后记录，反映真实的净值)
             self._record_snapshot(market_time, current_prices)
 
-            # 推进到下一天
-            current_date += timedelta(days=1)
-            
         # 8. 生成报告
         return self.evaluator.evaluate(
             start_date=start_date,

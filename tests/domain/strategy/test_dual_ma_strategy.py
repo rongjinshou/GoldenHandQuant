@@ -2,6 +2,7 @@ import pytest
 from datetime import datetime, timedelta
 from src.domain.strategy.services.strategies.dual_ma_strategy import DualMaStrategy
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.account.entities.position import Position
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 
@@ -12,6 +13,7 @@ class TestDualMaStrategy:
         for i, price in enumerate(prices):
             bar = Bar(
                 symbol="600000.SH",
+                timeframe=Timeframe.DAY_1,
                 timestamp=base_time + timedelta(days=i),
                 open=price, high=price, low=price, close=price, volume=1000
             )
