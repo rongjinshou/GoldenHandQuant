@@ -14,6 +14,7 @@ from src.domain.strategy.value_objects.signal import Signal
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
 
 class TestTradingAppService:
     @pytest.fixture
@@ -33,16 +34,21 @@ class TestTradingAppService:
         return MagicMock(spec=BaseStrategy)
 
     @pytest.fixture
-    def app_service(self, mock_market_gateway, mock_account_gateway, mock_trade_gateway, mock_strategy):
+    def mock_sizer(self):
+        return MagicMock(spec=IPositionSizer)
+
+    @pytest.fixture
+    def app_service(self, mock_market_gateway, mock_account_gateway, mock_trade_gateway, mock_strategy, mock_sizer):
         return TradingAppService(
             market_gateway=mock_market_gateway,
             account_gateway=mock_account_gateway,
             trade_gateway=mock_trade_gateway,
-            strategy=mock_strategy
+            strategy=mock_strategy,
+            sizer=mock_sizer
         )
 
     def test_run_cycle_should_place_order_when_signal_generated(
-        self, app_service, mock_market_gateway, mock_account_gateway, mock_trade_gateway, mock_strategy
+        self, app_service, mock_market_gateway, mock_account_gateway, mock_trade_gateway, mock_strategy, mock_sizer
     ):
         # Arrange
         symbol = "600000.SH"
@@ -65,12 +71,14 @@ class TestTradingAppService:
         signal = Signal(
             symbol=symbol,
             direction=SignalDirection.BUY,
-            target_volume=100,
             strategy_name="TestStrategy"
         )
         mock_strategy.generate_signals.return_value = [signal]
+        
+        # 4. Mock Sizer
+        mock_sizer.calculate_target.return_value = 100
 
-        # 4. Mock Order Placement
+        # 5. Mock Order Placement
         mock_trade_gateway.place_order.return_value = "order_123"
 
         # Act
@@ -86,6 +94,9 @@ class TestTradingAppService:
         
         # Verify strategy called
         mock_strategy.generate_signals.assert_called_once()
+        
+        # Verify sizer called
+        mock_sizer.calculate_target.assert_called_once()
         
         # Verify order placed
         mock_trade_gateway.place_order.assert_called_once()
@@ -111,7 +122,7 @@ class TestTradingAppService:
         mock_account_gateway.get_asset.assert_not_called()
 
     def test_run_cycle_should_skip_if_insufficient_funds(
-        self, app_service, mock_market_gateway, mock_account_gateway, mock_trade_gateway, mock_strategy
+        self, app_service, mock_market_gateway, mock_account_gateway, mock_trade_gateway, mock_strategy, mock_sizer
     ):
         # Arrange
         symbol = "600000.SH"
@@ -134,10 +145,12 @@ class TestTradingAppService:
         signal = Signal(
             symbol=symbol,
             direction=SignalDirection.BUY,
-            target_volume=100,
             strategy_name="TestStrategy"
         )
         mock_strategy.generate_signals.return_value = [signal]
+        
+        # 4. Mock Sizer to return 100
+        mock_sizer.calculate_target.return_value = 100
 
         # Act
         app_service.run_cycle([symbol])

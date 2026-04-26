@@ -58,10 +58,9 @@ class TestDualMaStrategy:
         signal = signals[0]
         assert signal.symbol == "600000.SH"
         assert signal.direction == SignalDirection.BUY
-        assert signal.target_volume == 100
         assert "Golden Cross" in signal.reason
 
-    def test_generate_signals_death_cross_should_sell_if_position_exists(self):
+    def test_generate_signals_death_cross_should_sell_regardless_of_position(self):
         # Arrange
         strategy = DualMaStrategy()
         
@@ -98,10 +97,9 @@ class TestDualMaStrategy:
         signal = signals[0]
         assert signal.symbol == "600000.SH"
         assert signal.direction == SignalDirection.SELL
-        assert signal.target_volume == 500
         assert "Death Cross" in signal.reason
 
-    def test_generate_signals_death_cross_no_position_should_not_sell(self):
+    def test_generate_signals_death_cross_no_position_should_emit_signal(self):
         # Arrange
         strategy = DualMaStrategy()
         
@@ -114,7 +112,9 @@ class TestDualMaStrategy:
         signals = strategy.generate_signals(market_data, positions)
 
         # Assert
-        assert len(signals) == 0
+        # Now we expect a signal even if no position exists
+        assert len(signals) == 1
+        assert signals[0].direction == SignalDirection.SELL
 
     def test_generate_signals_insufficient_data_should_return_empty(self):
         # Arrange

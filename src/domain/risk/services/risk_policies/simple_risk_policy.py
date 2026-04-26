@@ -1,11 +1,11 @@
 from typing import Self
 
 from src.domain.risk.value_objects.risk_check_result import RiskCheckResult
-from src.domain.risk.interfaces.policies.risk_policy import RiskPolicy
+from src.domain.risk.services.base_risk_policy import BaseRiskPolicy
 from src.domain.trade.entities.order import Order
 
 
-class SimpleRiskPolicy(RiskPolicy):
+class SimpleRiskPolicy(BaseRiskPolicy):
     """简单的风控策略实现。"""
 
     def check(self, order: Order) -> RiskCheckResult:

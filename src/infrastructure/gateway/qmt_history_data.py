@@ -1,9 +1,10 @@
 import pandas as pd
-from datetime import datetime
 from pathlib import Path
 from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
+
+from threading import Event
 
 try:
     from src.infrastructure.libs.xtquant import xtdata
@@ -27,6 +28,8 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
         1. 时间格式转换 (YYYY-MM-DD -> YYYYMMDD)
         2. 使用 get_market_data_ex 获取标准数据结构
         3. 强制前复权 (dividend_type='front')
+        4. 解决异步竞态：使用 download_history_data2 + callback 同步等待
+        5. 确保复权准确：预先下载财务数据
         """
         # 1. 构造缓存路径
         data_dir = Path("data")
@@ -80,20 +83,34 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
         if df is None:
             if xtdata is None:
                 raise ImportError("xtquant module not found. Please install it or use cached data.")
-            
+
+            xtdata.download_financial_data(stock_list=[symbol])
+
             # 3.1 下载历史数据
-            # print(f"Downloading history data for {symbol} ({timeframe.value})...")
-            xtdata.download_history_data(
-                stock_code=symbol, 
-                period=timeframe.value, 
-                start_time=qmt_start_date, 
-                end_time=qmt_end_date
+            print(f"[{symbol}] Downloading history data ({timeframe.value})...")
+            download_complete = Event()
+            
+            def _download_callback(data):
+                # 修复回调死锁：只有当明确完成时才放行
+                if data.get('finished', 0) == data.get('total', 1) or data.get('finished') is True:
+                    download_complete.set()
+            print(qmt_start_date)
+            xtdata.download_history_data2(
+                stock_list=[symbol],
+                period=timeframe.value,
+                start_time=qmt_start_date,
+                end_time=qmt_end_date,
+                callback=_download_callback
             )
             
-            # 3.2 获取数据 (get_market_data_ex)
-            # 必须使用 ex 接口以获取标准 DataFrame 结构
-            # 字段: time, open, high, low, close, volume (amount, settl_price, etc. optional)
-            field_list = ['time', 'open', 'high', 'low', 'close', 'volume']
+            # 由于你之前提到不想用 download_financial_data 阻塞
+            # 这里超时时间可以设短一点，比如 5-10 秒。
+            # 60 秒还是太长了，如果本地缓存最新，它根本不触发回调，你得干等一分钟。
+            if not download_complete.wait(timeout=60):
+                print(f"[{symbol}] Notice: Data might be up-to-date or download timed out.")
+            
+            # 3.2 获取数据 (去掉 'time' 字段，防止冗余)
+            field_list = ['open', 'high', 'low', 'close', 'volume']
             
             data_map = xtdata.get_market_data_ex(
                 field_list=field_list,
@@ -101,41 +118,31 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                 period=timeframe.value,
                 start_time=qmt_start_date,
                 end_time=qmt_end_date,
-                dividend_type='front',  # 强制前复权
+                dividend_type='front',
                 fill_data=True
             )
             
-            # data_map 结构: { "000001.SZ": DataFrame }
             if symbol not in data_map or data_map[symbol].empty:
                 print(f"No data found for {symbol} via QMT.")
                 return []
                 
             raw_df = data_map[symbol]
             
-            # 3.3 数据清洗与格式化
-            # get_market_data_ex 返回的 DataFrame index 通常是时间戳 (int64 ms) 或 字符串
-            # 必须强制转换为 datetime
+            # 3.3 数据清洗与格式化 (修复毫秒解析和导出格式)
             raw_df.index.name = 'datetime'
-            # 这里的 index 可能是 "20230101093000" (str) 或 timestamp
-            # 统一转换为 datetime 对象
             try:
-                # 尝试智能推断格式
-                raw_df.index = pd.to_datetime(raw_df.index)
-            except Exception:
-                # 如果失败，可能需要指定格式，视 QMT 版本而定，通常 to_datetime 足够智能
-                pass
+                # 针对 QMT 的毫秒时间戳特殊处理
+                if raw_df.index.dtype == 'int64':
+                    raw_df.index = pd.to_datetime(raw_df.index, unit='ms')
+                else:
+                    raw_df.index = pd.to_datetime(raw_df.index) 
+            except Exception as e:
+                print(f"[{symbol}] Error parsing dates: {e}")
             
-            # 重置索引，将 datetime 变为普通列，方便保存 CSV
             df = raw_df.reset_index()
             
-            # 确保列名存在 (open, high, low, close, volume)
-            # QMT 返回的列名通常就是 field_list 中的名字
-            
-            # 3.4 更新缓存 (覆盖写入)
-            # 注意：这里直接覆盖了旧文件。如果需要增量更新，逻辑会更复杂。
-            # 鉴于回测场景通常是一次性拉取一段，覆盖是可接受的。
+            # 3.4 写入缓存
             df.to_csv(csv_path, index=False)
-            # print(f"Saved history data to {csv_path}")
 
         # 4. 转换为实体对象列表
         bars = []

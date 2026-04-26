@@ -65,6 +65,12 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         """获取单个持仓。"""
         return self.positions.get(ticker)
 
+    def list_orders(self) -> list[Order]:
+        return list(self.orders.values())
+
+    def list_trade_records(self) -> list[TradeRecord]:
+        return list(self.trade_records)
+
     def place_order(self, order: Order) -> str:
         """模拟下单并根据规则撮合。
 

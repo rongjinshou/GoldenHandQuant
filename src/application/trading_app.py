@@ -13,6 +13,8 @@ from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
 from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
+from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
+from src.domain.portfolio.services.sizers.fixed_ratio_sizer import FixedRatioSizer
 
 logger = getLogger(__name__)
 
@@ -29,11 +31,13 @@ class TradingAppService:
         account_gateway: IAccountGateway,
         trade_gateway: ITradeGateway,
         strategy: BaseStrategy,
+        sizer: IPositionSizer | None = None,
     ):
         self.market_gateway = market_gateway
         self.account_gateway = account_gateway
         self.trade_gateway = trade_gateway
         self.strategy = strategy
+        self.sizer = sizer or FixedRatioSizer(ratio=0.2)
 
     def run_cycle(self, symbols: list[str]) -> None:
         """执行一次完整的交易循环。
@@ -70,6 +74,8 @@ class TradingAppService:
         logger.info(f"Generated {len(signals)} signals.")
 
         # d. 遍历信号并构造订单
+        position_map = {p.ticker: p for p in positions}
+        
         for signal in signals:
             # 获取当前参考价格 (使用最新 Bar 的收盘价)
             bars = market_data.get(signal.symbol)
@@ -79,6 +85,15 @@ class TradingAppService:
             
             current_price = bars[-1].close
             
+            # 计算目标数量
+            position = position_map.get(signal.symbol)
+            volume = self.sizer.calculate_target(
+                signal, current_price, asset, position
+            )
+            
+            if volume <= 0:
+                continue
+
             # 转换方向
             order_direction = (
                 OrderDirection.BUY 
@@ -88,7 +103,7 @@ class TradingAppService:
 
             # 极简应用层校验 (资金/持仓)
             if order_direction == OrderDirection.BUY:
-                estimated_cost = current_price * signal.target_volume
+                estimated_cost = current_price * volume
                 if asset.available_cash < estimated_cost:
                     logger.warning(
                         f"Insufficient funds for {signal.symbol}: "
@@ -104,14 +119,14 @@ class TradingAppService:
                     ticker=signal.symbol,
                     direction=order_direction,
                     price=current_price,
-                    volume=signal.target_volume,
+                    volume=volume,
                     type=OrderType.LIMIT,  # 默认限价单
                     status=OrderStatus.CREATED
                 )
                 
                 # 提交订单
                 order_id = self.trade_gateway.place_order(order)
-                logger.info(f"Order submitted: {order_id} for {signal.symbol} {signal.direction} {signal.target_volume}")
+                logger.info(f"Order submitted: {order_id} for {signal.symbol} {signal.direction} {volume}")
                 
             except Exception as e:
                 logger.error(f"Failed to submit order for {signal.symbol}: {e}")

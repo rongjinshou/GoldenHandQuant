@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta
-from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
-from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
-from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
+from src.domain.backtest.interfaces.gateways.backtest_broker import IBacktestBroker
+from src.domain.backtest.interfaces.gateways.backtest_market_gateway import IBacktestMarketGateway
 from src.domain.strategy.services.base_strategy import BaseStrategy
 from src.domain.backtest.services.performance_evaluator import PerformanceEvaluator
 from src.domain.backtest.entities.backtest_report import BacktestReport
@@ -14,25 +13,28 @@ from src.domain.trade.value_objects.order_type import OrderType
 from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
-from src.infrastructure.mock.mock_trade import MockTradeGateway  # 需要访问 mock 特有的属性
 from src.domain.account.services.settlement_service import DailySettlementService
+from src.domain.portfolio.services.sizers.fixed_ratio_sizer import FixedRatioSizer
+from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
 
 class BacktestAppService:
     """回测应用服务。"""
 
     def __init__(
         self,
-        market_gateway: IMarketGateway,
-        trade_gateway: MockTradeGateway,  # 使用具体类型以便访问 mock 方法
+        market_gateway: IBacktestMarketGateway,
+        trade_gateway: IBacktestBroker,
         strategy: BaseStrategy,
         evaluator: PerformanceEvaluator,
         history_fetcher: IHistoryDataFetcher | None = None,
+        sizer: IPositionSizer | None = None,
     ) -> None:
         self.market_gateway = market_gateway
         self.trade_gateway = trade_gateway
         self.strategy = strategy
         self.evaluator = evaluator
         self.history_fetcher = history_fetcher
+        self.sizer = sizer or FixedRatioSizer(ratio=0.2)
         self.snapshots: list[DailySnapshot] = []
         self.settlement_service = DailySettlementService()
 
@@ -55,11 +57,7 @@ class BacktestAppService:
             bars = self.history_fetcher.fetch_history_bars(symbol, timeframe, start_date, end_date)
             
             # 2. 加载到行情网关
-            if hasattr(self.market_gateway, 'load_bars'):
-                self.market_gateway.load_bars(bars)
-            else:
-                # 若网关不支持加载数据 (例如实盘网关)，则跳过或报错
-                print(f"Warning: market_gateway does not support load_bars for {symbol}")
+            self.market_gateway.load_bars(bars)
 
     def run_backtest(
         self,
@@ -67,6 +65,7 @@ class BacktestAppService:
         start_date: datetime,
         end_date: datetime,
         base_timeframe: Timeframe = Timeframe.DAY_1,
+        plot: bool = False,
     ) -> BacktestReport:
         """执行回测。
 
@@ -75,11 +74,15 @@ class BacktestAppService:
             start_date: 开始日期。
             end_date: 结束日期。
             base_timeframe: 回测基准周期。
+            plot: 是否绘制回测结果图表。
 
         Returns:
             BacktestReport: 回测报告。
         """
-        initial_capital = self.trade_gateway.get_asset().total_asset
+        initial_asset = self.trade_gateway.get_asset()
+        if initial_asset is None:
+            raise ValueError("Asset not available from trade gateway.")
+        initial_capital = initial_asset.total_asset
 
         # 1. 获取所有时间戳
         all_timestamps = self.market_gateway.get_all_timestamps(base_timeframe)
@@ -120,25 +123,32 @@ class BacktestAppService:
             signals = self.strategy.generate_signals(market_data, current_positions)
 
             # 5. 执行信号 (模拟撮合)
+            position_map = {p.ticker: p for p in current_positions}
+
             for signal in signals:
                 price = current_prices.get(signal.symbol)
                 if not price:
+                    continue
+                asset = self.trade_gateway.get_asset()
+                if asset is None:
+                    raise ValueError("Asset not available from trade gateway.")
+
+                # 计算目标数量
+                position = position_map.get(signal.symbol)
+                volume = self.sizer.calculate_target(
+                    signal, price, asset, position
+                )
+
+                if volume <= 0:
                     continue
 
                 # 创建订单
                 # 假设 SignalDirection.value 与 OrderDirection.value 兼容 ("BUY"/"SELL")
                 direction = OrderDirection(signal.direction.value)
                 
-                # 检查: 买入必须 100 整数倍 (规则 4.1)
-                volume = signal.target_volume
-                if direction == OrderDirection.BUY:
-                    volume = (volume // 100) * 100
-                    if volume < 100:
-                        continue
-                
                 order = Order(
                     order_id=f"ORD_{market_time.strftime('%Y%m%d%H%M%S')}_{signal.symbol}",
-                    account_id=self.trade_gateway.asset.account_id,
+                    account_id=asset.account_id,
                     ticker=signal.symbol,
                     direction=direction,
                     price=price,
@@ -156,9 +166,11 @@ class BacktestAppService:
 
             # 6. 日终结算 (收盘清算 + T+1)
             # 获取最新的 orders (包括刚刚生成的)
-            all_orders = list(self.trade_gateway.orders.values())
+            all_orders = self.trade_gateway.list_orders()
             all_positions = self.trade_gateway.get_positions()
             asset = self.trade_gateway.get_asset()
+            if asset is None:
+                raise ValueError("Asset not available from trade gateway.")
             
             self.settlement_service.process_daily_settlement(all_orders, all_positions, asset)
 
@@ -166,17 +178,32 @@ class BacktestAppService:
             self._record_snapshot(market_time, current_prices)
 
         # 8. 生成报告
-        return self.evaluator.evaluate(
+        report = self.evaluator.evaluate(
             start_date=start_date,
             end_date=end_date,
             initial_capital=initial_capital,
             snapshots=self.snapshots,
-            trades=self.trade_gateway.trade_records
+            trades=self.trade_gateway.list_trade_records()
         )
+
+        if plot:
+            try:
+                # 动态导入以避免在应用层引入硬依赖
+                from src.infrastructure.visualization.plotter import BacktestPlotter
+                plotter = BacktestPlotter()
+                plotter.plot(report)
+            except ImportError:
+                print("Warning: Visualization module not found or matplotlib not installed.")
+            except Exception as e:
+                print(f"Error plotting backtest results: {e}")
+
+        return report
 
     def _record_snapshot(self, date: datetime, current_prices: dict[str, float]) -> None:
         """记录每日资产快照。"""
         asset = self.trade_gateway.get_asset()
+        if asset is None:
+            raise ValueError("Asset not available from trade gateway.")
         positions = self.trade_gateway.get_positions()
         
         market_value = 0.0

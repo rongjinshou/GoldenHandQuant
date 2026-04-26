@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from src.domain.trade.entities.order import Order
 from src.domain.risk.value_objects.risk_check_result import RiskCheckResult
 
-class RiskPolicy(ABC):
+class BaseRiskPolicy(ABC):
     """风控策略接口。"""
 
     @abstractmethod

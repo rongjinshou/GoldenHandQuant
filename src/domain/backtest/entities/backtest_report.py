@@ -31,3 +31,8 @@ class BacktestReport:
     trade_count: int
     trades: list[TradeRecord] = field(default_factory=list)
     snapshots: list[DailySnapshot] = field(default_factory=list)
+    
+    # 每日曲线数据 (方便前端绘图)
+    dates: list[datetime] = field(default_factory=list)
+    equity_curve: list[float] = field(default_factory=list)
+    daily_returns: list[float] = field(default_factory=list)

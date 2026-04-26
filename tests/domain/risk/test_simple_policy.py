@@ -1,4 +1,4 @@
-from src.domain.risk.services.simple_risk_policy import SimpleRiskPolicy
+from src.domain.risk.services.risk_policies.simple_risk_policy import SimpleRiskPolicy
 from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.risk.value_objects.risk_check_result import RiskCheckResult

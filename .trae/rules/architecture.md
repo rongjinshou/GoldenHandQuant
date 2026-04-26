@@ -46,11 +46,11 @@ QuantFlow/
 
 1. **entities包**: 定义该子域的核心实体（如 Account, Position, Order 等），每个实体必须是一个独立的 Python 模块（如 `account.py`, `position.py`, `order.py` 等）。
 2. **value_objects包**: 定义该子域的不可变值对象（如 Price, Volume, DateTimeRange 等），每个值对象必须是一个独立的 Python 模块（如 `price.py`, `volume.py`, `date_time_range.py` 等）。
-3. **services包**: 实现该子域的业务逻辑（如 OrderService, RiskService 等），每个服务必须是一个独立的 Python 模块（如 `order_service.py`, `risk_service.py` 等）。
-4. **interfaces包**: 定义该子域的外部接口（如 API 路由、事件接收器等），根据功能不同，可分为以下子目录：
-   * **repositories包**: 定义该子域的持久化接口（如 AccountRepository, PositionRepository 等），每个接口必须是一个独立的 Python 模块（如 `account_repository.py`, `position_repository.py` 等）。
-   * **gateways包**: 定义该子域的外部依赖接口（如 QMT 交易网关、CatBoost 模型网关等），每个网关接口定义必须是一个独立的 Python 模块（如 `qmt_gateway.py`, `catboost_gateway.py` 等）。
-   * **events包**: 定义外部事件接收器（如 QMT 推送的回调转换），每个接收器必须是一个独立的 Python 模块（如 `qmt_events.py` 等）。
+3. **services包**: 实现该子域的业务逻辑，每个服务必须是一个独立的 Python 模块且必须是接口/基类（如base_risk_policy.py），并且同类型的接口/基类实现类进行划分例如risk/services/下的risk_policies。
+4. **interfaces包**: 定义该子域的外部接口（注意是外部依赖接口，不是领域层能力定义接口），根据功能不同，可分为以下子目录：
+   * **repositories包**: 定义该子域的仓储外部依赖接口（如数据库操作、文件存储等），每个接口必须是一个独立的 Python 模块（如 `account_repository.py`, `position_repository.py` 等）。
+   * **gateways包**: 定义该子域的网关外部依赖接口（如 QMT 交易网关、CatBoost 模型网关等），每个网关接口定义必须是一个独立的 Python 模块（如 `qmt_gateway.py`, `catboost_gateway.py` 等）。
+   * **events包**: 定义该子域的外部事件接收器接口（如 QMT 推送的回调转换），每个接收器接口必须是一个独立的 Python 模块（如 `qmt_events.py` 等）。
 
 ## 4. A 股领域知识建模规范 (Domain Knowledge Constraints)
 

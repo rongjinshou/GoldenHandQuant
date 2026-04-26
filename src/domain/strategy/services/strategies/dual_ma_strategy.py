@@ -71,7 +71,6 @@ class DualMaStrategy(BaseStrategy):
                 signals.append(Signal(
                     symbol=symbol,
                     direction=SignalDirection.BUY,
-                    target_volume=100,
                     confidence_score=1.0,
                     strategy_name=self.name,
                     reason=f"Golden Cross: MA5({ma5_curr:.2f}) > MA10({ma10_curr:.2f})"
@@ -79,17 +78,14 @@ class DualMaStrategy(BaseStrategy):
 
             elif is_death_cross:
                 # 死叉卖出
-                # 检查持仓
-                position = position_map.get(symbol)
-                if position and position.available_volume > 0:
-                    signals.append(Signal(
-                        symbol=symbol,
-                        direction=SignalDirection.SELL,
-                        target_volume=position.available_volume,
-                        confidence_score=1.0,
-                        strategy_name=self.name,
-                        reason=f"Death Cross: MA5({ma5_curr:.2f}) < MA10({ma10_curr:.2f})"
-                    ))
+                # 不再检查持仓，由 Portfolio 层处理
+                signals.append(Signal(
+                    symbol=symbol,
+                    direction=SignalDirection.SELL,
+                    confidence_score=1.0,
+                    strategy_name=self.name,
+                    reason=f"Death Cross: MA5({ma5_curr:.2f}) < MA10({ma10_curr:.2f})"
+                ))
 
         return signals
 

@@ -24,9 +24,9 @@ def main():
     print("=== Starting Backtest Simulation (with QMT History Data) ===")
     
     # 1. 定义回测参数
-    symbols = ["000001.SZ"]  # 使用平安银行作为示例
+    symbols = ["000021.SZ"]  # 使用平安银行作为示例
     tf = Timeframe.DAY_1     # 设定回测周期
-    start_date = "2023-01-01" # 稍微往前一点，保证有足够数据
+    start_date = "2016-01-01" # 稍微往前一点，保证有足够数据
     end_date = datetime.now().strftime("%Y-%m-%d")
 
     print(f"Target: {symbols}")
@@ -72,7 +72,7 @@ def main():
     dt_start = datetime.strptime(start_date, "%Y-%m-%d")
     dt_end = datetime.strptime(end_date, "%Y-%m-%d")
     
-    report = app.run_backtest(symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf)
+    report = app.run_backtest(symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf, plot=True)
     
     # 6. 输出报告
     print("\n" + "="*40)
@@ -87,12 +87,9 @@ def main():
     print(f"Win Rate:          {report.win_rate:.2%}")
     print(f"Total Trades:      {report.trade_count}")
     print("-" * 40)
-    print("First 5 Trades:")
     if report.trades:
-        for trade in report.trades[:5]:
+        for trade in report.trades:
             print(f"[{trade.execute_at.strftime('%Y-%m-%d')}] {trade.direction.value} {trade.volume} @ {trade.price:.2f} (PnL: {trade.realized_pnl:.2f})")
-        if len(report.trades) > 5:
-            print("...")
     else:
         print("No trades executed.")
     print("="*40)

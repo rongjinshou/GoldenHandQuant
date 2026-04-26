@@ -67,6 +67,11 @@ class PerformanceEvaluator:
         win_count = sum(1 for t in sell_trades if t.realized_pnl > 0)
         win_rate = win_count / len(sell_trades) if sell_trades else 0.0
 
+        # 提取每日曲线数据
+        dates = [s.date for s in snapshots]
+        equity_curve = [s.total_asset for s in snapshots]
+        daily_returns = [s.return_rate for s in snapshots]
+
         return BacktestReport(
             start_date=start_date,
             end_date=end_date,
@@ -79,4 +84,7 @@ class PerformanceEvaluator:
             trade_count=len(trades),
             trades=trades,
             snapshots=snapshots,
+            dates=dates,
+            equity_curve=equity_curve,
+            daily_returns=daily_returns,
         )
