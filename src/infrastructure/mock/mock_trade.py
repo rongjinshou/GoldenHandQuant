@@ -55,6 +55,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         self._repo = AccountRepository()
         self._default_account_id = default_account_id
         self._repo.create_account(default_account_id, initial_capital)
+        self._active_account_id = default_account_id
         # 向后兼容: asset/positions 属性指向默认账户
         self.asset = self._repo.get_asset(default_account_id)
         self.positions: dict[str, Position] = {}
@@ -76,6 +77,15 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
     def create_sub_account(self, account_id: str, initial_capital: float) -> Asset:
         """创建子账户（用于多策略分仓）。"""
         return self._repo.create_account(account_id, initial_capital)
+
+    def activate_account(self, account_id: str) -> None:
+        """切换当前活跃账户，后续 place_order / get_asset 等操作针对该账户。"""
+        asset = self._repo.get_asset(account_id)
+        if asset is None:
+            raise ValueError(f"Account '{account_id}' not found in repository")
+        self._active_account_id = account_id
+        self.asset = asset
+        self.positions = self._repo._positions.get(account_id, {})
 
     def list_orders(self) -> list[Order]:
         return list(self.orders.values())
