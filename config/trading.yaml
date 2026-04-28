@@ -1,0 +1,15 @@
+qmt:
+  userdata_path: "D:\\国金QMT交易端模拟\\userdata_mini"
+  session_id: 123456
+  account_id: "88888888"
+  account_type: "STOCK"
+
+risk:
+  policies:
+    - "SimpleRiskPolicy"
+
+trading:
+  symbols:
+    - "600000.SH"
+  timeframe: "1d"
+  bar_lookback: 100
