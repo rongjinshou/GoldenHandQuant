@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from src.domain.risk.value_objects.risk_check_result import RiskCheckResult
-from src.domain.risk.interfaces.policies.risk_policy import RiskPolicy
+from src.domain.risk.services.base_risk_policy import BaseRiskPolicy
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.trade.entities.order import Order
 
@@ -38,7 +38,7 @@ class OrderService:
         _risk_policy: 风控策略接口。
     """
 
-    def __init__(self, gateway: ITradeGateway, risk_policy: RiskPolicy) -> None:
+    def __init__(self, gateway: ITradeGateway, risk_policy: BaseRiskPolicy) -> None:
         self._gateway = gateway
         self._risk_policy = risk_policy
 

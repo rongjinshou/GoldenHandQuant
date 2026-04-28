@@ -16,6 +16,9 @@ from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.account.services.settlement_service import DailySettlementService
 from src.domain.portfolio.services.sizers.fixed_ratio_sizer import FixedRatioSizer
 from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
+from src.domain.market.value_objects.suspension import StockStatusRegistry
+from src.domain.trade.exceptions import TradeError, OrderSubmitError
+from src.domain.account.exceptions import InsufficientFundsError, PositionNotAvailableError
 
 class BacktestAppService:
     """回测应用服务。"""
@@ -28,6 +31,7 @@ class BacktestAppService:
         evaluator: PerformanceEvaluator,
         history_fetcher: IHistoryDataFetcher | None = None,
         sizer: IPositionSizer | None = None,
+        status_registry: StockStatusRegistry | None = None,
     ) -> None:
         self.market_gateway = market_gateway
         self.trade_gateway = trade_gateway
@@ -35,6 +39,7 @@ class BacktestAppService:
         self.evaluator = evaluator
         self.history_fetcher = history_fetcher
         self.sizer = sizer or FixedRatioSizer(ratio=0.2)
+        self.status_registry = status_registry
         self.snapshots: list[DailySnapshot] = []
         self.settlement_service = DailySettlementService()
 
@@ -91,6 +96,9 @@ class BacktestAppService:
             if start_date <= ts <= end_date
         ]
 
+        from src.infrastructure.logging.backtest_logger import BacktestProgress, logger
+        progress = BacktestProgress(len(valid_timestamps))
+
         if not valid_timestamps:
             print("Warning: No valid timestamps found for backtest range.")
             return self.evaluator.evaluate(
@@ -102,6 +110,7 @@ class BacktestAppService:
             )
 
         for current_time in valid_timestamps:
+            progress.update(current_time)
             # 1. 推进时间
             market_time = current_time
             self.market_gateway.set_current_time(market_time)
@@ -138,6 +147,9 @@ class BacktestAppService:
             position_map = {p.ticker: p for p in current_positions}
 
             for signal in signals:
+                # 停牌/*ST 过滤
+                if self.status_registry and not self.status_registry.is_tradable(signal.symbol, market_time):
+                    continue
                 price = execution_prices.get(signal.symbol)
                 if not price or price <= 0:
                     continue
@@ -172,9 +184,12 @@ class BacktestAppService:
                 
                 try:
                     self.trade_gateway.place_order(order)
-                except Exception as e:
-                    # 简单记录日志，不中断回测
-                    print(f"[{market_time}] Order failed for {signal.symbol}: {e}")
+                except OrderSubmitError as e:
+                    print(f"[{market_time}] Order rejected for {signal.symbol}: {e}")
+                except (InsufficientFundsError, PositionNotAvailableError) as e:
+                    print(f"[{market_time}] Cannot execute for {signal.symbol}: {e}")
+                except TradeError as e:
+                    print(f"[{market_time}] Trade error for {signal.symbol}: {e}")
 
             # 6. 日终结算 (收盘清算 + T+1)
             # 获取最新的 orders (包括刚刚生成的)

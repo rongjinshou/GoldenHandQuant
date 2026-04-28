@@ -15,6 +15,8 @@ from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
 from src.domain.portfolio.services.sizers.fixed_ratio_sizer import FixedRatioSizer
+from src.domain.trade.exceptions import TradeError, OrderSubmitError
+from src.domain.account.exceptions import InsufficientFundsError, PositionNotAvailableError
 
 logger = getLogger(__name__)
 
@@ -128,5 +130,9 @@ class TradingAppService:
                 order_id = self.trade_gateway.place_order(order)
                 logger.info(f"Order submitted: {order_id} for {signal.symbol} {signal.direction} {volume}")
                 
-            except Exception as e:
-                logger.error(f"Failed to submit order for {signal.symbol}: {e}")
+            except OrderSubmitError as e:
+                logger.error(f"Order rejected for {signal.symbol}: {e}")
+            except (InsufficientFundsError, PositionNotAvailableError) as e:
+                logger.warning(f"Cannot execute for {signal.symbol}: {e}")
+            except TradeError as e:
+                logger.error(f"Trade error for {signal.symbol}: {e}")

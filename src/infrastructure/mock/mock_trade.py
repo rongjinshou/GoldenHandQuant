@@ -3,6 +3,7 @@ from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
+from src.domain.account.entities.account_repository import AccountRepository
 from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.trade.value_objects.order_direction import OrderDirection
@@ -10,10 +11,11 @@ from src.domain.trade.value_objects.order_type import OrderType
 from src.domain.backtest.value_objects.trade_record import TradeRecord
 from src.domain.trade.exceptions import OrderSubmitError
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
+from src.domain.market.value_objects.price_limit import calculate_price_limits
 
 class MockTradeGateway(ITradeGateway, IAccountGateway):
     """基于内存的模拟交易网关 (包含账户功能)。
-    
+
     遵循 A 股交易规则:
     1. T+1 结算。
     2. 交易成本: 佣金(万2.5, Min 5), 印花税(卖出千0.5), 过户费(十万1)。
@@ -26,7 +28,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
     MIN_COMMISSION = 5.0
     STAMP_DUTY_RATE = 0.0005  # 卖出收取
     TRANSFER_FEE_RATE = 0.00001
-    
+
     # 滑点常量
     SLIPPAGE_BUY = 0.001
     SLIPPAGE_SELL = 0.001  # 向下浮动
@@ -34,36 +36,46 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
     # 流动性限制
     CAPACITY_LIMIT_RATIO = 0.1
 
-    def __init__(self, market_gateway: IMarketGateway, initial_capital: float = 1_000_000.0) -> None:
+    DEFAULT_ACCOUNT_ID = "MOCK_ACCOUNT"
+
+    def __init__(
+        self,
+        market_gateway: IMarketGateway,
+        initial_capital: float = 1_000_000.0,
+        default_account_id: str = DEFAULT_ACCOUNT_ID,
+    ) -> None:
         """初始化模拟账户。
 
         Args:
             market_gateway: 行情网关，用于获取当前价格和成交量。
             initial_capital: 初始资金。
+            default_account_id: 默认账户 ID。
         """
         self.market_gateway = market_gateway
-        self.asset = Asset(
-            account_id="MOCK_ACCOUNT",
-            total_asset=initial_capital,
-            available_cash=initial_capital,
-            frozen_cash=0.0
-        )
-        self.positions: dict[str, Position] = {}  # key: ticker
+        self._repo = AccountRepository()
+        self._default_account_id = default_account_id
+        self._repo.create_account(default_account_id, initial_capital)
+        # 向后兼容: asset/positions 属性指向默认账户
+        self.asset = self._repo.get_asset(default_account_id)
+        self.positions: dict[str, Position] = {}
         self.trade_records: list[TradeRecord] = []
         self.orders: dict[str, Order] = {}
 
-    def get_asset(self) -> Asset | None:
+    def get_asset(self, account_id: str | None = None) -> Asset | None:
         """获取账户资金。"""
-        # 返回当前资金状态对象
-        return self.asset
+        return self._repo.get_asset(account_id or self._default_account_id)
 
-    def get_positions(self) -> list[Position]:
+    def get_positions(self, account_id: str | None = None) -> list[Position]:
         """获取所有持仓。"""
-        return list(self.positions.values())
+        return self._repo.get_positions(account_id or self._default_account_id)
 
     def get_position(self, ticker: str) -> Position | None:
         """获取单个持仓。"""
         return self.positions.get(ticker)
+
+    def create_sub_account(self, account_id: str, initial_capital: float) -> Asset:
+        """创建子账户（用于多策略分仓）。"""
+        return self._repo.create_account(account_id, initial_capital)
 
     def list_orders(self) -> list[Order]:
         return list(self.orders.values())
@@ -129,6 +141,23 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             # 如果流动性不足以成交一手，则拒绝或全撤 (这里选择废单)
             order.status = OrderStatus.REJECTED
             raise OrderSubmitError(f"Insufficient liquidity: max volume {max_vol} < 100")
+
+        # 涨跌停校验
+        prev_bars = self.market_gateway.get_recent_bars(order.ticker, "1d", 2)
+        if len(prev_bars) >= 2:
+            prev_close = prev_bars[-2].unadjusted_close or prev_bars[-2].close
+            if prev_close > 0:
+                limits = calculate_price_limits(prev_close)
+                if order.direction == OrderDirection.BUY and not limits.can_buy(exec_price):
+                    order.status = OrderStatus.REJECTED
+                    raise OrderSubmitError(
+                        f"Stock hit limit up ({limits.limit_up}), cannot buy"
+                    )
+                if order.direction == OrderDirection.SELL and not limits.can_sell(exec_price):
+                    order.status = OrderStatus.REJECTED
+                    raise OrderSubmitError(
+                        f"Stock hit limit down ({limits.limit_down}), cannot sell"
+                    )
 
         # 5. 预估成本与资金/持仓检查
         total_cost, commission, tax, transfer_fee = self._calculate_costs(exec_price, fill_volume, order.direction)

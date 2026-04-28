@@ -4,8 +4,14 @@ from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot
 from src.domain.backtest.value_objects.trade_record import TradeRecord
 from src.domain.trade.value_objects.order_direction import OrderDirection
 
+
 class PerformanceEvaluator:
-    """回测绩效评估器。"""
+    """回测绩效评估器。
+
+    仅负责聚合 DailySnapshot → BacktestReport 的基础指标，
+    风险调整收益指标（sharpe_ratio、sortino_ratio、calmar_ratio）
+    由 BacktestReport 的 @property 惰性计算。
+    """
 
     def evaluate(
         self,
@@ -15,18 +21,6 @@ class PerformanceEvaluator:
         snapshots: list[DailySnapshot],
         trades: list[TradeRecord],
     ) -> BacktestReport:
-        """评估回测结果。
-
-        Args:
-            start_date: 开始日期。
-            end_date: 结束日期。
-            initial_capital: 初始资金。
-            snapshots: 每日快照列表。
-            trades: 交易记录列表。
-
-        Returns:
-            BacktestReport: 回测报告。
-        """
         if not snapshots:
             return BacktestReport(
                 start_date=start_date,
@@ -37,6 +31,7 @@ class PerformanceEvaluator:
                 annualized_return=0.0,
                 max_drawdown=0.0,
                 win_rate=0.0,
+                profit_loss_ratio=0.0,
                 trade_count=len(trades),
                 trades=trades,
                 snapshots=snapshots,
@@ -45,14 +40,13 @@ class PerformanceEvaluator:
         final_capital = snapshots[-1].total_asset
         total_return = (final_capital - initial_capital) / initial_capital
 
-        # 计算年化收益率 (简单估算: 按 250 个交易日)
         days = (end_date - start_date).days
         if days > 0:
             annualized_return = (1 + total_return) ** (365 / days) - 1
         else:
             annualized_return = 0.0
 
-        # 计算最大回撤
+        # 最大回撤
         max_drawdown = 0.0
         peak = initial_capital
         for snap in snapshots:
@@ -62,12 +56,17 @@ class PerformanceEvaluator:
             if drawdown > max_drawdown:
                 max_drawdown = drawdown
 
-        # 计算胜率 (基于平仓盈亏)
+        # 胜率与盈亏比
         sell_trades = [t for t in trades if t.direction == OrderDirection.SELL]
         win_count = sum(1 for t in sell_trades if t.realized_pnl > 0)
         win_rate = win_count / len(sell_trades) if sell_trades else 0.0
 
-        # 提取每日曲线数据
+        winning_trades = [t for t in sell_trades if t.realized_pnl > 0]
+        losing_trades = [t for t in sell_trades if t.realized_pnl <= 0]
+        avg_win = sum(t.realized_pnl for t in winning_trades) / len(winning_trades) if winning_trades else 0.0
+        avg_loss = abs(sum(t.realized_pnl for t in losing_trades)) / len(losing_trades) if losing_trades else 0.0
+        profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0.0
+
         dates = [s.date for s in snapshots]
         equity_curve = [s.total_asset for s in snapshots]
         daily_returns = [s.return_rate for s in snapshots]
@@ -81,6 +80,7 @@ class PerformanceEvaluator:
             annualized_return=annualized_return,
             max_drawdown=max_drawdown,
             win_rate=win_rate,
+            profit_loss_ratio=profit_loss_ratio,
             trade_count=len(trades),
             trades=trades,
             snapshots=snapshots,

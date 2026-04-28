@@ -19,15 +19,29 @@ from src.application.backtest_app import BacktestAppService
 from src.domain.strategy.services.strategies.dual_ma_strategy import DualMaStrategy
 from src.domain.backtest.services.performance_evaluator import PerformanceEvaluator
 from src.domain.market.value_objects.timeframe import Timeframe
+from src.infrastructure.config.settings import load_backtest_config
 
 def main():
     print("=== Starting Backtest Simulation (with QMT History Data) ===")
-    
-    # 1. 定义回测参数
-    symbols = ["000021.SZ"]  # 使用平安银行作为示例
-    tf = Timeframe.DAY_1     # 设定回测周期
-    start_date = "2016-01-01" # 稍微往前一点，保证有足够数据
-    end_date = datetime.now().strftime("%Y-%m-%d")
+
+    # 加载配置（保留硬编码回退）
+    try:
+        settings = load_backtest_config()
+        symbols = settings.backtest.symbols
+        start_date = settings.backtest.start_date
+        end_date = settings.backtest.end_date
+        initial_capital = settings.backtest.initial_capital
+        plot = settings.backtest.plot
+        print("Loaded configuration from config/backtest.yaml")
+    except FileNotFoundError:
+        symbols = ["000021.SZ"]
+        start_date = "2016-01-01"
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        initial_capital = 1_000_000.0
+        plot = True
+        print("Config file not found, using default parameters.")
+
+    tf = Timeframe.DAY_1
 
     print(f"Target: {symbols}")
     print(f"Timeframe: {tf.value}")
@@ -41,7 +55,7 @@ def main():
     # MockTradeGateway 需要 market_gateway 来查询价格 (假设构造函数如此设计)
     # 如果 MockTradeGateway 不需要 market_gateway，则只需传入 initial_capital
     # 检查之前的 run_backtest.py: trade_gateway = MockTradeGateway(market_gateway, initial_capital=1_000_000.0)
-    trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=1_000_000.0)
+    trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital)
     
     # 3. 初始化策略与应用
     print("Initializing strategy and app service...")
@@ -72,7 +86,7 @@ def main():
     dt_start = datetime.strptime(start_date, "%Y-%m-%d")
     dt_end = datetime.strptime(end_date, "%Y-%m-%d")
     
-    report = app.run_backtest(symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf, plot=True)
+    report = app.run_backtest(symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf, plot=plot)
     
     # 6. 输出报告
     print("\n" + "="*40)

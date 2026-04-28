@@ -120,9 +120,4 @@ class QmtMarketGateway(IMarketGateway):
             logger.error(f"Failed to get market data for {symbol}: {e}", exc_info=True)
             return []
 
-    def get_all_timestamps(self, timeframe: Timeframe) -> list[datetime]:
-        """获取指定周期下的所有去重时间戳。
-        
-        注意：实盘网关不支持获取全量历史时间戳，此方法仅用于回测。
-        """
-        raise NotImplementedError("QmtMarketGateway does not support get_all_timestamps. Use MockMarketGateway for backtesting.")
+

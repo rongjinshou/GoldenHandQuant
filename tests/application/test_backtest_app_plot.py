@@ -44,6 +44,7 @@ class TestBacktestAppServicePlot:
             annualized_return=0.0,
             max_drawdown=0.0,
             win_rate=0.0,
+            profit_loss_ratio=0.0,
             trade_count=0,
             dates=[datetime(2023, 1, 1)],
             equity_curve=[100000.0],

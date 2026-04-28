@@ -7,6 +7,7 @@ from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
 from src.infrastructure.gateway.qmt_trade import QmtTradeGateway
+from src.infrastructure.config.settings import load_trading_config
 
 # 配置日志
 logging.basicConfig(
@@ -23,11 +24,18 @@ def main() -> None:
     logger.info("Starting QuantFlow Strategy...")
 
     # 1. 初始化基础设施
-    # 注意: 这里需要真实的 QMT 路径和账号信息
-    # 在实际环境中，这些应从 config 读取
-    qmt_path = r"D:\国金QMT交易端模拟\userdata_mini"
-    session_id = 123456
-    account_id = "88888888"
+    # 从配置文件加载，保留硬编码回退
+    try:
+        settings = load_trading_config()
+        qmt_path = settings.qmt.userdata_path
+        session_id = settings.qmt.session_id
+        account_id = settings.qmt.account_id
+        logger.info("Loaded trading configuration from config/trading.yaml")
+    except FileNotFoundError:
+        qmt_path = r"D:\国金QMT交易端模拟\userdata_mini"
+        session_id = 123456
+        account_id = "88888888"
+        logger.info("Config file not found, using default parameters.")
 
     try:
         gateway = QmtTradeGateway(qmt_path, session_id, account_id)

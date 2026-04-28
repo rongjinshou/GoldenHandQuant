@@ -201,7 +201,7 @@ class TestMockTradeGatewayNewRules:
         gateway.SLIPPAGE_BUY = 0.05  # 5% 滑点，远超正常水平
 
         order = Order(
-            order_id="TEST_001", account_id="MOCK_ACCOUNT", ticker="000001.SZ",
+            order_id="TEST_001", account_id=MockTradeGateway.DEFAULT_ACCOUNT_ID, ticker="000001.SZ",
             direction=OrderDirection.BUY, price=10.0, volume=1000, type=OrderType.LIMIT,
         )
 
@@ -248,7 +248,7 @@ class TestMockTradeGatewayNewRules:
         gateway = MockTradeGateway(market, initial_capital=1500.0)
 
         order = Order(
-            order_id="TEST_PARTIAL", account_id="MOCK_ACCOUNT", ticker="000001.SZ",
+            order_id="TEST_PARTIAL", account_id=MockTradeGateway.DEFAULT_ACCOUNT_ID, ticker="000001.SZ",
             direction=OrderDirection.BUY, price=10.0, volume=500, type=OrderType.LIMIT,
         )
 
@@ -284,7 +284,7 @@ class TestMockTradeGatewayNewRules:
 
         # 限价 9.0 买入，但当日最低价 9.5 → 无法成交（市场从未跌到 9.0）
         order = Order(
-            order_id="TEST_002", account_id="MOCK_ACCOUNT", ticker="000001.SZ",
+            order_id="TEST_002", account_id=MockTradeGateway.DEFAULT_ACCOUNT_ID, ticker="000001.SZ",
             direction=OrderDirection.BUY, price=9.0, volume=100, type=OrderType.LIMIT,
         )
 
@@ -315,7 +315,7 @@ class TestMockTradeGatewayNewRules:
         gateway.positions["000001.SZ"].available_volume = 200
 
         order = Order(
-            order_id="TEST_003", account_id="MOCK_ACCOUNT", ticker="000001.SZ",
+            order_id="TEST_003", account_id=MockTradeGateway.DEFAULT_ACCOUNT_ID, ticker="000001.SZ",
             direction=OrderDirection.SELL, price=60.0, volume=100, type=OrderType.LIMIT,
         )
 
