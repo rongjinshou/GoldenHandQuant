@@ -92,9 +92,28 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         if not bars:
             raise OrderSubmitError(f"No market data for {order.ticker}")
         bar = bars[0]
-        
-        # 3. 计算成交价格 (含滑点)
-        ref_price = bar.close
+
+        # 3. LIMIT 单价格极值校验 (必须在成交价计算之前)
+        if order.type == OrderType.LIMIT:
+            if order.direction == OrderDirection.BUY:
+                if order.price < bar.low:
+                    order.status = OrderStatus.REJECTED
+                    raise OrderSubmitError(
+                        f"BUY limit price {order.price:.2f} is below daily low {bar.low:.2f}"
+                    )
+            elif order.direction == OrderDirection.SELL:
+                if order.price > bar.high:
+                    order.status = OrderStatus.REJECTED
+                    raise OrderSubmitError(
+                        f"SELL limit price {order.price:.2f} is above daily high {bar.high:.2f}"
+                    )
+
+        # 4. 计算成交价格 (基于不复权价进行账本结算)
+        if bar.unadjusted_close > 0:
+            ref_price = bar.unadjusted_close
+        else:
+            ref_price = bar.close  # 向后兼容：若无不复权数据则回退
+
         if order.direction == OrderDirection.BUY:
             exec_price = ref_price * (1 + self.SLIPPAGE_BUY)
         else:
@@ -194,23 +213,23 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             
             # 扣除实际成本 (在 _calculate_costs 中已包含本金+费用)
             actual_cost = price * volume + commission + tax + transfer_fee
-            
-            # 扣款: 实际成本
-            # 如果实际成本 > 解冻金额 (如滑点导致价格升高)，需补扣 available_cash
-            # 如果实际成本 < 解冻金额 (如限价单以更优价成交)，剩余部分返还 available_cash
-            # 逻辑: available_cash -= (actual_cost - to_unfreeze)
-            # 如果 actual_cost > to_unfreeze, 减去差额
-            # 如果 actual_cost < to_unfreeze, 加上差额 (即释放多余冻结)
+
+            # 硬熔断: 计算最终可用现金，若为负则拒绝本次成交
             diff = actual_cost - to_unfreeze
+            projected_available = self.asset.available_cash - diff
+
+            if projected_available < 0:
+                # 回滚冻结资金 (仅恢复 frozen_cash，available_cash 未被 deduct_frozen_cash 修改)
+                self.asset.frozen_cash += to_unfreeze
+                raise OrderSubmitError(
+                    f"Overdraw prevented: actual_cost={actual_cost:.2f} exceeds "
+                    f"available_cash after unfreeze. Shortfall={-projected_available:.2f}"
+                )
+
             if diff > 0:
-                 if self.asset.available_cash < diff:
-                     # 理论上不应发生，因为预估时已留有余地或滑点不大，
-                     # 但如果发生，这里会导致资产为负? 允许透支? 不允许。
-                     # 但 transaction 已经发生，这里只能强制扣减。
-                     pass
-                 self.asset.available_cash -= diff
+                self.asset.available_cash -= diff
             else:
-                 self.asset.available_cash += abs(diff)
+                self.asset.available_cash += abs(diff)
 
             self.asset.total_asset -= (commission + tax + transfer_fee) # 资产减少费用
             

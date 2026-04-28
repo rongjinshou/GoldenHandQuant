@@ -72,6 +72,7 @@ class MockMarketGateway(IMarketGateway):
             raise ValueError(f"DataFrame missing required columns: {missing}")
 
         # 按 symbol 分组处理，提高效率
+        has_unadjusted = "unadjusted_close" in df.columns
         for symbol, group in df.groupby('symbol'):
             bars = []
             for _, row in group.iterrows():
@@ -79,7 +80,9 @@ class MockMarketGateway(IMarketGateway):
                 dt = row['datetime']
                 if not isinstance(dt, datetime):
                     dt = pd.to_datetime(dt).to_pydatetime()
-                    
+
+                unadjusted_close = float(row["unadjusted_close"]) if has_unadjusted else 0.0
+
                 bars.append(Bar(
                     symbol=str(symbol),
                     timeframe=timeframe,
@@ -88,7 +91,8 @@ class MockMarketGateway(IMarketGateway):
                     high=float(row['high']),
                     low=float(row['low']),
                     close=float(row['close']),
-                    volume=float(row['volume'])
+                    volume=float(row['volume']),
+                    unadjusted_close=unadjusted_close,
                 ))
             
             self.add_bars(str(symbol), bars)

@@ -176,3 +176,149 @@ class TestMockTradeGatewayNewRules:
         
         assert sell_order.status == OrderStatus.REJECTED
 
+    def test_buy_with_extreme_slippage_should_not_overdraw_cash(self):
+        """极端滑点导致实际成本超过冻结资金时，不应导致可用资金为负。"""
+        from datetime import datetime
+        from src.domain.market.value_objects.bar import Bar
+        from src.domain.market.value_objects.timeframe import Timeframe
+        from src.domain.trade.entities.order import Order
+        from src.domain.trade.value_objects.order_direction import OrderDirection
+        from src.domain.trade.value_objects.order_type import OrderType
+        from src.domain.trade.exceptions import OrderSubmitError
+        from src.infrastructure.mock.mock_market import MockMarketGateway
+        from src.infrastructure.mock.mock_trade import MockTradeGateway
+
+        market = MockMarketGateway()
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2024, 1, 3),
+                  open=10.0, high=10.0, low=10.0, close=10.0, volume=100000)
+        market.add_bars("000001.SZ", [bar])
+        market.set_current_time(datetime(2024, 1, 3))
+
+        # 初始资金仅够刚好支付 (极度紧张)
+        gateway = MockTradeGateway(market, initial_capital=10050.0)
+
+        # 人工放大滑点率以模拟极端情况
+        gateway.SLIPPAGE_BUY = 0.05  # 5% 滑点，远超正常水平
+
+        order = Order(
+            order_id="TEST_001", account_id="MOCK_ACCOUNT", ticker="000001.SZ",
+            direction=OrderDirection.BUY, price=10.0, volume=1000, type=OrderType.LIMIT,
+        )
+
+        try:
+            gateway.place_order(order)
+        except OrderSubmitError:
+            pass  # 若因资金不足拒单，这是正确行为
+
+        asset = gateway.get_asset()
+        assert asset.available_cash >= 0, (
+            f"Available cash is negative: {asset.available_cash}. Overdraw protection failed."
+        )
+
+    def test_buy_partial_fill_overdraw_protection(self):
+        """部分成交（容量限制）导致 diff 超过可用资金时，应触发熔断拒绝成交。"""
+        from datetime import datetime
+        from src.domain.market.value_objects.bar import Bar
+        from src.domain.market.value_objects.timeframe import Timeframe
+        from src.domain.trade.entities.order import Order
+        from src.domain.trade.value_objects.order_direction import OrderDirection
+        from src.domain.trade.value_objects.order_type import OrderType
+        from src.domain.trade.exceptions import OrderSubmitError
+        from src.infrastructure.mock.mock_market import MockMarketGateway
+        from src.infrastructure.mock.mock_trade import MockTradeGateway
+
+        market = MockMarketGateway()
+        # 成交量只有 1000，容量限制 10% = 100 股
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2024, 1, 3),
+                  open=10.0, high=10.0, low=10.0, close=10.0, volume=1000)
+        market.add_bars("000001.SZ", [bar])
+        market.set_current_time(datetime(2024, 1, 3))
+
+        # 订单 500 股，但由于容量限制，只能成交 100 股
+        # ratio = 100/500 = 0.2
+        # exec_price = 10.0 * 1.001 = 10.01
+        # total_cost for 100 shares: 1001 + 5 + 0.01 = 1006.01
+        # 冻结: 1006.01
+        # _simulate_fill: to_unfreeze = 1006.01 * 0.2 = 201.202
+        # actual_cost = 1006.01
+        # diff = 804.808
+        # 如果初始资金刚好够 total_cost + 少量: available_cash after freeze = init - 1006.01
+        # 需要: available_cash < diff 才能触发 overdraw
+        # available_cash = 1500 - 1006.01 = 493.99 < 804.808 ✓
+        gateway = MockTradeGateway(market, initial_capital=1500.0)
+
+        order = Order(
+            order_id="TEST_PARTIAL", account_id="MOCK_ACCOUNT", ticker="000001.SZ",
+            direction=OrderDirection.BUY, price=10.0, volume=500, type=OrderType.LIMIT,
+        )
+
+        # 应该触发 OrderSubmitError 熔断
+        with pytest.raises(OrderSubmitError, match="Overdraw prevented"):
+            gateway.place_order(order)
+
+        asset = gateway.get_asset()
+        assert asset.available_cash >= 0, (
+            f"Available cash is negative: {asset.available_cash}. Overdraw protection failed."
+        )
+
+    def test_limit_buy_below_low_should_be_rejected(self):
+        """限价买单委托价低于当日最低价时，不应成交（市场从未交易到该价位）。"""
+        from datetime import datetime
+        from src.domain.market.value_objects.bar import Bar
+        from src.domain.market.value_objects.timeframe import Timeframe
+        from src.domain.trade.entities.order import Order
+        from src.domain.trade.value_objects.order_direction import OrderDirection
+        from src.domain.trade.value_objects.order_type import OrderType
+        from src.domain.trade.value_objects.order_status import OrderStatus
+        from src.domain.trade.exceptions import OrderSubmitError
+        from src.infrastructure.mock.mock_market import MockMarketGateway
+        from src.infrastructure.mock.mock_trade import MockTradeGateway
+
+        market = MockMarketGateway()
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2024, 1, 3),
+                  open=10.0, high=11.0, low=9.5, close=10.5, volume=100000)
+        market.add_bars("000001.SZ", [bar])
+        market.set_current_time(datetime(2024, 1, 3))
+
+        gateway = MockTradeGateway(market, initial_capital=100000.0)
+
+        # 限价 9.0 买入，但当日最低价 9.5 → 无法成交（市场从未跌到 9.0）
+        order = Order(
+            order_id="TEST_002", account_id="MOCK_ACCOUNT", ticker="000001.SZ",
+            direction=OrderDirection.BUY, price=9.0, volume=100, type=OrderType.LIMIT,
+        )
+
+        with pytest.raises(OrderSubmitError, match="limit price"):
+            gateway.place_order(order)
+
+    def test_limit_sell_below_low_should_be_rejected(self):
+        """限价卖单委托价低于当日最低价时，不应成交。"""
+        from datetime import datetime
+        from src.domain.market.value_objects.bar import Bar
+        from src.domain.market.value_objects.timeframe import Timeframe
+        from src.domain.trade.entities.order import Order
+        from src.domain.trade.value_objects.order_direction import OrderDirection
+        from src.domain.trade.value_objects.order_type import OrderType
+        from src.domain.trade.exceptions import OrderSubmitError
+        from src.infrastructure.mock.mock_market import MockMarketGateway
+        from src.infrastructure.mock.mock_trade import MockTradeGateway
+
+        market = MockMarketGateway()
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2024, 1, 3),
+                  open=50.0, high=55.0, low=48.0, close=50.0, volume=100000)
+        market.add_bars("000001.SZ", [bar])
+        market.set_current_time(datetime(2024, 1, 3))
+
+        gateway = MockTradeGateway(market, initial_capital=100000.0)
+        from unittest.mock import MagicMock
+        gateway.positions["000001.SZ"] = MagicMock()
+        gateway.positions["000001.SZ"].available_volume = 200
+
+        order = Order(
+            order_id="TEST_003", account_id="MOCK_ACCOUNT", ticker="000001.SZ",
+            direction=OrderDirection.SELL, price=60.0, volume=100, type=OrderType.LIMIT,
+        )
+
+        with pytest.raises(OrderSubmitError, match="limit price"):
+            gateway.place_order(order)
+

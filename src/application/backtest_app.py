@@ -107,27 +107,39 @@ class BacktestAppService:
             self.market_gateway.set_current_time(market_time)
             
             # 2. 获取行情数据
-            market_data: dict[str, list[Bar]] = {}
+            # 关键修复: 分离策略可见数据(T-1以前) 与 当前执行价格(T日)
+            # 设计决策: 执行价格使用 T 日 open 价
+            #   - 当前方案: T 日 open 价 → 等价于"T日开盘交易"（适用于日内策略）
+            #   - 更严格方案: T+1 日 open 价 → 等价于"T日收盘分析，次日开盘交易"（适用于日线策略）
+            #   - 当前实现采用 T 日 open 方案
+            strategy_market_data: dict[str, list[Bar]] = {}
+            execution_prices: dict[str, float] = {}
             current_prices: dict[str, float] = {}
-            
+
             for symbol in symbols:
-                bars = self.market_gateway.get_recent_bars(symbol, base_timeframe, 100)
-                if bars:
-                    market_data[symbol] = bars
-                    current_prices[symbol] = bars[-1].close
+                all_bars = self.market_gateway.get_recent_bars(symbol, base_timeframe, 101)
+                if not all_bars:
+                    continue
+                # 策略只能看到 T-1 及以前的数据 (排除最后一根 T 日 Bar)
+                if len(all_bars) >= 2:
+                    strategy_market_data[symbol] = all_bars[:-1]
+                # 执行价格: 使用 T 日开盘价; 市值估算: 使用收盘价
+                current_bar = all_bars[-1]
+                execution_prices[symbol] = current_bar.open
+                current_prices[symbol] = current_bar.close
 
             # 3. 获取当前持仓
             current_positions = self.trade_gateway.get_positions()
 
-            # 4. 生成策略信号
-            signals = self.strategy.generate_signals(market_data, current_positions)
+            # 4. 生成策略信号 (基于 T-1 数据)
+            signals = self.strategy.generate_signals(strategy_market_data, current_positions)
 
-            # 5. 执行信号 (模拟撮合)
+            # 5. 执行信号 (使用 T 日开盘价撮合)
             position_map = {p.ticker: p for p in current_positions}
 
             for signal in signals:
-                price = current_prices.get(signal.symbol)
-                if not price:
+                price = execution_prices.get(signal.symbol)
+                if not price or price <= 0:
                     continue
                 asset = self.trade_gateway.get_asset()
                 if asset is None:

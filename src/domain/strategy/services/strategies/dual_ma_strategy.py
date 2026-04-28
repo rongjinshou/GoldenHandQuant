@@ -65,9 +65,8 @@ class DualMaStrategy(BaseStrategy):
             is_death_cross = (ma5_prev >= ma10_prev) and (ma5_curr < ma10_curr)
 
             if is_golden_cross:
-                # 金叉买入
-                # 简单策略: 固定买入 100 股 (示例)
-                # 实际中可能需要资金管理模块计算
+                # 金叉买入信号：仅返回方向 + 置信度
+                # 实际买入数量由 PositionSizer 根据账户风险参数独立计算
                 signals.append(Signal(
                     symbol=symbol,
                     direction=SignalDirection.BUY,
