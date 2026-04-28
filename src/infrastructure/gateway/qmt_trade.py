@@ -1,17 +1,72 @@
 import logging
-
-from src.infrastructure.libs.xtquant import xtconstant
-from src.infrastructure.libs.xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
-from src.infrastructure.libs.xtquant.xttype import StockAccount
+import sys
+from pathlib import Path
 
 from src.domain.account.entities.asset import Asset
-from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
 from src.domain.account.entities.position import Position
+from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
+from src.domain.trade.entities.order import Order
 from src.domain.trade.exceptions import OrderSubmitError
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
-from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
+
+
+def _import_xtquant_modules():
+    """动态导入 xtquant 交易相关模块，支持多路径 fallback。
+
+    优先级:
+    1. 已安装的 xtquant 包 (pip install xtquant)
+    2. PYTHONPATH 中的 xtquant
+    3. 项目根目录 libs/xtquant/
+    """
+    xtconstant = None
+    XtQuantTrader = None
+    XtQuantTraderCallback = None
+    StockAccount = None
+
+    xtquant_paths = []
+
+    # 尝试从已安装包导入
+    try:
+        import xtquant.xtconstant
+        import xtquant.xttrader
+        import xtquant.xttype
+        xtconstant = xtquant.xtconstant
+        XtQuantTrader = xtquant.xttrader.XtQuantTrader
+        XtQuantTraderCallback = xtquant.xttrader.XtQuantTraderCallback
+        StockAccount = xtquant.xttype.StockAccount
+        if all([xtconstant, XtQuantTrader, XtQuantTraderCallback, StockAccount]):
+            return xtconstant, XtQuantTrader, XtQuantTraderCallback, StockAccount
+    except ImportError:
+        pass
+
+    # 尝试从项目外部 libs/ 加载
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    sdk_dir = project_root / "libs" / "xtquant"
+    if sdk_dir.exists():
+        sys.path.insert(0, str(sdk_dir.parent))
+        try:
+            import xtquant.xtconstant
+            import xtquant.xttrader
+            import xtquant.xttype
+            return (
+                xtquant.xtconstant,
+                xtquant.xttrader.XtQuantTrader,
+                xtquant.xttrader.XtQuantTraderCallback,
+                xtquant.xttype.StockAccount,
+            )
+        except ImportError:
+            pass
+
+    raise ImportError(
+        "xtquant SDK not found. Install via: pip install xtquant "
+        "or set PYTHONPATH to your QMT userdata_mini directory."
+    )
+
+
+xtconstant, XtQuantTrader, XtQuantTraderCallback, StockAccount = _import_xtquant_modules()
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,27 +88,18 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
         self.account_type = account_type
 
         try:
-            # 创建交易对象
             self.xt_trader = XtQuantTrader(path, session_id)
-
-            # 创建账号对象
             self.account = StockAccount(account_id, account_type)
-
-            # 注册回调 (即使不使用异步功能，注册回调也是个好习惯，用于接收断线等通知)
             self.callback = XtQuantTraderCallback()
             self.xt_trader.register_callback(self.callback)
-
-            # 启动交易线程
             self.xt_trader.start()
 
-            # 建立连接
             connect_result = self.xt_trader.connect()
             if connect_result == 0:
                 logger.info(f"Connected to QMT trading gateway (session: {session_id})")
             else:
                 logger.error(f"Failed to connect to QMT trading gateway: {connect_result}")
 
-            # 订阅账号
             subscribe_result = self.xt_trader.subscribe(self.account)
             if subscribe_result == 0:
                 logger.info(f"Subscribed to account {account_id}")
@@ -71,7 +117,6 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
                 logger.warning(f"Failed to query asset for account {self.account_id}")
                 return None
 
-            # 转换 XtAsset 到 Asset
             return Asset(
                 account_id=self.account_id,
                 total_asset=xt_asset.total_asset,
@@ -92,8 +137,6 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
 
             positions = []
             for xt_pos in xt_positions:
-                # 转换 XtPosition 到 Position
-                # 兼容不同版本的 XtPosition，优先使用 avg_price
                 avg_cost = getattr(xt_pos, "avg_price", getattr(xt_pos, "open_price", 0.0))
 
                 pos = Position(
@@ -111,19 +154,8 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
             return []
 
     def place_order(self, order: Order) -> str:
-        """提交订单。
-
-        Args:
-            order: 订单实体
-
-        Returns:
-            str: 订单 ID (QMT 返回的是 int，这里转为 str)
-
-        Raises:
-            OrderSubmitError: 如果提交失败
-        """
+        """提交订单。"""
         try:
-            # 映射委托类型
             order_type = -1
             match order.direction:
                 case OrderDirection.BUY:
@@ -133,7 +165,6 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
                 case _:
                     raise OrderSubmitError(f"Unsupported order direction: {order.direction}")
 
-            # 映射报价类型
             price_type = xtconstant.FIX_PRICE
             price = order.price
 
@@ -141,27 +172,21 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
                 case OrderType.LIMIT:
                     price_type = xtconstant.FIX_PRICE
                 case OrderType.MARKET:
-                    # 使用五档即成剩撤作为市价单默认行为
-                    # 根据市场区分
                     if order.ticker.endswith(".SH"):
                         price_type = xtconstant.MARKET_SH_CONVERT_5_CANCEL
                     elif order.ticker.endswith(".SZ"):
                         price_type = xtconstant.MARKET_SZ_CONVERT_5_CANCEL
                     else:
-                        # 其他市场默认使用对手方最优，或者降级为限价单
                         logger.warning(
                             f"Unknown market for ticker {order.ticker} for market order, defaulting to FIX_PRICE with limit price"
                         )
                         price_type = xtconstant.FIX_PRICE
 
-                    # 市价单价格通常传 0，但在 FIX_PRICE 降级时保持原价
                     if price_type != xtconstant.FIX_PRICE:
                         price = 0
                 case _:
                     raise OrderSubmitError(f"Unsupported order type: {order.type}")
 
-            # 下单
-            # order_stock(account, stock_code, order_type, order_volume, price_type, price, strategy_name, order_remark)
             order_id = self.xt_trader.order_stock(
                 self.account,
                 order.ticker,
@@ -169,7 +194,7 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
                 int(order.volume),
                 price_type,
                 price,
-                "strategy",  # 策略名称
+                "strategy",
                 order.remark,
             )
 

@@ -6,10 +6,33 @@ from src.domain.market.value_objects.timeframe import Timeframe
 
 from threading import Event
 
-try:
-    from src.infrastructure.libs.xtquant import xtdata
-except ImportError:
-    xtdata = None
+
+def _import_xtdata():
+    """动态导入 xtquant.xtdata，支持多路径 fallback。"""
+    try:
+        import xtquant.xtdata as xtdata
+        return xtdata
+    except ImportError:
+        pass
+
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    sdk_dir = project_root / "libs" / "xtquant"
+    if sdk_dir.exists():
+        import sys
+        sys.path.insert(0, str(sdk_dir.parent))
+        try:
+            import xtquant.xtdata as xtdata
+            return xtdata
+        except ImportError:
+            pass
+
+    raise ImportError(
+        "xtquant SDK not found. Install via: pip install xtquant "
+        "or set PYTHONPATH to your QMT userdata_mini directory."
+    )
+
+
+xtdata = _import_xtdata()
 
 class QmtHistoryDataFetcher(IHistoryDataFetcher):
     """QMT 历史数据获取器实现 (基于 xtquant.xtdata)。"""

@@ -27,6 +27,8 @@ dev = [
     "ruff>=0.1",
     "black>=23.0",
 ]
+qmt = ["xtquant"]
+api = ["fastapi", "uvicorn"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"

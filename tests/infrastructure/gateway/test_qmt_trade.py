@@ -1,12 +1,10 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from src.infrastructure.gateway.qmt_trade import QmtTradeGateway
+from src.infrastructure.gateway.qmt_trade import QmtTradeGateway, xtconstant
 from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
 from src.domain.trade.value_objects.order_status import OrderStatus
-from src.infrastructure.libs.xtquant import xtconstant
-from src.infrastructure.libs.xtquant.xttype import XtAsset, XtPosition
 
 class TestQmtTradeGateway:
     @pytest.fixture
@@ -45,14 +43,10 @@ class TestQmtTradeGateway:
         gateway = QmtTradeGateway("path", 123, "acc")
         
         # Mock XtAsset return
-        xt_asset = XtAsset(
-            account_id="acc",
-            cash=10000.0,
-            frozen_cash=2000.0,
-            market_value=50000.0,
-            total_asset=62000.0,
-            fetch_balance=10000.0
-        )
+        xt_asset = MagicMock()
+        xt_asset.total_asset = 62000.0
+        xt_asset.cash = 10000.0
+        xt_asset.frozen_cash = 2000.0
         mock_trader_instance.query_stock_asset.return_value = xt_asset
 
         # Act
@@ -71,23 +65,12 @@ class TestQmtTradeGateway:
         gateway = QmtTradeGateway("path", 123, "acc")
         
         # Mock XtPosition return
-        xt_pos = XtPosition(
-            account_id="acc",
-            stock_code="600000.SH",
-            volume=100,
-            can_use_volume=100,
-            open_price=10.0,
-            market_value=1000.0,
-            frozen_volume=0,
-            on_road_volume=0,
-            yesterday_volume=100,
-            avg_price=10.0,
-            direction=0,
-            last_price=10.0,
-            profit_rate=0.0,
-            secu_account="sec",
-            instrument_name="name"
-        )
+        xt_pos = MagicMock()
+        xt_pos.stock_code = "600000.SH"
+        xt_pos.volume = 100
+        xt_pos.can_use_volume = 100
+        xt_pos.open_price = 10.0
+        xt_pos.avg_price = 10.0
         mock_trader_instance.query_stock_positions.return_value = [xt_pos]
 
         # Act
