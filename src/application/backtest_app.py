@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
 from src.domain.backtest.interfaces.gateways.backtest_broker import IBacktestBroker
@@ -71,28 +72,70 @@ class BacktestAppService:
         end_date: datetime,
         base_timeframe: Timeframe = Timeframe.DAY_1,
         plot: bool = False,
-    ) -> BacktestReport:
-        """执行回测。
+        strategies: list[BaseStrategy] | None = None,
+        use_event_bus: bool = False,
+    ) -> list[BacktestReport]:
+        """执行回测，支持多策略并行评估。
 
         Args:
             symbols: 回测标的列表。
             start_date: 开始日期。
             end_date: 结束日期。
             base_timeframe: 回测基准周期。
-            plot: 是否绘制回测结果图表。
+            plot: 是否绘制回测结果图表（多策略时仅绘制最后一个）。
+            strategies: 策略列表，None 时使用构造时注入的默认策略。
+            use_event_bus: 是否使用事件总线驱动回测循环（异步 pub/sub 模式）。
 
         Returns:
-            BacktestReport: 回测报告。
+            list[BacktestReport]: 每个策略对应一份回测报告。
         """
+        if use_event_bus:
+            return asyncio.run(self._run_with_event_bus(
+                symbols, start_date, end_date, base_timeframe,
+                strategies, plot,
+            ))
+
+        if strategies is None:
+            strategies = [self.strategy]
+
         initial_asset = self.trade_gateway.get_asset()
         if initial_asset is None:
             raise ValueError("Asset not available from trade gateway.")
         initial_capital = initial_asset.total_asset
 
+        reports: list[BacktestReport] = []
+        for i, strategy in enumerate(strategies):
+            sub_account_id = f"BT_{strategy.name}_{start_date.strftime('%Y%m%d')}"
+            self.trade_gateway.create_sub_account(sub_account_id, initial_capital)
+            is_last = (i == len(strategies) - 1)
+            report = self._run_single_strategy(
+                symbols, start_date, end_date, base_timeframe,
+                strategy, sub_account_id, initial_capital,
+                plot=(plot and is_last),
+            )
+            reports.append(report)
+
+        return reports
+
+    def _run_single_strategy(
+        self,
+        symbols: list[str],
+        start_date: datetime,
+        end_date: datetime,
+        base_timeframe: Timeframe,
+        strategy: BaseStrategy,
+        account_id: str,
+        initial_capital: float,
+        plot: bool = False,
+    ) -> BacktestReport:
+        """执行单个策略的回测循环。"""
+        self.trade_gateway.activate_account(account_id)
+        self.snapshots: list[DailySnapshot] = []
+
         # 1. 获取所有时间戳
         all_timestamps = self.market_gateway.get_all_timestamps(base_timeframe)
         valid_timestamps = [
-            ts for ts in all_timestamps 
+            ts for ts in all_timestamps
             if start_date <= ts <= end_date
         ]
 
@@ -111,16 +154,9 @@ class BacktestAppService:
 
         for current_time in valid_timestamps:
             progress.update(current_time)
-            # 1. 推进时间
             market_time = current_time
             self.market_gateway.set_current_time(market_time)
-            
-            # 2. 获取行情数据
-            # 关键修复: 分离策略可见数据(T-1以前) 与 当前执行价格(T日)
-            # 设计决策: 执行价格使用 T 日 open 价
-            #   - 当前方案: T 日 open 价 → 等价于"T日开盘交易"（适用于日内策略）
-            #   - 更严格方案: T+1 日 open 价 → 等价于"T日收盘分析，次日开盘交易"（适用于日线策略）
-            #   - 当前实现采用 T 日 open 方案
+
             strategy_market_data: dict[str, list[Bar]] = {}
             execution_prices: dict[str, float] = {}
             current_prices: dict[str, float] = {}
@@ -129,25 +165,18 @@ class BacktestAppService:
                 all_bars = self.market_gateway.get_recent_bars(symbol, base_timeframe, 101)
                 if not all_bars:
                     continue
-                # 策略只能看到 T-1 及以前的数据 (排除最后一根 T 日 Bar)
                 if len(all_bars) >= 2:
                     strategy_market_data[symbol] = all_bars[:-1]
-                # 执行价格: 使用 T 日开盘价; 市值估算: 使用收盘价
                 current_bar = all_bars[-1]
                 execution_prices[symbol] = current_bar.open
                 current_prices[symbol] = current_bar.close
 
-            # 3. 获取当前持仓
             current_positions = self.trade_gateway.get_positions()
+            signals = strategy.generate_signals(strategy_market_data, current_positions)
 
-            # 4. 生成策略信号 (基于 T-1 数据)
-            signals = self.strategy.generate_signals(strategy_market_data, current_positions)
-
-            # 5. 执行信号 (使用 T 日开盘价撮合)
             position_map = {p.ticker: p for p in current_positions}
 
             for signal in signals:
-                # 停牌/*ST 过滤
                 if self.status_registry and not self.status_registry.is_tradable(signal.symbol, market_time):
                     continue
                 price = execution_prices.get(signal.symbol)
@@ -157,7 +186,6 @@ class BacktestAppService:
                 if asset is None:
                     raise ValueError("Asset not available from trade gateway.")
 
-                # 计算目标数量
                 position = position_map.get(signal.symbol)
                 volume = self.sizer.calculate_target(
                     signal, price, asset, position
@@ -166,10 +194,8 @@ class BacktestAppService:
                 if volume <= 0:
                     continue
 
-                # 创建订单
-                # 假设 SignalDirection.value 与 OrderDirection.value 兼容 ("BUY"/"SELL")
                 direction = OrderDirection(signal.direction.value)
-                
+
                 order = Order(
                     order_id=f"ORD_{market_time.strftime('%Y%m%d%H%M%S')}_{signal.symbol}",
                     account_id=asset.account_id,
@@ -179,9 +205,9 @@ class BacktestAppService:
                     volume=volume,
                     type=OrderType.LIMIT,
                     status=OrderStatus.CREATED,
-                    created_at=market_time  # 使用回测时间
+                    created_at=market_time,
                 )
-                
+
                 try:
                     self.trade_gateway.place_order(order)
                 except OrderSubmitError as e:
@@ -191,20 +217,15 @@ class BacktestAppService:
                 except TradeError as e:
                     print(f"[{market_time}] Trade error for {signal.symbol}: {e}")
 
-            # 6. 日终结算 (收盘清算 + T+1)
-            # 获取最新的 orders (包括刚刚生成的)
             all_orders = self.trade_gateway.list_orders()
             all_positions = self.trade_gateway.get_positions()
             asset = self.trade_gateway.get_asset()
             if asset is None:
                 raise ValueError("Asset not available from trade gateway.")
-            
-            self.settlement_service.process_daily_settlement(all_orders, all_positions, asset)
 
-            # 7. 记录每日快照 (结算后记录，反映真实的净值)
+            self.settlement_service.process_daily_settlement(all_orders, all_positions, asset)
             self._record_snapshot(market_time, current_prices)
 
-        # 8. 生成报告
         report = self.evaluator.evaluate(
             start_date=start_date,
             end_date=end_date,
@@ -215,7 +236,6 @@ class BacktestAppService:
 
         if plot:
             try:
-                # 动态导入以避免在应用层引入硬依赖
                 from src.infrastructure.visualization.plotter import BacktestPlotter
                 plotter = BacktestPlotter()
                 plotter.plot(report)
@@ -225,6 +245,160 @@ class BacktestAppService:
                 print(f"Error plotting backtest results: {e}")
 
         return report
+
+    async def _run_with_event_bus(
+        self,
+        symbols: list[str],
+        start_date: datetime,
+        end_date: datetime,
+        base_timeframe: Timeframe,
+        strategies: list[BaseStrategy] | None,
+        plot: bool,
+    ) -> list[BacktestReport]:
+        """使用 EventBus 异步驱动回测循环。
+
+        保留原有同步循环作为 fallback，通过 use_event_bus=True 参数切换。
+        """
+        from src.infrastructure.event_bus import EventBus, MarketTickEvent, DailySettlementEvent
+
+        if strategies is None:
+            strategies = [self.strategy]
+
+        initial_asset = self.trade_gateway.get_asset()
+        if initial_asset is None:
+            raise ValueError("Asset not available from trade gateway.")
+        initial_capital = initial_asset.total_asset
+
+        reports: list[BacktestReport] = []
+        for i, strategy in enumerate(strategies):
+            sub_account_id = f"BT_{strategy.name}_{start_date.strftime('%Y%m%d')}"
+            self.trade_gateway.create_sub_account(sub_account_id, initial_capital)
+            self.trade_gateway.activate_account(sub_account_id)
+            self.snapshots: list[DailySnapshot] = []
+
+            all_timestamps = self.market_gateway.get_all_timestamps(base_timeframe)
+            valid_timestamps = [
+                ts for ts in all_timestamps
+                if start_date <= ts <= end_date
+            ]
+
+            if not valid_timestamps:
+                reports.append(self.evaluator.evaluate(
+                    start_date=start_date, end_date=end_date,
+                    initial_capital=initial_capital, snapshots=[], trades=[],
+                ))
+                continue
+
+            bus = EventBus()
+
+            # 在 EventBus 驱动的循环中，按原同步逻辑逐步执行
+            # 事件总线主要用于解耦各步骤，为后续完全异步迁移铺路
+            from src.infrastructure.logging.backtest_logger import BacktestProgress
+            progress = BacktestProgress(len(valid_timestamps))
+
+            for current_time in valid_timestamps:
+                progress.update(current_time)
+                market_time = current_time
+                self.market_gateway.set_current_time(market_time)
+
+                strategy_market_data: dict[str, list[Bar]] = {}
+                current_prices: dict[str, float] = {}
+                bars_for_event: dict[str, Bar] = {}
+
+                for symbol in symbols:
+                    all_bars = self.market_gateway.get_recent_bars(symbol, base_timeframe, 101)
+                    if not all_bars:
+                        continue
+                    if len(all_bars) >= 2:
+                        strategy_market_data[symbol] = all_bars[:-1]
+                    current_bar = all_bars[-1]
+                    current_prices[symbol] = current_bar.close
+                    bars_for_event[symbol] = current_bar
+
+                # Publish MarketTickEvent (事件总线解耦第一步)
+                await bus.publish(MarketTickEvent(
+                    timestamp=market_time,
+                    bars=bars_for_event,
+                ))
+
+                # 策略生成信号 + 执行 (保持同步逻辑，事件用于日志/审计)
+                current_positions = self.trade_gateway.get_positions()
+                signals = strategy.generate_signals(strategy_market_data, current_positions)
+
+                execution_prices: dict[str, float] = {
+                    symbol: bar.open for symbol, bar in bars_for_event.items()
+                }
+                position_map = {p.ticker: p for p in current_positions}
+
+                for signal in signals:
+                    if self.status_registry and not self.status_registry.is_tradable(signal.symbol, market_time):
+                        continue
+                    price = execution_prices.get(signal.symbol)
+                    if not price or price <= 0:
+                        continue
+                    asset = self.trade_gateway.get_asset()
+                    if asset is None:
+                        raise ValueError("Asset not available from trade gateway.")
+
+                    position = position_map.get(signal.symbol)
+                    volume = self.sizer.calculate_target(signal, price, asset, position)
+                    if volume <= 0:
+                        continue
+
+                    direction = OrderDirection(signal.direction.value)
+                    order = Order(
+                        order_id=f"ORD_{market_time.strftime('%Y%m%d%H%M%S')}_{signal.symbol}",
+                        account_id=asset.account_id,
+                        ticker=signal.symbol,
+                        direction=direction,
+                        price=price,
+                        volume=volume,
+                        type=OrderType.LIMIT,
+                        status=OrderStatus.CREATED,
+                        created_at=market_time,
+                    )
+                    try:
+                        self.trade_gateway.place_order(order)
+                    except OrderSubmitError as e:
+                        print(f"[{market_time}] Order rejected for {signal.symbol}: {e}")
+                    except (InsufficientFundsError, PositionNotAvailableError) as e:
+                        print(f"[{market_time}] Cannot execute for {signal.symbol}: {e}")
+                    except TradeError as e:
+                        print(f"[{market_time}] Trade error for {signal.symbol}: {e}")
+
+                # 日终结算
+                all_orders = self.trade_gateway.list_orders()
+                all_positions = self.trade_gateway.get_positions()
+                asset = self.trade_gateway.get_asset()
+                if asset is None:
+                    raise ValueError("Asset not available from trade gateway.")
+                self.settlement_service.process_daily_settlement(all_orders, all_positions, asset)
+                self._record_snapshot(market_time, current_prices)
+
+                # Publish DailySettlementEvent
+                await bus.publish(DailySettlementEvent(
+                    timestamp=market_time,
+                    date=market_time,
+                ))
+
+            is_last = (i == len(strategies) - 1)
+            report = self.evaluator.evaluate(
+                start_date=start_date, end_date=end_date,
+                initial_capital=initial_capital,
+                snapshots=self.snapshots,
+                trades=self.trade_gateway.list_trade_records(),
+            )
+            if plot and is_last:
+                try:
+                    from src.infrastructure.visualization.plotter import BacktestPlotter
+                    BacktestPlotter().plot(report)
+                except ImportError:
+                    print("Warning: Visualization module not found or matplotlib not installed.")
+                except Exception as e:
+                    print(f"Error plotting backtest results: {e}")
+            reports.append(report)
+
+        return reports
 
     def _record_snapshot(self, date: datetime, current_prices: dict[str, float]) -> None:
         """记录每日资产快照。"""
