@@ -1,6 +1,4 @@
 import logging
-import sys
-from pathlib import Path
 
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
@@ -11,62 +9,7 @@ from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
 
-
-def _import_xtquant_modules():
-    """动态导入 xtquant 交易相关模块，支持多路径 fallback。
-
-    优先级:
-    1. 已安装的 xtquant 包 (pip install xtquant)
-    2. PYTHONPATH 中的 xtquant
-    3. 项目根目录 libs/xtquant/
-    """
-    xtconstant = None
-    XtQuantTrader = None
-    XtQuantTraderCallback = None
-    StockAccount = None
-
-    xtquant_paths = []
-
-    # 尝试从已安装包导入
-    try:
-        import xtquant.xtconstant
-        import xtquant.xttrader
-        import xtquant.xttype
-        xtconstant = xtquant.xtconstant
-        XtQuantTrader = xtquant.xttrader.XtQuantTrader
-        XtQuantTraderCallback = xtquant.xttrader.XtQuantTraderCallback
-        StockAccount = xtquant.xttype.StockAccount
-        if all([xtconstant, XtQuantTrader, XtQuantTraderCallback, StockAccount]):
-            return xtconstant, XtQuantTrader, XtQuantTraderCallback, StockAccount
-    except ImportError:
-        pass
-
-    # 尝试从项目外部 libs/ 加载
-    project_root = Path(__file__).resolve().parent.parent.parent.parent
-    sdk_dir = project_root / "libs" / "xtquant"
-    if sdk_dir.exists():
-        sys.path.insert(0, str(sdk_dir.parent))
-        try:
-            import xtquant.xtconstant
-            import xtquant.xttrader
-            import xtquant.xttype
-            return (
-                xtquant.xtconstant,
-                xtquant.xttrader.XtQuantTrader,
-                xtquant.xttrader.XtQuantTraderCallback,
-                xtquant.xttype.StockAccount,
-            )
-        except ImportError:
-            pass
-
-    raise ImportError(
-        "xtquant SDK not found. Install via: pip install xtquant "
-        "or set PYTHONPATH to your QMT userdata_mini directory."
-    )
-
-
-xtconstant, XtQuantTrader, XtQuantTraderCallback, StockAccount = _import_xtquant_modules()
-
+from .xtquant_client import StockAccount, XtQuantTrader, XtQuantTraderCallback, xtconstant
 
 logger = logging.getLogger(__name__)
 

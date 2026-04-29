@@ -1,42 +1,9 @@
 import logging
-import sys
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 
-
-def _import_xtdata():
-    """动态导入 xtquant.xtdata，支持多路径 fallback。
-
-    优先级:
-    1. 已安装的 xtquant 包 (pip install xtquant)
-    2. PYTHONPATH 中的 xtquant
-    3. 项目根目录 libs/xtquant/
-    """
-    try:
-        import xtquant.xtdata as xtdata
-        return xtdata
-    except ImportError:
-        pass
-
-    project_root = Path(__file__).resolve().parent.parent.parent.parent
-    sdk_dir = project_root / "libs" / "xtquant"
-    if sdk_dir.exists():
-        sys.path.insert(0, str(sdk_dir.parent))
-        try:
-            import xtquant.xtdata as xtdata
-            return xtdata
-        except ImportError:
-            pass
-
-    raise ImportError(
-        "xtquant SDK not found. Install via: pip install xtquant "
-        "or set PYTHONPATH to your QMT userdata_mini directory."
-    )
-
-
-xtdata = _import_xtdata()
+from .xtquant_client import xtdata
 
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
