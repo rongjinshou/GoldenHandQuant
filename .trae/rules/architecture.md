@@ -121,6 +121,10 @@ QuantFlow/
    - 所有公共模块、类、复杂的领域方法必须包含 **Google Style** 的 Docstring。
    - 必须明确标注 `Args:`（参数说明）、`Returns:`（返回值说明）以及可能抛出的 `Raises:`（异常说明）。
 
+7. **严格的模块导入规范 (Import Rules)**:
+   - **包外依赖（跨层/跨模块调用）必须绝对导入**：例如在 `infrastructure` 层调用 `domain` 层，必须使用 `from src.domain.trade.entities.order import Order`，严禁使用相对导入。
+   - **包内依赖（同包兄弟模块调用）推荐相对导入**：例如在 `src/infrastructure/gateway/` 内的 `qmt_trade.py` 调用同目录的 `xtquant_client.py`，必须使用 `from .xtquant_client import xtdata`，以保持包的内聚性和重构友好度。
+
 ## 7. 单元测试规范 (Unit Testing Standards)
 本项目采用业内最先进的 Python 测试框架 `pytest`，并严格遵守工业级测试规范。测试代码的质量必须等同甚至高于生产代码。
 
