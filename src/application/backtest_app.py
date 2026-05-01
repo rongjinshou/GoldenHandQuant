@@ -24,6 +24,9 @@ from src.domain.account.exceptions import InsufficientFundsError, PositionNotAva
 class BacktestAppService:
     """回测应用服务。"""
 
+    # 策略行情回溯窗口: DualMa 需要 ~10 根 Bar 计算 MA10 + 1 根当前 Bar + 容余
+    LOOKBACK_WINDOW = 101
+
     def __init__(
         self,
         market_gateway: IBacktestMarketGateway,
@@ -162,7 +165,7 @@ class BacktestAppService:
             current_prices: dict[str, float] = {}
 
             for symbol in symbols:
-                all_bars = self.market_gateway.get_recent_bars(symbol, base_timeframe, 101)
+                all_bars = self.market_gateway.get_recent_bars(symbol, base_timeframe, self.LOOKBACK_WINDOW)
                 if not all_bars:
                     continue
                 if len(all_bars) >= 2:
@@ -306,7 +309,7 @@ class BacktestAppService:
                 bars_for_event: dict[str, Bar] = {}
 
                 for symbol in symbols:
-                    all_bars = self.market_gateway.get_recent_bars(symbol, base_timeframe, 101)
+                    all_bars = self.market_gateway.get_recent_bars(symbol, base_timeframe, self.LOOKBACK_WINDOW)
                     if not all_bars:
                         continue
                     if len(all_bars) >= 2:
@@ -415,8 +418,7 @@ class BacktestAppService:
 
         total_asset = asset.available_cash + asset.frozen_cash + market_value
         
-        # 更新 Asset 对象的 total_asset 以保持一致性
-        asset.total_asset = total_asset
+        asset.update_total_asset(total_asset)
 
         last_snapshot = self.snapshots[-1] if self.snapshots else None
         last_total = last_snapshot.total_asset if last_snapshot else total_asset # 第一天若无变动则 PnL 为 0

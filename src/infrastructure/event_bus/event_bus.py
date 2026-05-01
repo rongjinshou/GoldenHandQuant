@@ -13,21 +13,28 @@ class EventBus:
     回测循环逐步迁移为: publish tick → handlers react。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_queue_size: int = 10000) -> None:
         self._subscribers: dict[type, list[EventHandler]] = defaultdict(list)
-        self._queue: asyncio.Queue[object] = asyncio.Queue()
+        self._queue: asyncio.Queue[object] = asyncio.Queue(maxsize=max_queue_size)
+        self._running = False
 
     def subscribe(self, event_type: type, handler: EventHandler) -> None:
         self._subscribers[event_type].append(handler)
 
     async def publish(self, event: object) -> None:
+        if not self._subscribers:
+            return  # 无订阅者时静默丢弃，防止内存泄漏
         await self._queue.put(event)
 
     async def start(self) -> None:
         """消费事件队列，分发给注册的 handler。"""
         logger = logging.getLogger("event_bus")
-        while True:
-            event = await self._queue.get()
+        self._running = True
+        while self._running:
+            try:
+                event = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
             for handler in self._subscribers.get(type(event), []):
                 try:
                     await handler(event)
@@ -39,3 +46,7 @@ class EventBus:
                         e,
                     )
             self._queue.task_done()
+
+    def stop(self) -> None:
+        """停止事件总线消费循环。"""
+        self._running = False

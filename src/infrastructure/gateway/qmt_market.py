@@ -27,20 +27,13 @@ class QmtMarketGateway(IMarketGateway):
             list[Bar]: K 线列表
         """
         try:
-            # 转换 timeframe 为 xtquant 格式字符串
-            # Timeframe 枚举值本身就是字符串 ("1d", "1m" 等)，可能需要适配
-            # 假设 Timeframe 定义的值与 xtquant 兼容
             tf_str = timeframe.value
 
-            # 确保数据已下载 (可选，根据需求，这里假设数据已订阅或下载)
-            # xtdata.download_history_data(symbol, period=tf_str, count=limit)
+            field_list = ["open", "high", "low", "close", "volume"]
 
-            field_list = ["time", "open", "high", "low", "close", "volume"]
-            # 调用 xtdata 获取数据
-            # 注意：默认拉取前复权数据
-            # xtdata.get_market_data 返回 {field: DataFrame}
-            # DataFrame index 为 stock_list, columns 为 time_list
-            data = xtdata.get_market_data(
+            # 使用 get_market_data_ex（非旧版 get_market_data）
+            # 返回 {stock: DataFrame(index=time, columns=fields)}
+            data_map = xtdata.get_market_data_ex(
                 field_list=field_list,
                 stock_list=[symbol],
                 period=tf_str,
@@ -49,51 +42,38 @@ class QmtMarketGateway(IMarketGateway):
                 fill_data=True,
             )
 
-
-            if not data:
+            if symbol not in data_map or data_map[symbol].empty:
                 logger.warning(f"No data returned for {symbol} {timeframe}")
                 return []
 
-            # 检查是否有数据
-            first_field = list(data.keys())[0]
-            if data[first_field].empty:
-                logger.warning(f"Empty data for {symbol} {timeframe}")
-                return []
+            df = data_map[symbol]
 
-            # 获取时间列 (columns)
-            times = data[first_field].columns.tolist()
-
-            # 提取该标的的数据 Series
-            # 注意: 如果 symbol 不在 index 中会报错，但在 stock_list=[symbol] 且返回非空时应该存在
-            if symbol not in data[first_field].index:
-                logger.warning(f"Symbol {symbol} not found in returned data")
-                return []
-
-            opens = data["open"].loc[symbol]
-            highs = data["high"].loc[symbol]
-            lows = data["low"].loc[symbol]
-            closes = data["close"].loc[symbol]
-            volumes = data["volume"].loc[symbol]
-
-            # time 字段通常返回毫秒时间戳
-            timestamps = data["time"].loc[symbol]
+            # 获取不复权收盘价用于真实账本结算
+            unadjusted_close_map: dict = {}
+            try:
+                unadj_map = xtdata.get_market_data_ex(
+                    field_list=["close"],
+                    stock_list=[symbol],
+                    period=tf_str,
+                    count=limit,
+                    dividend_type="none",
+                    fill_data=True,
+                )
+                if symbol in unadj_map and not unadj_map[symbol].empty:
+                    unadj_series = unadj_map[symbol]["close"]
+                    unadjusted_close_map = unadj_series.to_dict()
+            except Exception:
+                logger.debug("Failed to fetch unadjusted close for %s", symbol, exc_info=True)
 
             bars = []
-            for t in times:
-                ts = timestamps[t]
+            for ts, row in df.iterrows():
                 dt: datetime
-                # QMT 时间戳通常是毫秒级 int
-                # 有时可能是字符串格式，需根据实际情况处理，这里假设是 int
                 if isinstance(ts, (int, float, np.integer, np.floating)):
                     dt = datetime.fromtimestamp(ts / 1000)
                 elif isinstance(ts, str):
-                    # 如果是字符串，尝试解析 'YYYYMMDDHHMMSS' 等格式
-                    # 这里暂略，假设是标准毫秒时间戳
-                    # 也可以尝试用 pd.to_datetime
                     try:
                         dt = datetime.strptime(ts, "%Y%m%d%H%M%S")
                     except ValueError:
-                        # 尝试纯日期
                         try:
                             dt = datetime.strptime(ts, "%Y%m%d")
                         except ValueError:
@@ -107,11 +87,12 @@ class QmtMarketGateway(IMarketGateway):
                     symbol=symbol,
                     timeframe=timeframe,
                     timestamp=dt,
-                    open=float(opens[t]),
-                    high=float(highs[t]),
-                    low=float(lows[t]),
-                    close=float(closes[t]),
-                    volume=float(volumes[t]),
+                    open=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                    close=float(row["close"]),
+                    volume=float(row["volume"]),
+                    unadjusted_close=float(unadjusted_close_map.get(ts, 0.0)),
                 )
                 bars.append(bar)
 

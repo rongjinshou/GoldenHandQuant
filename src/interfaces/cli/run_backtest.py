@@ -86,8 +86,12 @@ def main():
     dt_start = datetime.strptime(start_date, "%Y-%m-%d")
     dt_end = datetime.strptime(end_date, "%Y-%m-%d")
     
-    report = app.run_backtest(symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf, plot=plot)
-    
+    reports = app.run_backtest(symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf, plot=plot)
+    if not reports:
+        print("No backtest reports generated.")
+        return
+    report = reports[0]
+
     # 6. 输出报告
     print("\n" + "="*40)
     print("       BACKTEST PERFORMANCE REPORT       ")

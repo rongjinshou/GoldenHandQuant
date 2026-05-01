@@ -56,11 +56,21 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         self._default_account_id = default_account_id
         self._repo.create_account(default_account_id, initial_capital)
         self._active_account_id = default_account_id
-        # 向后兼容: asset/positions 属性指向默认账户
-        self.asset = self._repo.get_asset(default_account_id)
-        self.positions: dict[str, Position] = {}
         self.trade_records: list[TradeRecord] = []
         self.orders: dict[str, Order] = {}
+
+    @property
+    def asset(self) -> Asset:
+        """当前活跃账户资产，单一数据源：_repo。"""
+        asset = self._repo.get_asset(self._active_account_id)
+        if asset is None:
+            raise ValueError(f"Active account '{self._active_account_id}' not found")
+        return asset
+
+    @property
+    def positions(self) -> dict[str, Position]:
+        """当前活跃账户持仓字典，单一数据源：_repo。"""
+        return self._repo._positions.get(self._active_account_id, {})
 
     def get_asset(self, account_id: str | None = None) -> Asset | None:
         """获取账户资金。"""
@@ -80,12 +90,9 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
 
     def activate_account(self, account_id: str) -> None:
         """切换当前活跃账户，后续 place_order / get_asset 等操作针对该账户。"""
-        asset = self._repo.get_asset(account_id)
-        if asset is None:
+        if self._repo.get_asset(account_id) is None:
             raise ValueError(f"Account '{account_id}' not found in repository")
         self._active_account_id = account_id
-        self.asset = asset
-        self.positions = self._repo._positions.get(account_id, {})
 
     def list_orders(self) -> list[Order]:
         return list(self.orders.values())
@@ -200,12 +207,10 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         # 8. 执行成交 (Atomic fill for backtest)
         try:
             self._simulate_fill(order, exec_price, fill_volume, commission, tax, transfer_fee, frozen_amount)
-        except Exception as e:
-            # 回滚冻结 (理论上不应发生，但为了健壮性)
+        except OrderSubmitError:
             if frozen_amount > 0:
-                self.asset.deduct_frozen_cash(frozen_amount) # 错误回滚需特殊处理，这里简单解冻
-                self.asset.available_cash += frozen_amount
-            raise e
+                self.asset.unfreeze_cash(frozen_amount)
+            raise
             
         return order.order_id
 

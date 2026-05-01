@@ -1,8 +1,12 @@
+import logging
+
 from src.domain.account.entities.position import Position
 from src.domain.market.value_objects.bar import Bar
 from src.domain.strategy.services.base_strategy import BaseStrategy
 from src.domain.strategy.value_objects.signal import Signal
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
+
+logger = logging.getLogger(__name__)
 
 
 class DualMaStrategy(BaseStrategy):
@@ -43,6 +47,8 @@ class DualMaStrategy(BaseStrategy):
         for symbol, bars in market_data.items():
             if not bars or len(bars) < 11:
                 # 数据不足以计算上一时刻的 MA10 (需要 11 个点: -11~-2)
+                if bars:
+                    logger.debug("Insufficient data for %s: %d bars (need >= 11)", symbol, len(bars))
                 continue
 
             # 1. 计算当前时刻 (T) 的 MA5, MA10

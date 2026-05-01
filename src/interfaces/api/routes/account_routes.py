@@ -34,7 +34,7 @@ async def get_positions(gateway: IAccountGateway = Depends(get_account_gateway))
             "total_volume": p.total_volume,
             "available_volume": p.available_volume,
             "average_cost": p.average_cost,
-            "market_value": p.market_value,
+            "cost_basis": p.average_cost * p.total_volume,
         }
         for p in positions
     ]

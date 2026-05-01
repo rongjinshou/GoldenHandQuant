@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-QuantFlow — A 股量化交易系统（实盘 + 回测框架），基于 DDD 单体架构。
+QuantFlow — A 股量化交易系统（实盘 + 回测框架），基于 DDD 单体架构, python3.13。
 
 ## 常用命令
 

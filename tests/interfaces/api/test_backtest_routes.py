@@ -11,12 +11,10 @@ def test_health_check():
     assert response.json()["status"] == "ok"
 
 
-def test_trigger_backtest_with_defaults():
+def test_trigger_backtest_returns_not_implemented():
     response = client.post("/api/backtest/run", json={})
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "completed"
-    assert "run_id" in data
+    assert response.status_code == 501
+    assert "not yet implemented" in response.json()["detail"].lower()
 
 
 def test_get_backtest_status_not_found():

@@ -42,6 +42,14 @@ class OrderService:
         self._gateway = gateway
         self._risk_policy = risk_policy
 
+    def get_positions(self) -> list:
+        """获取当前账户持仓列表。"""
+        return self._gateway.get_positions()
+
+    def get_asset(self):
+        """获取当前账户资产。"""
+        return self._gateway.get_asset()
+
     def place_order(self, order: Order) -> OrderResult:
         """提交订单。
 

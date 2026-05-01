@@ -18,20 +18,23 @@ async def handle_strategy_execution(
     order_service: OrderService,
 ) -> None:
     """MarketTick → 策略生成信号 → 下单"""
-    positions = order_service._gateway.get_positions()
+    from src.domain.trade.entities.order import Order
+    from src.domain.trade.value_objects.order_direction import OrderDirection
+
+    positions = order_service.get_positions()
     signals = strategy.generate_signals(event.bars, positions)
     for signal in signals:
-        asset = order_service._gateway.get_asset()
+        asset = order_service.get_asset()
         position = next((p for p in positions if p.ticker == signal.symbol), None)
-        volume = sizer.calculate_target(signal, event.bars[signal.symbol].open, asset, position)
+        price = event.bars[signal.symbol].open if signal.symbol in event.bars else 0.0
+        volume = sizer.calculate_target(signal, price, asset, position)
         if volume > 0:
-            from src.domain.trade.entities.order import Order
             order = Order(
                 order_id=f"ORD_{event.timestamp.strftime('%Y%m%d%H%M%S')}_{signal.symbol}",
                 account_id=asset.account_id,
                 ticker=signal.symbol,
-                direction=signal.direction,
-                price=event.bars[signal.symbol].open,
+                direction=OrderDirection(signal.direction.value),
+                price=price,
                 volume=volume,
             )
             order_service.place_order(order)

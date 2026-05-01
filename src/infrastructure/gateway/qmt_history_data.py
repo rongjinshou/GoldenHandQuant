@@ -146,12 +146,32 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
         if df is not None and not df.empty:
             # 确保按时间排序
             df = df.sort_values('datetime')
-            
+
+            # 获取不复权收盘价用于真实账本结算
+            unadjusted_close_map: dict = {}
+            try:
+                unadj_map = xtdata.get_market_data_ex(
+                    field_list=["close"],
+                    stock_list=[symbol],
+                    period=timeframe.value,
+                    start_time=qmt_start_date,
+                    end_time=qmt_end_date,
+                    dividend_type="none",
+                    fill_data=True,
+                )
+                if symbol in unadj_map and not unadj_map[symbol].empty:
+                    unadj_series = unadj_map[symbol]["close"]
+                    unadjusted_close_map = unadj_series.to_dict()
+            except Exception:
+                pass
+
             for _, row in df.iterrows():
                 try:
                     # 转换 volume 为 int (根据用户要求)
                     vol = int(row['volume'])
-                    
+                    ts = row['datetime']
+                    unadj_close = float(unadjusted_close_map.get(ts, 0.0))
+
                     bar = Bar(
                         symbol=symbol,
                         timeframe=timeframe,
@@ -160,7 +180,8 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                         high=float(row['high']),
                         low=float(row['low']),
                         close=float(row['close']),
-                        volume=float(vol) # 实体定义是 float，但数值要是整数
+                        volume=float(vol), # 实体定义是 float，但数值要是整数
+                        unadjusted_close=unadj_close,
                     )
                     bars.append(bar)
                 except (KeyError, ValueError) as e:

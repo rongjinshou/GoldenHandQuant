@@ -82,6 +82,16 @@ class Asset:
         # self.total_asset 不自动减少，保持总资产守恒 (Cash -> Position)
         self.updated_at = datetime.now()
 
+    def update_total_asset(self, new_value: float) -> None:
+        """更新总资产估值（仅用于日终快照/外部估值同步）。
+
+        注意：此方法不修改现金或持仓，仅同步 total_asset 字段。
+        """
+        if new_value < 0:
+            raise ValueError("Total asset cannot be negative")
+        self.total_asset = new_value
+        self.updated_at = datetime.now()
+
     def deposit(self, amount: float) -> None:
         """入金。
 

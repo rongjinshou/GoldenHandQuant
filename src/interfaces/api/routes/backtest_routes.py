@@ -24,15 +24,11 @@ _run_status: dict[str, dict] = {}
 
 @router.post("/run", response_model=BacktestRunResponse)
 async def trigger_backtest(request: BacktestRunRequest):
-    run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    _run_status[run_id] = {"status": "pending", "progress": 0}
-    try:
-        _run_status[run_id] = {"status": "running", "progress": 0}
-        _run_status[run_id] = {"status": "completed", "progress": 100}
-        return BacktestRunResponse(run_id=run_id, status="completed", message="Backtest finished")
-    except Exception as e:
-        _run_status[run_id] = {"status": "failed", "error": str(e)}
-        raise HTTPException(status_code=500, detail=str(e))
+    """触发回测运行（暂未实现，请使用 CLI: python -m src.interfaces.cli.run_backtest）。"""
+    raise HTTPException(
+        status_code=501,
+        detail="Backtest execution not yet implemented. Use CLI: python -m src.interfaces.cli.run_backtest",
+    )
 
 
 @router.get("/status/{run_id}")
