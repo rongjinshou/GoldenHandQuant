@@ -1,8 +1,8 @@
 backtest:
   symbols:
-    - "000021.SZ"
+    - "600096.SH"
   start_date: "2016-01-01"
-  end_date: "2024-12-31"
+  end_date: "2026-04-29"
   base_timeframe: "1d"
   initial_capital: 1000000.0
   plot: true
@@ -16,4 +16,6 @@ position_sizing:
 
 data:
   cache_dir: "data/"
-  history_fetcher: "QmtHistoryDataFetcher"
+  history_fetcher: "TushareHistoryDataFetcher"
+  tushare:
+    token: "bd02c391c531732dc221165af820ea5fec582e4251cdf70115ed264d"

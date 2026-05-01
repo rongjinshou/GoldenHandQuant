@@ -33,20 +33,40 @@ class QmtSettings:
 
 
 @dataclass(slots=True, kw_only=True)
+class TushareDataSettings:
+    token: str | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class DataSettings:
+    cache_dir: str = "data/"
+    history_fetcher: str = "TushareHistoryDataFetcher"
+    tushare: TushareDataSettings = field(default_factory=TushareDataSettings)
+
+
+@dataclass(slots=True, kw_only=True)
 class AppSettings:
     backtest: BacktestSettings = field(default_factory=BacktestSettings)
     strategy: StrategySettings = field(default_factory=StrategySettings)
     position_sizing: PositionSizingSettings = field(default_factory=PositionSizingSettings)
     qmt: QmtSettings = field(default_factory=QmtSettings)
+    data: DataSettings = field(default_factory=DataSettings)
 
 
 def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
+        
+    data_dict = data.get("data", {})
+    tushare_dict = data_dict.pop("tushare", {})
+    tushare_settings = TushareDataSettings(**tushare_dict)
+    data_settings = DataSettings(tushare=tushare_settings, **data_dict)
+        
     return AppSettings(
         backtest=BacktestSettings(**data.get("backtest", {})),
         strategy=StrategySettings(**data.get("strategy", {})),
         position_sizing=PositionSizingSettings(**data.get("position_sizing", {})),
+        data=data_settings,
     )
 
 

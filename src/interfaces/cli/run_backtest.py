@@ -14,7 +14,6 @@ sys.path.append(os.getcwd())
 
 from src.infrastructure.mock.mock_market import MockMarketGateway
 from src.infrastructure.mock.mock_trade import MockTradeGateway
-from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
 from src.application.backtest_app import BacktestAppService
 from src.domain.strategy.services.strategies.dual_ma_strategy import DualMaStrategy
 from src.domain.backtest.services.performance_evaluator import PerformanceEvaluator
@@ -32,6 +31,8 @@ def main():
         end_date = settings.backtest.end_date
         initial_capital = settings.backtest.initial_capital
         plot = settings.backtest.plot
+        history_fetcher_type = settings.data.history_fetcher
+        tushare_token = settings.data.tushare.token
         print("Loaded configuration from resources/backtest.yaml")
     except FileNotFoundError:
         symbols = ["000021.SZ"]
@@ -39,6 +40,8 @@ def main():
         end_date = datetime.now().strftime("%Y-%m-%d")
         initial_capital = 1_000_000.0
         plot = True
+        history_fetcher_type = "TushareHistoryDataFetcher"
+        tushare_token = None
         print("Config file not found, using default parameters.")
 
     tf = Timeframe.DAY_1
@@ -46,10 +49,17 @@ def main():
     print(f"Target: {symbols}")
     print(f"Timeframe: {tf.value}")
     print(f"Range: {start_date} to {end_date}")
+    print(f"History Fetcher: {history_fetcher_type}")
 
     # 2. 初始化基础设施
     print("\nInitializing infrastructure...")
-    fetcher = QmtHistoryDataFetcher()
+    if history_fetcher_type == "TushareHistoryDataFetcher":
+        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
+        fetcher = TushareHistoryDataFetcher(token=tushare_token)
+    else:
+        from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
+        fetcher = QmtHistoryDataFetcher()
+    
     market_gateway = MockMarketGateway()
     
     # MockTradeGateway 需要 market_gateway 来查询价格 (假设构造函数如此设计)
