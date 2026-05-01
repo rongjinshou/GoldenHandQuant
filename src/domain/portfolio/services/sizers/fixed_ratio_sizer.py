@@ -67,10 +67,8 @@ class FixedRatioSizer(IPositionSizer):
         elif signal.direction == SignalDirection.SELL:
             if position and position.available_volume > 0:
                 raw_volume = position.available_volume * signal.confidence_score
-                if abs(signal.confidence_score - 1.0) < 1e-6:
-                    target_volume = min(int(raw_volume), position.available_volume)
-                else:
-                    target_volume = (int(raw_volume) // 100) * 100
+                target_volume = (int(raw_volume) // 100) * 100
+                target_volume = min(target_volume, position.available_volume)
 
         return target_volume
 

@@ -74,11 +74,11 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
 
     def get_asset(self, account_id: str | None = None) -> Asset | None:
         """获取账户资金。"""
-        return self._repo.get_asset(account_id or self._default_account_id)
+        return self._repo.get_asset(account_id or self._active_account_id)
 
     def get_positions(self, account_id: str | None = None) -> list[Position]:
         """获取所有持仓。"""
-        return self._repo.get_positions(account_id or self._default_account_id)
+        return self._repo.get_positions(account_id or self._active_account_id)
 
     def get_position(self, ticker: str) -> Position | None:
         """获取单个持仓。"""
