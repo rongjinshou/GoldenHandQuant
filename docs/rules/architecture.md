@@ -5,6 +5,7 @@
 * **业务场景**: 中国 A 股量化交易系统（实盘/回测框架）
 * **架构模式**: 基于领域驱动设计 (DDD) 的单体架构 (Monolithic Architecture)
 * **核心驱动**: 进程内事件驱动 (In-Memory Event-Driven)
+* **Python 版本**: 3.11+
 
 ## 2. 核心红线 (AI 编码绝对禁令)
 作为本项目的 AI 编程助手，你在生成任何代码时，**必须绝对遵守以下红线，不可有任何逾越**：
@@ -19,56 +20,70 @@
 ## 3. 标准目录结构与职责说明
 请严格按照以下目录结构划分模块：
 
+```
 QuantFlow/
 ├── config/                 # 配置文件存放区 (yaml/json)
 ├── data/                   # 本地数据缓存与预训练模型存放区
 ├── logs/                   # 运行日志存放区
+├── .trae/                  # Trae IDE 配置目录（不纳入版本控制）
 └── src/
     ├── domain/             # 【领域层】核心业务逻辑，实体、值对象、领域服务、接口定义
     │   ├── account/        # 账户与持仓子域
-    │   ├── trade/          # 交易执行子域
-    │   ├── market/         # 行情与因子子域
+    │   ├── trade/          # 交易执行子域（订单、成交）
+    │   ├── market/         # 行情与因子子域（Bar、K线周期）
     │   ├── strategy/       # 策略信号子域
     │   ├── risk/           # 风控拦截子域
-    │   └── backtest/       # 回测模拟子域
+    │   ├── portfolio/      # 仓位管理子域（PositionSizer）
+    │   └── backtest/       # 回测模拟子域（报告、快照、交易记录）
     ├── application/        # 【应用层】用例编排，协调领域对象与基础设施
     ├── infrastructure/     # 【基础设施层】脏活累活，外部依赖的具体实现
     │   ├── gateway/        # QMT/xtquant 的具体对接实现 (数据获取、下单执行)
-    │   ├── ml_engine/      # CatBoost 模型的推理封装
-    │   ├── event_bus/      # 进程内事件总线实现 (基于 asyncio.Queue 等)
-    │   └── persistence/    # SQLite/文件存储等持久化实现
+    │   ├── mock/           # 回测模拟网关 (MockMarketGateway, MockTradeGateway)
+    │   ├── ml_engine/      # CatBoost 模型的推理封装 (特征工程、模型加载)
+    │   ├── event_bus/      # 进程内事件总线实现 (基于 asyncio.Queue，解耦回测各步骤)
+    │   ├── persistence/    # SQLite/文件存储等持久化实现 (订单、快照仓储)
+    │   ├── visualization/  # 回测结果图表绘制 (BacktestPlotter)
+    │   ├── logging/        # 回测进度日志
+    │   └── config/         # 配置加载与管理
     └── interfaces/         # 【用户接口层】系统出入口
-        ├── api/            # API 路由定义 (FastAPI 等)
-        ├── cli/            # 命令行入口模块
+        ├── api/            # API 路由定义 (FastAPI: backtest、account 端点)
+        ├── cli/            # 命令行入口模块 (run_backtest)
         └── events/         # 外部回调接收器 (如 QMT 推送的回调转换)
+```
 
-每个子域必须有一个对应的目录，目录名就是子域的名称。每个目录下必须按照如下的方式编排：
+### 3.1 子域内部结构规范
 
-1. **entities包**: 定义该子域的核心实体（如 Account, Position, Order 等），每个实体必须是一个独立的 Python 模块（如 `account.py`, `position.py`, `order.py` 等）。
-2. **value_objects包**: 定义该子域的不可变值对象（如 Price, Volume, DateTimeRange 等），每个值对象必须是一个独立的 Python 模块（如 `price.py`, `volume.py`, `date_time_range.py` 等）。
-3. **services包**: 实现该子域的业务逻辑，每个服务必须是一个独立的 Python 模块且必须是接口/基类（如base_risk_policy.py），并且同类型的接口/基类实现类进行划分例如risk/services/下的risk_policies。
-4. **interfaces包**: 定义该子域的外部接口（注意是外部依赖接口，不是领域层能力定义接口），根据功能不同，可分为以下子目录：
-   * **repositories包**: 定义该子域的仓储外部依赖接口（如数据库操作、文件存储等），每个接口必须是一个独立的 Python 模块（如 `account_repository.py`, `position_repository.py` 等）。
-   * **gateways包**: 定义该子域的网关外部依赖接口（如 QMT 交易网关、CatBoost 模型网关等），每个网关接口定义必须是一个独立的 Python 模块（如 `qmt_gateway.py`, `catboost_gateway.py` 等）。
-   * **events包**: 定义该子域的外部事件接收器接口（如 QMT 推送的回调转换），每个接收器接口必须是一个独立的 Python 模块（如 `qmt_events.py` 等）。
+每个子域必须有一个对应的目录，目录名就是子域的名称。每个目录下按需包含以下包：
+
+1. **entities包**: 定义该子域的核心实体（如 Account, Position, Order 等），每个实体必须是一个独立的 Python 模块（如 `asset.py`, `position.py`, `order.py` 等）。
+2. **value_objects包**: 定义该子域的不可变值对象（如 Price, Volume, Bar, Signal, RiskCheckResult 等），每个值对象必须是一个独立的 Python 模块。
+3. **services包**: 实现该子域的业务逻辑。接口/基类（如 `base_strategy.py`, `base_risk_policy.py`）直接放在 services 下，具体实现放在子包中（如 `strategies/`, `risk_policies/`, `sizers/`）。
+4. **interfaces包**: 定义该子域的外部依赖接口（Protocol 类或 ABC），根据功能不同，可分为以下子目录：
+   * **gateways包**: 网关接口（如 `trade_gateway.py`, `market_gateway.py`, `account_gateway.py` 等）。回测专用接口通过组合继承扩展（如 `IBacktestBroker` 组合了 `ITradeGateway` + `IAccountGateway`）。
+   * **repositories包**: 仓储接口（如 `account_repository.py` 等）。
+
+### 3.2 关键接口组合模式
+
+回测场景中，`IBacktestBroker`（定义在 `src/domain/backtest/interfaces/gateways/`）通过多重继承组合 `ITradeGateway` + `IAccountGateway`，并扩展 `list_orders()`、`create_sub_account()` 等回测专用方法。`MockTradeGateway` 在 infrastructure 层同时实现这些接口，避免接口碎片化。
 
 ## 4. A 股领域知识建模规范 (Domain Knowledge Constraints)
 
 在设计领域模型（Domain Model）及实现回测/实盘网关（Gateway）时，必须严格内置以下 A 股特定业务规则，以确保回测与实盘逻辑的一致性：
 
 ### 4.1 核心结算与资产规则
-1. **T+1 结算规则**: `Position` (持仓实体) 必须明确区分 `total_volume` (总持仓) 和 `available_volume` (可用持仓)。当日买入成交后，只能增加 `total_volume`，不可增加 `available_volume`（当日不可卖）。
-2. **资金冻结规则**: `Asset` (资产实体) 必须包含 `total_asset` (总资产)、`available_cash` (可用资金) 和 `frozen_cash` (冻结资金)。`Order` 提交（SUBMITTED）时必须立即计算并转移资金至 `frozen_cash`，成交（FILLED）或撤单（CANCELED）时进行对应的解冻与扣减。
+1. **T+1 结算规则**: `Position` (持仓实体) 必须明确区分 `total_volume` (总持仓) 和 `available_volume` (可用持仓)。当日买入成交后，只能增加 `total_volume`，不可增加 `available_volume`（当日不可卖）。日终通过 `settle_t_plus_1()` 方法将 `available_volume` 同步为 `total_volume`。
+2. **资金冻结规则**: `Asset` (资产实体) 必须包含 `total_asset` (总资产)、`available_cash` (可用资金) 和 `frozen_cash` (冻结资金)。`Order` 提交（SUBMITTED）时必须立即计算并转移资金至 `frozen_cash`，成交（FILLED）或撤单（CANCELED）时进行对应的解冻与扣减。提供 `freeze_cash()`、`unfreeze_cash()`、`deduct_frozen_cash()` 三个独立方法。
 3. **订单状态机**: `Order` 实体的 `status` 必须遵循严格的单向状态扭转，禁止逆向修改：
    * `CREATED` (已创建) -> `SUBMITTED` (已报)
    * `SUBMITTED` -> `PARTIAL_FILLED` (部成) / `FILLED` (已成) / `CANCELED` (已撤) / `REJECTED` (废单)
    * `PARTIAL_FILLED` -> `FILLED` / `PARTIAL_CANCELED` (部成撤)
+   * 实现中使用 `match/case` 语法处理状态流转逻辑。
 4. **价格与数量约束**: 
    * 买入申报数量必须为 100 的整数倍（一手）。
    * 所有的行情特征计算（Indicator Calculation）必须强制使用 **前复权 (Forward Adjusted)** 数据。
 
 ### 4.2 真实交易成本建模 (Transaction Costs)
-严禁在回测中使用“无摩擦”假设。无论是实盘资金计算还是回测模拟撮合，必须内置以下计算逻辑：
+严禁在回测中使用"无摩擦"假设。无论是实盘资金计算还是回测模拟撮合，必须内置以下计算逻辑：
 1. **佣金 (Commission)**: 买卖双向收取，费率按万分之 2.5 (0.00025) 计算，且**单笔最低收取 5 元**（此规则用于滤除在实盘中无法获利的无效微利信号）。
 2. **印花税 (Stamp Duty)**: 仅在**卖出**时单向收取，现行标准为万分之 5 (0.0005)。
 3. **过户费 (Transfer Fee)**: 买卖双向收取，现行标准为十万分之 1 (0.00001)。
@@ -81,18 +96,61 @@ QuantFlow/
 2. **成交容量限制 (Capacity Limit)**: 
    * 必须校验订单体积对盘口的冲击。单笔订单的 `volume` 默认不得超过当前行情 K 线总 `volume` 的 10%。
    * 若超出，超出部分必须标记为未能成交（`PARTIAL_CANCELED`），严禁在无流动性的假定下完成巨额成交。
+3. **涨跌停校验**: 回测时必须通过 `PriceLimit` 值对象校验成交价是否在涨跌停范围内，触及涨跌停的订单标记为 `REJECTED`。
 
-### 4.4 订单生命周期映射
-1. **收盘强制撤单**: 在跨日回测时，所有未成交订单（`SUBMITTED`, `PARTIAL_FILLED`）在每日收盘后必须强制流转为 `CANCELED` 状态，模拟 A 股当日有效的报单机制。
-2. **账户体系对齐**: K 线数据使用复权价保证策略连续性，但账户体系（持仓成本、资金余额）的更新必须以真实成交价（不复权价）为准。
+### 4.4 复权价与真实成交价分离
+1. **策略计算使用复权价**: K 线 `Bar` 实体的 `open/high/low/close` 字段存储前复权价格，保证策略指标的连续性。
+2. **账户结算使用不复权价**: `Bar.unadjusted_close` 字段存储真实成交价（不复权），`MockTradeGateway._simulate_fill()` 中以此计算费用和更新账户资产。
+3. **收盘强制撤单**: 在跨日回测时，所有未成交订单（`SUBMITTED`, `PARTIAL_FILLED`）在每日收盘后必须强制流转为 `CANCELED` 状态，模拟 A 股当日有效的报单机制。由 `DailySettlementService.process_daily_settlement()` 统一处理。
 
-## 5. AI 执行协议 (AI Workflow Protocol)
+## 5. 仓位管理子域 (Portfolio Subdomain)
+
+`src/domain/portfolio/` 是独立的仓位管理子域，负责将策略信号转换为具体的目标交易量：
+
+1. **IPositionSizer** (`src/domain/portfolio/interfaces/position_sizer.py`): 仓位计算接口，定义 `calculate_target(signal, current_price, asset, position) -> int` 方法。
+2. **内置 Sizer 实现**:
+   * `FixedRatioSizer` (`services/sizers/fixed_ratio_sizer.py`): 固定比例仓位管理器，按可用资金的一定比例计算目标数量。
+   * `EqualWeightSizer` (`services/equal_weight_sizer.py`): 等权仓位管理器。
+   * `KellySizer` (`services/kelly_sizer.py`): 凯利公式仓位管理器。
+3. **OrderTarget** (`entities/order_target.py`): 订单目标值对象，封装信号到目标持仓量的映射结果。
+
+## 6. 回测应用服务流程 (BacktestAppService)
+
+`BacktestAppService.run_backtest()` 是回测的核心编排方法，完整流程如下：
+
+1. **数据准备** (`prepare_data`): 通过 `IHistoryDataFetcher` 拉取历史 K 线，加载到 `IBacktestMarketGateway`。
+2. **多策略支持**: 支持传入 `list[BaseStrategy]`，为每个策略创建子账户并独立运行回测，最终返回 `list[BacktestReport]`。
+3. **回测主循环** (每个交易日):
+   a. `market_gateway.set_current_time()` — 推进到当前时间
+   b. `market_gateway.get_recent_bars()` — 获取回溯窗口内的 K 线（默认 101 根，策略用历史 N-1 根，当前 Bar 用于执行价）
+   c. `strategy.generate_signals()` — 策略生成交易信号
+   d. `status_registry.is_tradable()` — 停牌/退市检查
+   e. `sizer.calculate_target()` — 仓位计算
+   f. `trade_gateway.place_order()` — 下单并模拟撮合
+   g. `settlement_service.process_daily_settlement()` — 日终结算（撤单 + T+1 释放）
+   h. `_record_snapshot()` — 记录每日资产快照
+4. **双模式驱动**:
+   * 同步模式（默认）: 直接在 for 循环中执行上述步骤。
+   * EventBus 模式 (`use_event_bus=True`): 通过 `EventBus` 发布 `MarketTickEvent` 和 `DailySettlementEvent`，为后续完全异步迁移铺路。
+5. **绩效评估**: `PerformanceEvaluator.evaluate()` 汇总快照和成交记录，生成 `BacktestReport`。
+6. **可视化**: 可选调用 `BacktestPlotter.plot()` 绘制收益曲线。
+
+## 7. 事件总线 (EventBus)
+
+`src/infrastructure/event_bus/` 提供进程内异步事件驱动能力：
+
+1. **EventBus**: 基于 `asyncio.Queue` 的发布/订阅实现，支持 `publish()` 和 `subscribe()`。
+2. **事件类型** (`events.py`): `MarketTickEvent`（行情推进）、`DailySettlementEvent`（日终结算）。
+3. **处理器** (`handlers.py`): 各步骤的业务处理逻辑注册为事件处理器。
+4. **当前状态**: EventBus 模式作为可选开关（`use_event_bus=True`），同步循环仍为默认路径，两者共享核心逻辑。
+
+## 8. AI 执行协议 (AI Workflow Protocol)
 每次接收到新任务时，AI 需按以下步骤执行：
 1. **分析**: 确认该任务属于 DDD 的哪一层，并简述设计思路。
 2. **编码**: 按照 `ARCHITECTURE.md` 的要求编写高质量代码。
 3. **自检**: 生成完毕后，自行核对是否违反了上述红线（如：是否在 domain 层 import 了 pandas）。若有违反，立即自行修正。
 
-## 6. Python 3.11 现代编码风格与规范 (Modern Coding Conventions)
+## 9. Python 现代编码风格与规范 (Modern Coding Conventions)
 为了保持代码库的极高可读性、执行性能和前沿性，本项目全面拥抱 Python 3.11+ 的现代特性。AI 在生成代码时必须严格遵循以下风格：
 
 1. **现代类型注解 (Advanced Type Hinting)**:
@@ -116,6 +174,7 @@ QuantFlow/
 5. **异常处理与错误边界 (Error Handling)**:
    - 绝不允许出现 bare `except:` 或 `except Exception: pass`。
    - 必须捕获具体的异常类型。在基础设施层捕获到第三方异常后，必须将其包装为领域层自定义的异常（如 `raise OrderSubmitError from e`）再向上抛出。
+   - 领域层异常定义在各子域的 `exceptions.py` 中（如 `src/domain/trade/exceptions.py`、`src/domain/account/exceptions.py`）。
 
 6. **专业文档字符串 (Docstrings)**:
    - 所有公共模块、类、复杂的领域方法必须包含 **Google Style** 的 Docstring。
@@ -125,7 +184,7 @@ QuantFlow/
    - **包外依赖（跨层/跨模块调用）必须绝对导入**：例如在 `infrastructure` 层调用 `domain` 层，必须使用 `from src.domain.trade.entities.order import Order`，严禁使用相对导入。
    - **包内依赖（同包兄弟模块调用）推荐相对导入**：例如在 `src/infrastructure/gateway/` 内的 `qmt_trade.py` 调用同目录的 `xtquant_client.py`，必须使用 `from .xtquant_client import xtdata`，以保持包的内聚性和重构友好度。
 
-## 7. 单元测试规范 (Unit Testing Standards)
+## 10. 单元测试规范 (Unit Testing Standards)
 本项目采用业内最先进的 Python 测试框架 `pytest`，并严格遵守工业级测试规范。测试代码的质量必须等同甚至高于生产代码。
 
 1. **核心原则 (The FIRST Principle)**:
@@ -156,28 +215,36 @@ QuantFlow/
    - 测试代码的目录层级必须与源代码 `src/` 下的层级保持 **1:1 绝对镜像映射**。
    - 测试文件的命名规范：必须严格以 `test_` 为前缀，后接对应的源文件名。
    - 举例对照：
-     * 源文件：`src/domain/account/entities.py`
-     * 测试文件：`tests/domain/account/test_entities.py`
+     * 源文件：`src/domain/account/entities/asset.py`
+     * 测试文件：`tests/domain/account/entities/test_asset.py`
      * 源文件：`src/infrastructure/gateway/qmt_trade.py`
      * 测试文件：`tests/infrastructure/gateway/test_qmt_trade.py`
 
-## 8. QMT (xtquant) 数据获取与基础设施规范 (Infrastructure Constraints)
+## 11. QMT (xtquant) 数据获取与基础设施规范 (Infrastructure Constraints)
 
 在使用 QMT (`xtquant`) 作为底层数据源或交易网关时，必须严格遵守以下 API 调用规范，以绕过底层 C++ 接口的常见陷阱：
 
-### 5.1 历史行情获取接口规范 (Market Data API)
+### 11.1 历史行情获取接口规范 (Market Data API)
 1. **禁用旧版 API**: 绝对禁止使用 `xtdata.get_market_data()`。该接口返回的数据结构（`{字段: DataFrame}`）极不符合常规数据处理逻辑。
 2. **强制使用 EX 接口**: 必须使用 `xtdata.get_market_data_ex()`。该接口返回标准的 `{stock_code: DataFrame}` 结构，且 DataFrame 包含 open, high, low, close, volume 等完整字段。
 3. **复权要求**: 在调用接口获取用于回测和技术指标计算的 K 线时，必须强制指定 `dividend_type='front'`（前复权）。
 
-### 5.2 时间格式与解析规范 (Time Format & Parsing)
+### 11.2 时间格式与解析规范 (Time Format & Parsing)
 1. **请求参数时间格式**: QMT 的 C++ 底层对时间字符串要求极其严格。外部传入的 `YYYY-MM-DD` 格式（如 "2024-01-01"）在传递给 `download_history_data` 和 `get_market_data_ex` 之前，**必须**去除横杠，转换为紧凑型的 `YYYYMMDD`（如 "20240101"）或 `YYYYMMDDHHMMSS` 格式。
 2. **返回结果时间解析**: `get_market_data_ex` 返回的 DataFrame 中，时间信息通常隐藏在 `index` 中。必须显式使用 `pandas.to_datetime(df.index)` 将其转换为标准的 datetime 对象，再向下游领域模型传递。
 
-### 5.3 透明缓存与多维度隔离 (Transparent Caching)
+### 11.3 透明缓存与多维度隔离 (Transparent Caching)
 1. **多粒度文件隔离**: 历史数据落盘保存时，必须将 `symbol` 和 `timeframe` 结合作为联合主键。缓存文件命名规范须为 `data/{symbol}_{timeframe}.csv`（例如 `000021.SZ_1d.csv` 或 `000021.SZ_5m.csv`）。
 2. **透明读取机制**: 所有 `IHistoryDataFetcher` 的实现必须是防备性的。在向 QMT 发起耗时的下载请求前，必须先检查本地是否存在对应的缓存文件。若存在，则直接走本地 IO 并解析返回，避免重复调用 QMT 接口。
 
-### 5.4 账户网关无状态连接 (Gateway Connection)
+### 11.4 账户网关无状态连接 (Gateway Connection)
 1. **行情模块 (xtdata)**: 纯数据获取属于无状态调用。在代码层面不需要（也不支持）编写连接、登录代码，直接 `import xtdata` 并调用即可。依赖前提是本地终端已开启。
 2. **交易模块 (xttrader)**: 必须显式实例化 `XtQuantTrader`，提供 `qmt_path` 和 `session_id`，并严格执行 `connect()` 和 `subscribe()` 的握手流程。
+
+## 12. 持久化层 (Persistence Layer)
+
+`src/infrastructure/persistence/` 提供基于 SQLite 的持久化能力：
+
+1. **Database** (`database.py`): 数据库连接管理与表初始化。
+2. **Repositories**: `OrderRepository`（订单仓储）、`SnapshotRepository`（日终快照仓储），实现领域层定义的仓储接口。
+3. **数据隔离**: 每个回测运行使用独立的数据库文件，避免交叉污染。
