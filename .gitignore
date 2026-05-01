@@ -1,5 +1,11 @@
 **/__pycache__/
 *.py[cod]
+.venv/
 data/
 libs/xtquant/
 .trae/
+.idea/
+*.egg-info/
+omc_helper.md
+.claude/
+uv.lock
