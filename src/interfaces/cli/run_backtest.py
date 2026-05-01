@@ -32,7 +32,7 @@ def main():
         end_date = settings.backtest.end_date
         initial_capital = settings.backtest.initial_capital
         plot = settings.backtest.plot
-        print("Loaded configuration from config/backtest.yaml")
+        print("Loaded configuration from resources/backtest.yaml")
     except FileNotFoundError:
         symbols = ["000021.SZ"]
         start_date = "2016-01-01"

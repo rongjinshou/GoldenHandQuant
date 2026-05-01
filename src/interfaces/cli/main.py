@@ -30,7 +30,7 @@ def main() -> None:
         qmt_path = settings.qmt.userdata_path
         session_id = settings.qmt.session_id
         account_id = settings.qmt.account_id
-        logger.info("Loaded trading configuration from config/trading.yaml")
+        logger.info("Loaded trading configuration from resources/trading.yaml")
     except FileNotFoundError:
         qmt_path = r"D:\国金QMT交易端模拟\userdata_mini"
         session_id = 123456

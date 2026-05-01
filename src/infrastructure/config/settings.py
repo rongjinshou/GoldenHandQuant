@@ -40,7 +40,7 @@ class AppSettings:
     qmt: QmtSettings = field(default_factory=QmtSettings)
 
 
-def load_backtest_config(path: str = "config/backtest.yaml") -> AppSettings:
+def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return AppSettings(
@@ -50,7 +50,7 @@ def load_backtest_config(path: str = "config/backtest.yaml") -> AppSettings:
     )
 
 
-def load_trading_config(path: str = "config/trading.yaml") -> AppSettings:
+def load_trading_config(path: str = "resources/trading.yaml") -> AppSettings:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return AppSettings(
