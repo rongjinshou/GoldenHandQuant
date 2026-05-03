@@ -1,4 +1,8 @@
+from datetime import datetime
+
 import numpy as np
+
+from src.domain.market.services.fundamental_registry import FundamentalRegistry
 from src.domain.market.value_objects.bar import Bar
 
 
@@ -36,3 +40,30 @@ class FeaturePipeline:
             features.append([ret_1d, ret_5d, vol_5d, vol_ratio, ma_div])
 
         return np.array(features)
+
+    @staticmethod
+    def build_cross_section(
+        date: datetime,
+        bars: dict[str, Bar],
+        registry: FundamentalRegistry,
+    ) -> list:
+        from src.domain.market.value_objects.stock_snapshot import StockSnapshot
+
+        fundamentals = {s.symbol: s for s in registry.get_all_at_date(date)}
+        snapshots: list[StockSnapshot] = []
+
+        for symbol, bar in bars.items():
+            fund = fundamentals.get(symbol)
+            if fund is None:
+                continue
+            snapshots.append(StockSnapshot(
+                symbol=symbol,
+                date=date,
+                open=bar.open, high=bar.high, low=bar.low,
+                close=bar.close, volume=bar.volume,
+                name=fund.name, list_date=fund.list_date,
+                market_cap=fund.market_cap,
+                roe_ttm=fund.roe_ttm, ocf_ttm=fund.ocf_ttm,
+            ))
+
+        return snapshots

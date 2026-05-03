@@ -1,7 +1,6 @@
-from typing import Self
 
-from src.domain.risk.value_objects.risk_check_result import RiskCheckResult
 from src.domain.risk.services.base_risk_policy import BaseRiskPolicy
+from src.domain.risk.value_objects.risk_check_result import RiskCheckResult
 from src.domain.trade.entities.order import Order
 
 

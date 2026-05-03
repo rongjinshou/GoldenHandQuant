@@ -1,21 +1,23 @@
-import pandas as pd
 from pathlib import Path
+from threading import Event
+
+import pandas as pd
+
 from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
 
-from threading import Event
-
 from .xtquant_client import xtdata
+
 
 class QmtHistoryDataFetcher(IHistoryDataFetcher):
     """QMT 历史数据获取器实现 (基于 xtquant.xtdata)。"""
 
     def fetch_history_bars(
-        self, 
-        symbol: str, 
-        timeframe: Timeframe, 
-        start_date: str, 
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        start_date: str,
         end_date: str
     ) -> list[Bar]:
         """获取历史 K 线数据。
@@ -31,7 +33,7 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
         # 1. 构造缓存路径
         data_dir = Path("data")
         data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         csv_filename = f"{symbol}_{timeframe.value}.csv"
         csv_path = data_dir / csv_filename
 
@@ -40,27 +42,27 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
         # QMT 要求格式: YYYYMMDD
         qmt_start_date = start_date.replace("-", "")
         qmt_end_date = end_date.replace("-", "")
-        
+
         # Pandas 过滤用的 datetime 对象
         pd_start_dt = pd.to_datetime(start_date)
         pd_end_dt = pd.to_datetime(end_date)
 
         df = None
-        
+
         # 2. 尝试读取本地缓存
         if csv_path.exists():
             try:
                 # 读取 CSV，解析 datetime 列
                 cached_df = pd.read_csv(csv_path)
-                
+
                 if 'datetime' in cached_df.columns:
                     cached_df['datetime'] = pd.to_datetime(cached_df['datetime'])
-                    
+
                     # 检查缓存数据是否覆盖请求的时间段
                     # 简单策略：检查缓存中是否有处于请求时间范围内的数据
                     # 更严格策略：检查 min(date) <= start 和 max(date) >= end (但考虑到停牌等因素，这里只做简单检查)
                     mask = (cached_df['datetime'] >= pd_start_dt) & (cached_df['datetime'] <= pd_end_dt)
-                    
+
                     if mask.any():
                         # 有数据命中，使用缓存 (截取所需片段)
                         df = cached_df[mask].copy()
@@ -86,7 +88,7 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
             # 3.1 下载历史数据
             print(f"[{symbol}] Downloading history data ({timeframe.value})...")
             download_complete = Event()
-            
+
             def _download_callback(data):
                 # 修复回调死锁：只有当明确完成时才放行
                 if data.get('finished', 0) == data.get('total', 1) or data.get('finished') is True:
@@ -99,16 +101,16 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                 end_time=qmt_end_date,
                 callback=_download_callback
             )
-            
+
             # 由于你之前提到不想用 download_financial_data 阻塞
             # 这里超时时间可以设短一点，比如 5-10 秒。
             # 60 秒还是太长了，如果本地缓存最新，它根本不触发回调，你得干等一分钟。
             if not download_complete.wait(timeout=60):
                 print(f"[{symbol}] Notice: Data might be up-to-date or download timed out.")
-            
+
             # 3.2 获取数据 (去掉 'time' 字段，防止冗余)
             field_list = ['open', 'high', 'low', 'close', 'volume']
-            
+
             data_map = xtdata.get_market_data_ex(
                 field_list=field_list,
                 stock_list=[symbol],
@@ -118,13 +120,13 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                 dividend_type='front',
                 fill_data=True
             )
-            
+
             if symbol not in data_map or data_map[symbol].empty:
                 print(f"No data found for {symbol} via QMT.")
                 return []
-                
+
             raw_df = data_map[symbol]
-            
+
             # 3.3 数据清洗与格式化 (修复毫秒解析和导出格式)
             raw_df.index.name = 'datetime'
             try:
@@ -132,12 +134,12 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                 if raw_df.index.dtype == 'int64':
                     raw_df.index = pd.to_datetime(raw_df.index, unit='ms')
                 else:
-                    raw_df.index = pd.to_datetime(raw_df.index) 
+                    raw_df.index = pd.to_datetime(raw_df.index)
             except Exception as e:
                 print(f"[{symbol}] Error parsing dates: {e}")
-            
+
             df = raw_df.reset_index()
-            
+
             # 3.4 写入缓存
             df.to_csv(csv_path, index=False)
 
@@ -184,8 +186,8 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                         unadjusted_close=unadj_close,
                     )
                     bars.append(bar)
-                except (KeyError, ValueError) as e:
+                except (KeyError, ValueError):
                     # print(f"Error parsing row for {symbol}: {e}")
                     continue
-                    
+
         return bars

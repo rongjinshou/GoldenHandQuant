@@ -1,8 +1,9 @@
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from src.domain.backtest.value_objects.trade_record import TradeRecord
+
 from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot
+from src.domain.backtest.value_objects.trade_record import TradeRecord
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -27,6 +28,17 @@ class BacktestReport:
     dates: list[datetime] = field(default_factory=list)
     equity_curve: list[float] = field(default_factory=list)
     daily_returns: list[float] = field(default_factory=list)
+
+    @property
+    def turnover_rate(self) -> float:
+        """日均换手率 = 日均交易额 / 日均总资产。"""
+        if not self.trades or not self.snapshots:
+            return 0.0
+        total_trade_value = sum(t.price * t.volume for t in self.trades)
+        avg_equity = sum(s.total_asset for s in self.snapshots) / len(self.snapshots)
+        if avg_equity <= 0:
+            return 0.0
+        return (total_trade_value / avg_equity) / len(self.snapshots)
 
     @property
     def sharpe_ratio(self) -> float:

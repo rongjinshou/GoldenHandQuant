@@ -3,6 +3,7 @@ from datetime import datetime
 
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 
+
 @dataclass(slots=True, kw_only=True)
 class Signal:
     """策略生成的交易信号实体。

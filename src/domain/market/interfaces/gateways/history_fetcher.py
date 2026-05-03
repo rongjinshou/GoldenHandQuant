@@ -1,16 +1,18 @@
 from abc import ABC, abstractmethod
-from src.domain.market.value_objects.timeframe import Timeframe
+
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.timeframe import Timeframe
+
 
 class IHistoryDataFetcher(ABC):
     """历史数据获取接口。"""
 
     @abstractmethod
     def fetch_history_bars(
-        self, 
-        symbol: str, 
-        timeframe: Timeframe, 
-        start_date: str, 
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        start_date: str,
         end_date: str
     ) -> list[Bar]:
         """获取历史 K 线数据。

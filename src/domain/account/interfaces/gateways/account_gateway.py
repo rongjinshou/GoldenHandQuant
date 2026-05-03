@@ -1,4 +1,5 @@
 from typing import Protocol
+
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
 

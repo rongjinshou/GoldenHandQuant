@@ -121,7 +121,8 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
                         price_type = xtconstant.MARKET_SZ_CONVERT_5_CANCEL
                     else:
                         logger.warning(
-                            f"Unknown market for ticker {order.ticker} for market order, defaulting to FIX_PRICE with limit price"
+                            f"Unknown market for ticker {order.ticker} for market order, "
+                            f"defaulting to FIX_PRICE with limit price"
                         )
                         price_type = xtconstant.FIX_PRICE
 

@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from src.domain.backtest.entities.backtest_report import BacktestReport
 from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot
 from src.domain.backtest.value_objects.trade_record import TradeRecord

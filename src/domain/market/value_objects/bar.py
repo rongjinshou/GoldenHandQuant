@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
+
 from src.domain.market.value_objects.timeframe import Timeframe
+
 
 @dataclass(slots=True, kw_only=True)
 class Bar:
@@ -26,3 +28,4 @@ class Bar:
     close: float
     volume: float
     unadjusted_close: float = 0.0
+    prev_close: float = 0.0  # 前一日收盘价（用于涨停价计算）

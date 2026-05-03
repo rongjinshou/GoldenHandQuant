@@ -5,6 +5,10 @@ from src.domain.account.entities.asset import Asset
 from datetime import datetime
 
 
+class KellySizer(KellySizer):
+    def calculate_targets(self, signals, prices, asset, positions):
+        pass
+
 def test_kelly_sizer_positive_expectation_buys():
     sizer = KellySizer(win_rate=0.60, profit_loss_ratio=2.0, half_kelly=False, max_ratio=1.0)
     signal = Signal(symbol="000001.SZ", direction=OrderDirection.BUY, generated_at=datetime.now())

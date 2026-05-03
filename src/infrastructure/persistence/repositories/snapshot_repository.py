@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from src.infrastructure.persistence.database import Database
 from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot
+from src.infrastructure.persistence.database import Database
 
 
 class SnapshotRepository:

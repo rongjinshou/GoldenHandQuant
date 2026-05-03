@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
+
 from src.domain.trade.value_objects.order_direction import OrderDirection
+
 
 @dataclass(slots=True, kw_only=True)
 class TradeRecord:

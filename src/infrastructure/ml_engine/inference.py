@@ -1,4 +1,5 @@
 import numpy as np
+
 from src.infrastructure.ml_engine.model_loader import ModelLoader
 
 

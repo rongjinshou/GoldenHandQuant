@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+
 from src.domain.trade.value_objects.order_direction import OrderDirection
+
 
 @dataclass(slots=True, kw_only=True)
 class OrderTarget:
     """仓位目标实体。
-    
+
     Attributes:
         symbol: 标的代码。
         direction: 交易方向。

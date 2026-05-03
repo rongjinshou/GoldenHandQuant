@@ -3,11 +3,11 @@ from datetime import datetime
 
 import numpy as np
 
-from .xtquant_client import xtdata
-
+from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
-from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
+
+from .xtquant_client import xtdata
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
-class Timeframe(str, Enum):
+
+class Timeframe(StrEnum):
     """时间周期枚举。"""
     MIN_1 = "1m"
     MIN_5 = "5m"

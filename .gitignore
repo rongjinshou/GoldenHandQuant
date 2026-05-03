@@ -6,6 +6,6 @@ libs/xtquant/
 .trae/
 .idea/
 *.egg-info/
-omc_helper.md
 .claude/
+.omc/
 uv.lock

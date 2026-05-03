@@ -1,12 +1,13 @@
 """BacktestAppService 回归测试 — Lookahead Bias 验证。"""
+import pytest
 from unittest.mock import MagicMock
 from datetime import datetime
 from src.application.backtest_app import BacktestAppService
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
 
-
-def test_run_backtest_strategy_should_not_see_current_bar_close():
+@pytest.mark.parametrize("use_event_bus", [False, True])
+def test_run_backtest_strategy_should_not_see_current_bar_close(use_event_bus):
     """策略生成信号时不应看到当前 Bar 的收盘价。"""
     mock_market = MagicMock()
     mock_trade = MagicMock()
@@ -48,6 +49,7 @@ def test_run_backtest_strategy_should_not_see_current_bar_close():
         start_date=t1,
         end_date=t3,
         base_timeframe=Timeframe.DAY_1,
+        use_event_bus=use_event_bus
     )
 
     # 验证: 传给策略的 bars 不包含 T3 (最后一根)

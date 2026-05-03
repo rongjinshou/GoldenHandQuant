@@ -40,7 +40,7 @@ class DualMaStrategy(BaseStrategy):
         signals: list[Signal] = []
 
         # 将持仓转换为字典以便快速查找: symbol -> Position
-        position_map: dict[str, Position] = {
+        {
             p.ticker: p for p in current_positions
         }
 

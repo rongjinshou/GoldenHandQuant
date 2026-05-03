@@ -5,20 +5,21 @@
     python -m src.interfaces.cli.run_backtest
 """
 
-import sys
 import os
+import sys
 from datetime import datetime
 
 # 确保项目根目录在 sys.path 中
 sys.path.append(os.getcwd())
 
-from src.infrastructure.mock.mock_market import MockMarketGateway
-from src.infrastructure.mock.mock_trade import MockTradeGateway
 from src.application.backtest_app import BacktestAppService
-from src.domain.strategy.services.strategies.dual_ma_strategy import DualMaStrategy
 from src.domain.backtest.services.performance_evaluator import PerformanceEvaluator
 from src.domain.market.value_objects.timeframe import Timeframe
+from src.domain.strategy.services.strategies.dual_ma_strategy import DualMaStrategy
 from src.infrastructure.config.settings import load_backtest_config
+from src.infrastructure.mock.mock_market import MockMarketGateway
+from src.infrastructure.mock.mock_trade import MockTradeGateway
+
 
 def main():
     print("=== Starting Backtest Simulation (with QMT History Data) ===")
@@ -33,6 +34,7 @@ def main():
         plot = settings.backtest.plot
         history_fetcher_type = settings.data.history_fetcher
         tushare_token = settings.data.tushare.token
+        strategy_name = settings.strategy.name
         print("Loaded configuration from resources/backtest.yaml")
     except FileNotFoundError:
         symbols = ["000021.SZ"]
@@ -42,6 +44,7 @@ def main():
         plot = True
         history_fetcher_type = "TushareHistoryDataFetcher"
         tushare_token = None
+        strategy_name = "DualMaStrategy"
         print("Config file not found, using default parameters.")
 
     tf = Timeframe.DAY_1
@@ -59,31 +62,50 @@ def main():
     else:
         from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
         fetcher = QmtHistoryDataFetcher()
-    
+
     market_gateway = MockMarketGateway()
-    
+
     # MockTradeGateway 需要 market_gateway 来查询价格 (假设构造函数如此设计)
     # 如果 MockTradeGateway 不需要 market_gateway，则只需传入 initial_capital
     # 检查之前的 run_backtest.py: trade_gateway = MockTradeGateway(market_gateway, initial_capital=1_000_000.0)
     trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital)
-    
+
     # 3. 初始化策略与应用
     print("Initializing strategy and app service...")
-    strategy = DualMaStrategy()
+
+    fundamental_registry = None
+    if strategy_name == "MicroValueStrategy":
+        from src.domain.market.services.fundamental_registry import FundamentalRegistry
+        from src.domain.strategy.services.strategies.micro_value_strategy import MicroValueStrategy
+        strategy = MicroValueStrategy()
+        fundamental_registry = FundamentalRegistry()
+
+        # 加载基本面数据
+        if history_fetcher_type == "TushareHistoryDataFetcher":
+            from src.infrastructure.gateway.tushare_fundamental_fetcher import TushareFundamentalFetcher
+            fund_fetcher = TushareFundamentalFetcher(token=tushare_token)
+            snapshots = fund_fetcher.fetch_by_range(start_date, end_date)
+            fundamental_registry.load_snapshots(snapshots)
+    else:
+        strategy = DualMaStrategy()
+
     evaluator = PerformanceEvaluator()
-    
+
     app = BacktestAppService(
         market_gateway=market_gateway,
         trade_gateway=trade_gateway,
         strategy=strategy,
         evaluator=evaluator,
-        history_fetcher=fetcher
+        history_fetcher=fetcher,
+        fundamental_registry=fundamental_registry,
+        risk_settings=settings.risk if 'settings' in locals() else None
     )
-    
+
     # 4. 自动拉取/读取指定周期数据
     print("\n[Step 1] Preparing Data...")
     try:
-        app.prepare_data(symbols, tf, start_date, end_date)
+        all_symbols = list(set(symbols + ["000852.SH"]))
+        app.prepare_data(all_symbols, tf, start_date, end_date)
         print("Data preparation completed.")
     except Exception as e:
         print(f"Error preparing data: {e}")
@@ -95,7 +117,7 @@ def main():
     # 转换日期字符串为 datetime 对象用于 run_backtest
     dt_start = datetime.strptime(start_date, "%Y-%m-%d")
     dt_end = datetime.strptime(end_date, "%Y-%m-%d")
-    
+
     reports = app.run_backtest(symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf, plot=plot)
     if not reports:
         print("No backtest reports generated.")
@@ -117,7 +139,9 @@ def main():
     print("-" * 40)
     if report.trades:
         for trade in report.trades:
-            print(f"[{trade.execute_at.strftime('%Y-%m-%d')}] {trade.direction.value} {trade.volume} @ {trade.price:.2f} (PnL: {trade.realized_pnl:.2f})")
+            dt_str = trade.execute_at.strftime('%Y-%m-%d')
+            d = trade.direction.value
+            print(f"[{dt_str}] {d} {trade.volume} @ {trade.price:.2f} (PnL: {trade.realized_pnl:.2f})")
     else:
         print("No trades executed.")
     print("="*40)

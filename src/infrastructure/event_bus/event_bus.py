@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from collections import defaultdict
-from typing import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 
 EventHandler = Callable[[object], Awaitable[None]]
 
@@ -33,14 +33,14 @@ class EventBus:
         while self._running:
             try:
                 event = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             for handler in self._subscribers.get(type(event), []):
                 try:
                     await handler(event)
                 except Exception as e:
                     logger.error(
-                        f"Handler %s failed for %s: %s",
+                        "Handler %s failed for %s: %s",
                         getattr(handler, "__name__", str(handler)),
                         type(event).__name__,
                         e,

@@ -1,9 +1,9 @@
+
+from src.domain.account.entities.asset import Asset
+from src.domain.account.entities.position import Position
 from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
 from src.domain.strategy.value_objects.signal import Signal
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
-from src.domain.account.entities.asset import Asset
-from src.domain.account.entities.position import Position
-import math
 
 
 class FixedRatioSizer(IPositionSizer):
@@ -66,9 +66,7 @@ class FixedRatioSizer(IPositionSizer):
 
         elif signal.direction == SignalDirection.SELL:
             if position and position.available_volume > 0:
-                raw_volume = position.available_volume * signal.confidence_score
-                target_volume = (int(raw_volume) // 100) * 100
-                target_volume = min(target_volume, position.available_volume)
+                target_volume = int(position.available_volume * signal.confidence_score)
 
         return target_volume
 
@@ -96,3 +94,35 @@ class FixedRatioSizer(IPositionSizer):
         # 资金约束
         max_affordable = int(asset.available_cash / current_price) // 100 * 100
         return min(target_volume, max_affordable)
+
+    def calculate_targets(
+        self, signals: list[Signal], prices: dict[str, float],
+        asset: Asset, positions: list[Position],
+    ) -> list:
+        from src.domain.portfolio.entities.order_target import OrderTarget
+        from src.domain.trade.value_objects.order_direction import OrderDirection
+
+        pos_map = {p.ticker: p for p in positions}
+        targets: list[OrderTarget] = []
+
+        sell_signals = [s for s in signals if s.direction == SignalDirection.SELL]
+        sell_symbols = {s.symbol for s in sell_signals}
+
+        buy_signals = [s for s in signals if s.direction == SignalDirection.BUY and s.symbol not in sell_symbols]
+
+        valid_signals = sell_signals + buy_signals
+
+        for sig in valid_signals:
+            price = prices.get(sig.symbol, 0.0)
+            if price <= 0:
+                continue
+            volume = self.calculate_target(sig, price, asset, pos_map.get(sig.symbol))
+            if volume <= 0:
+                continue
+            # 这里需要将 SignalDirection 转换为 OrderDirection
+            order_dir = OrderDirection(sig.direction.value)
+            targets.append(OrderTarget(
+                symbol=sig.symbol, direction=order_dir,
+                volume=volume, price=price, strategy_name=sig.strategy_name,
+            ))
+        return targets

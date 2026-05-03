@@ -1,8 +1,11 @@
 from datetime import datetime
+
 import pandas as pd
+
+from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
-from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
+
 
 class MockMarketGateway(IMarketGateway):
     """基于内存的模拟行情网关。"""
@@ -37,7 +40,7 @@ class MockMarketGateway(IMarketGateway):
         all_bars = self.data[symbol][timeframe]
         # 找到当前时间之前的 bars (防偷看机制)
         valid_bars = [bar for bar in all_bars if bar.timestamp <= self._current_time]
-        
+
         # 返回最近的 limit 个
         return valid_bars[-limit:]
 
@@ -53,13 +56,13 @@ class MockMarketGateway(IMarketGateway):
             if bar.symbol not in grouped_bars:
                 grouped_bars[bar.symbol] = []
             grouped_bars[bar.symbol].append(bar)
-        
+
         for symbol, symbol_bars in grouped_bars.items():
             self.add_bars(symbol, symbol_bars)
 
     def load_data(self, df: pd.DataFrame, timeframe: Timeframe = Timeframe.DAY_1) -> None:
         """从 DataFrame 加载数据。
-        
+
         Args:
             df: 包含历史数据的 DataFrame，必须包含:
                 datetime, symbol, open, high, low, close, volume
@@ -94,14 +97,14 @@ class MockMarketGateway(IMarketGateway):
                     volume=float(row['volume']),
                     unadjusted_close=unadjusted_close,
                 ))
-            
+
             self.add_bars(str(symbol), bars)
 
     def add_bars(self, symbol: str, bars: list[Bar]) -> None:
         """添加行情数据。"""
         if not bars:
             return
-            
+
         # 按 timeframe 分组
         for bar in bars:
             tf = bar.timeframe
@@ -110,7 +113,7 @@ class MockMarketGateway(IMarketGateway):
             if tf not in self.data[symbol]:
                 self.data[symbol][tf] = []
             self.data[symbol][tf].append(bar)
-        
+
         # 确保每个 timeframe 下的 bars 按时间排序
         for tf in self.data[symbol]:
             self.data[symbol][tf].sort(key=lambda x: x.timestamp)
@@ -129,5 +132,5 @@ class MockMarketGateway(IMarketGateway):
             if timeframe in symbol_data:
                 for bar in symbol_data[timeframe]:
                     timestamps.add(bar.timestamp)
-        
+
         return sorted(list(timestamps))

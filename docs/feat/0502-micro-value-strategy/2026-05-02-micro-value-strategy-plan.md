@@ -1,6 +1,6 @@
 # 微盘价值质量增强策略 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 基于 QuantFlow DDD 架构，实现"基本面过滤 + 极小市值轮动增强"回测策略的完整数据→策略→风控→执行链路。
 
@@ -21,7 +21,7 @@
 - Create: `tests/domain/market/test_fundamental_snapshot.py`
 - Create: `src/domain/market/services/__init__.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # tests/domain/market/test_fundamental_snapshot.py
@@ -58,14 +58,14 @@ def test_fundamental_snapshot_nullable_fields():
     assert snap.ocf_ttm is None
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run python -m pytest tests/domain/market/test_fundamental_snapshot.py -v
 ```
 Expected: FAIL (module not found)
 
-- [ ] **Step 3: 实现 FundamentalSnapshot**
+- [x] **Step 3: 实现 FundamentalSnapshot**
 
 ```python
 # src/domain/market/value_objects/fundamental_snapshot.py
@@ -98,14 +98,14 @@ class FundamentalSnapshot:
 # src/domain/market/services/__init__.py
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run python -m pytest tests/domain/market/test_fundamental_snapshot.py -v
 ```
 Expected: 2 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/market/value_objects/fundamental_snapshot.py tests/domain/market/test_fundamental_snapshot.py src/domain/market/services/__init__.py
@@ -120,7 +120,7 @@ git commit -m "feat: add FundamentalSnapshot value object"
 - Create: `src/domain/market/value_objects/stock_snapshot.py`
 - Create: `tests/domain/market/test_stock_snapshot.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # tests/domain/market/test_stock_snapshot.py
@@ -157,13 +157,13 @@ def test_stock_snapshot_nullable_financials():
     assert snap.ocf_ttm is None
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run python -m pytest tests/domain/market/test_stock_snapshot.py -v
 ```
 
-- [ ] **Step 3: 实现 StockSnapshot**
+- [x] **Step 3: 实现 StockSnapshot**
 
 ```python
 # src/domain/market/value_objects/stock_snapshot.py
@@ -187,14 +187,14 @@ class StockSnapshot:
     ocf_ttm: float | None = None
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run python -m pytest tests/domain/market/test_stock_snapshot.py -v
 ```
 Expected: 2 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/market/value_objects/stock_snapshot.py tests/domain/market/test_stock_snapshot.py
@@ -208,7 +208,7 @@ git commit -m "feat: add StockSnapshot value object"
 **Files:**
 - Create: `src/domain/market/interfaces/gateways/fundamental_fetcher.py`
 
-- [ ] **Step 1: 实现接口（纯 Protocol，无需独立测试）**
+- [x] **Step 1: 实现接口（纯 Protocol，无需独立测试）**
 
 ```python
 # src/domain/market/interfaces/gateways/fundamental_fetcher.py
@@ -239,7 +239,7 @@ class IFundamentalFetcher(Protocol):
         ...
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add src/domain/market/interfaces/gateways/fundamental_fetcher.py
@@ -254,7 +254,7 @@ git commit -m "feat: add IFundamentalFetcher Protocol interface"
 - Create: `src/domain/market/services/fundamental_registry.py`
 - Create: `tests/domain/market/test_fundamental_registry.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # tests/domain/market/test_fundamental_registry.py
@@ -300,13 +300,13 @@ class TestFundamentalRegistry:
         assert results == []
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run python -m pytest tests/domain/market/test_fundamental_registry.py -v
 ```
 
-- [ ] **Step 3: 实现 FundamentalRegistry**
+- [x] **Step 3: 实现 FundamentalRegistry**
 
 ```python
 # src/domain/market/services/fundamental_registry.py
@@ -342,14 +342,14 @@ class FundamentalRegistry:
         return self._by_date.get(date_key, [])
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run python -m pytest tests/domain/market/test_fundamental_registry.py -v
 ```
 Expected: 3 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/market/services/fundamental_registry.py tests/domain/market/test_fundamental_registry.py
@@ -363,7 +363,7 @@ git commit -m "feat: add FundamentalRegistry with dual-index structure"
 **Files:**
 - Modify: `src/domain/market/value_objects/bar.py`
 
-- [ ] **Step 1: 修改 Bar**
+- [x] **Step 1: 修改 Bar**
 
 ```python
 # src/domain/market/value_objects/bar.py (在现有字段后追加 prev_close)
@@ -381,14 +381,14 @@ class Bar:
     prev_close: float = 0.0  # 前一日收盘价（用于涨停价计算）
 ```
 
-- [ ] **Step 2: 运行现有测试确认兼容**
+- [x] **Step 2: 运行现有测试确认兼容**
 
 ```bash
 uv run python -m pytest tests/domain/strategy/test_dual_ma_strategy.py tests/domain/market/test_entities.py -v
 ```
 Expected: all PASS (prev_close 有默认值，不影响现有 Bar 构造)
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add src/domain/market/value_objects/bar.py
@@ -403,7 +403,7 @@ git commit -m "feat: add prev_close field to Bar for price limit calculation"
 - Modify: `src/infrastructure/ml_engine/feature_pipeline.py`
 - Create: `tests/infrastructure/ml_engine/test_feature_pipeline_cross_section.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # tests/infrastructure/ml_engine/test_feature_pipeline_cross_section.py
@@ -469,13 +469,13 @@ class TestBuildCrossSection:
         assert result == []
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run python -m pytest tests/infrastructure/ml_engine/test_feature_pipeline_cross_section.py -v
 ```
 
-- [ ] **Step 3: 实现 build_cross_section**
+- [x] **Step 3: 实现 build_cross_section**
 
 ```python
 # 在 FeaturePipeline 类中追加静态方法
@@ -507,14 +507,14 @@ def build_cross_section(
     return snapshots
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run python -m pytest tests/infrastructure/ml_engine/test_feature_pipeline_cross_section.py -v
 ```
 Expected: 3 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/infrastructure/ml_engine/feature_pipeline.py tests/infrastructure/ml_engine/test_feature_pipeline_cross_section.py
@@ -528,7 +528,7 @@ git commit -m "feat: add FeaturePipeline.build_cross_section() for Bar+Fundament
 **Files:**
 - Modify: `src/infrastructure/gateway/tushare_history_data.py`
 
-- [ ] **Step 1: 修改数据获取器**
+- [x] **Step 1: 修改数据获取器**
 
 在 `TushareHistoryDataFetcher.fetch_history_bars` 中：
 
@@ -557,14 +557,14 @@ for _, row in df.iterrows():
     ))
 ```
 
-- [ ] **Step 2: 运行现有 Tushare 测试确认兼容**
+- [x] **Step 2: 运行现有 Tushare 测试确认兼容**
 
 ```bash
 uv run python -m pytest tests/infrastructure/gateway/test_tushare_history_data.py -v --ignore=tests/infrastructure/gateway/
 ```
 Expected: should still pass (test may be skipped if no token, which is fine)
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add src/infrastructure/gateway/tushare_history_data.py
@@ -582,7 +582,7 @@ git commit -m "feat: map Tushare pre_close to Bar.prev_close"
 - Create: `src/domain/strategy/services/filters/filter_st.py`
 - Create: `tests/domain/strategy/test_filters.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # tests/domain/strategy/test_filters.py
@@ -625,13 +625,13 @@ class TestFilterST:
         assert filter_st([]) == []
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run python -m pytest tests/domain/strategy/test_filters.py::TestFilterST -v
 ```
 
-- [ ] **Step 3: 实现 filter_st**
+- [x] **Step 3: 实现 filter_st**
 
 ```python
 # src/domain/strategy/services/filters/filter_st.py
@@ -646,14 +646,14 @@ def filter_st(snapshots: list[StockSnapshot]) -> list[StockSnapshot]:
 # src/domain/strategy/services/filters/__init__.py
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run python -m pytest tests/domain/strategy/test_filters.py::TestFilterST -v
 ```
 Expected: 3 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/strategy/services/filters/
@@ -664,7 +664,7 @@ git commit -m "feat: add filter_st to exclude ST/*ST stocks"
 
 ### Task 9: filter_new_listing — 次新股过滤器
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # 追加到 tests/domain/strategy/test_filters.py
@@ -687,13 +687,13 @@ class TestFilterNewListing:
         assert len(result) == 0  # exactly 365 days is still < 365 (strict)
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run python -m pytest tests/domain/strategy/test_filters.py::TestFilterNewListing -v
 ```
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/strategy/services/filters/filter_new_listing.py
@@ -709,9 +709,9 @@ def filter_new_listing(
     return [s for s in snapshots if (current_date - s.list_date).days >= min_days]
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/strategy/services/filters/filter_new_listing.py tests/domain/strategy/test_filters.py
@@ -722,7 +722,7 @@ git commit -m "feat: add filter_new_listing to exclude IPOs < 365 days"
 
 ### Task 10: filter_penny_stock — 仙股过滤器
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # 追加到 tests/domain/strategy/test_filters.py
@@ -744,9 +744,9 @@ class TestFilterPennyStock:
         assert len(filter_penny_stock(snaps)) == 0
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/strategy/services/filters/filter_penny_stock.py
@@ -760,9 +760,9 @@ def filter_penny_stock(
     return [s for s in snapshots if s.close >= min_price]
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/strategy/services/filters/filter_penny_stock.py tests/domain/strategy/test_filters.py
@@ -773,7 +773,7 @@ git commit -m "feat: add filter_penny_stock to exclude stocks with close < 1.5"
 
 ### Task 11: filter_trading_status — 停牌/涨跌停过滤器
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # 追加到 tests/domain/strategy/test_filters.py
@@ -795,9 +795,9 @@ class TestFilterTradingStatus:
         assert result[0].symbol == "000002.SZ"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/strategy/services/filters/filter_trading_status.py
@@ -811,9 +811,9 @@ def filter_trading_status(snapshots: list[StockSnapshot]) -> list[StockSnapshot]
     ]
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/strategy/services/filters/filter_trading_status.py tests/domain/strategy/test_filters.py
@@ -824,7 +824,7 @@ git commit -m "feat: add filter_trading_status to exclude suspended/limit-locked
 
 ### Task 12: filter_quality — ROE/OCF 质量过滤器
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # 追加到 tests/domain/strategy/test_filters.py
@@ -861,9 +861,9 @@ class TestFilterQuality:
         assert len(result) == 2  # below min_universe_size, no filtering
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/strategy/services/filters/filter_quality.py
@@ -882,9 +882,9 @@ def filter_quality(
     return [s for s in valid if s.roe_ttm > median_roe and s.ocf_ttm > 0]
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/strategy/services/filters/filter_quality.py tests/domain/strategy/test_filters.py
@@ -899,7 +899,7 @@ git commit -m "feat: add filter_quality for ROE > median + OCF > 0 screening"
 - Create: `src/domain/strategy/services/cross_sectional_strategy.py`
 - Create: `tests/domain/strategy/test_cross_sectional_strategy.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # tests/domain/strategy/test_cross_sectional_strategy.py
@@ -948,9 +948,9 @@ class TestCrossSectionalStrategy:
         assert signals[0].symbol == "000001.SZ"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/strategy/services/cross_sectional_strategy.py
@@ -984,14 +984,14 @@ class CrossSectionalStrategy(BaseStrategy, ABC):
         )
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run python -m pytest tests/domain/strategy/test_cross_sectional_strategy.py -v
 ```
 Expected: 3 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/strategy/services/cross_sectional_strategy.py tests/domain/strategy/test_cross_sectional_strategy.py
@@ -1006,7 +1006,7 @@ git commit -m "feat: add CrossSectionalStrategy base class"
 - Create: `src/domain/strategy/services/strategies/micro_value_strategy.py`
 - Create: `tests/domain/strategy/test_micro_value_strategy.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # tests/domain/strategy/test_micro_value_strategy.py
@@ -1080,9 +1080,9 @@ class TestMicroValueStrategy:
         assert MicroValueStrategy().name == "MicroValueStrategy"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/strategy/services/strategies/micro_value_strategy.py
@@ -1147,14 +1147,14 @@ class MicroValueStrategy(CrossSectionalStrategy):
         ]
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run python -m pytest tests/domain/strategy/test_micro_value_strategy.py -v
 ```
 Expected: 6 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/strategy/services/strategies/micro_value_strategy.py tests/domain/strategy/test_micro_value_strategy.py
@@ -1170,7 +1170,7 @@ git commit -m "feat: add MicroValueStrategy with filter chain and Tuesday-only r
 **Files:**
 - Modify: `src/domain/portfolio/interfaces/position_sizer.py`
 
-- [ ] **Step 1: 扩展接口**
+- [x] **Step 1: 扩展接口**
 
 ```python
 # 在现有 calculate_target 方法后追加
@@ -1196,7 +1196,7 @@ def calculate_targets(
     ...
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add src/domain/portfolio/interfaces/position_sizer.py
@@ -1211,7 +1211,7 @@ git commit -m "feat: add calculate_targets() batch method to IPositionSizer"
 - Modify: `src/domain/portfolio/services/equal_weight_sizer.py`
 - Modify: `tests/domain/portfolio/test_equal_weight_sizer.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # 追加到 tests/domain/portfolio/test_equal_weight_sizer.py
@@ -1263,9 +1263,9 @@ class TestEqualWeightSizerBatch:
             assert t.volume % 100 == 0
 ```
 
-- [ ] **Step 2: 运行测试确认失败（calculate_targets 未实现）**
+- [x] **Step 2: 运行测试确认失败（calculate_targets 未实现）**
 
-- [ ] **Step 3: 实现 calculate_targets**
+- [x] **Step 3: 实现 calculate_targets**
 
 ```python
 # 在 EqualWeightSizer 类中追加方法
@@ -1332,14 +1332,14 @@ def calculate_targets(
     return targets
 ```
 
-- [ ] **Step 4: 运行全部 EqualWeightSizer 测试**
+- [x] **Step 4: 运行全部 EqualWeightSizer 测试**
 
 ```bash
 uv run python -m pytest tests/domain/portfolio/test_equal_weight_sizer.py -v
 ```
 Expected: all PASS (old + new)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/portfolio/services/equal_weight_sizer.py tests/domain/portfolio/test_equal_weight_sizer.py
@@ -1353,7 +1353,7 @@ git commit -m "feat: implement EqualWeightSizer.calculate_targets() batch rebala
 **Files:**
 - Modify: `src/domain/portfolio/services/sizers/fixed_ratio_sizer.py`
 
-- [ ] **Step 1: 委托实现**
+- [x] **Step 1: 委托实现**
 
 ```python
 # 在 FixedRatioSizer 类中追加
@@ -1378,13 +1378,13 @@ def calculate_targets(
     return targets
 ```
 
-- [ ] **Step 2: 运行现有 FixedRatioSizer 测试确认兼容**
+- [x] **Step 2: 运行现有 FixedRatioSizer 测试确认兼容**
 
 ```bash
 uv run python -m pytest tests/domain/portfolio/test_fixed_ratio_sizer.py -v
 ```
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add src/domain/portfolio/services/sizers/fixed_ratio_sizer.py
@@ -1401,7 +1401,7 @@ git commit -m "feat: add FixedRatioSizer.calculate_targets() delegation"
 - Create: `src/domain/risk/services/base_risk_signal_policy.py`
 - Create: `tests/domain/risk/test_risk_signal_policies.py`
 
-- [ ] **Step 1: 编写测试 + 实现（接口极简，同一步）**
+- [x] **Step 1: 编写测试 + 实现（接口极简，同一步）**
 
 ```python
 # src/domain/risk/services/base_risk_signal_policy.py
@@ -1421,7 +1421,7 @@ class BaseRiskSignalPolicy(ABC):
         ...
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add src/domain/risk/services/base_risk_signal_policy.py
@@ -1436,7 +1436,7 @@ git commit -m "feat: add BaseRiskSignalPolicy interface for post-trade risk sign
 - Create: `src/domain/risk/services/system_risk_gate.py`
 - Create: 测试追加到 `tests/domain/risk/test_risk_signal_policies.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # 追加到 tests/domain/risk/test_risk_signal_policies.py
@@ -1478,9 +1478,9 @@ class TestSystemRiskGate:
         assert len(gate._index_bars) == 20
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/risk/services/system_risk_gate.py
@@ -1520,14 +1520,14 @@ class SystemRiskGate:
         return GateResult(pass_buy=True)
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run python -m pytest tests/domain/risk/test_risk_signal_policies.py::TestSystemRiskGate -v
 ```
 Expected: 4 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/risk/services/system_risk_gate.py tests/domain/risk/test_risk_signal_policies.py
@@ -1538,7 +1538,7 @@ git commit -m "feat: add SystemRiskGate for market circuit breaker (CSI1000 < MA
 
 ### Task 20: LimitUpBreakPolicy
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # 追加到 tests/domain/risk/test_risk_signal_policies.py
@@ -1575,9 +1575,9 @@ class TestLimitUpBreakPolicy:
         assert len(signals) == 0
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/risk/services/risk_policies/limit_up_break_policy.py
@@ -1614,9 +1614,9 @@ class LimitUpBreakPolicy(BaseRiskSignalPolicy):
         return signals
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/risk/services/risk_policies/limit_up_break_policy.py tests/domain/risk/test_risk_signal_policies.py
@@ -1627,7 +1627,7 @@ git commit -m "feat: add LimitUpBreakPolicy for limit-up break sell signals"
 
 ### Task 21: HardStopLossPolicy
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # 追加到 tests/domain/risk/test_risk_signal_policies.py
@@ -1662,9 +1662,9 @@ class TestHardStopLossPolicy:
         assert len(signals) == 0
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/risk/services/risk_policies/hard_stop_loss_policy.py
@@ -1702,9 +1702,9 @@ class HardStopLossPolicy(BaseRiskSignalPolicy):
         return signals
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/risk/services/risk_policies/hard_stop_loss_policy.py tests/domain/risk/test_risk_signal_policies.py
@@ -1718,7 +1718,7 @@ git commit -m "feat: add HardStopLossPolicy for position-level 3% stop loss"
 **Files:**
 - Create: `src/domain/risk/services/risk_signal_generator.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # 追加到 tests/domain/risk/test_risk_signal_policies.py
@@ -1743,9 +1743,9 @@ class TestRiskSignalGenerator:
         assert gen.evaluate([], {}) == []
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # src/domain/risk/services/risk_signal_generator.py
@@ -1773,9 +1773,9 @@ class RiskSignalGenerator:
         return signals
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/risk/services/risk_signal_generator.py tests/domain/risk/test_risk_signal_policies.py
@@ -1792,7 +1792,7 @@ git commit -m "feat: add RiskSignalGenerator to aggregate post-trade risk sell s
 - Modify: `src/domain/backtest/entities/backtest_report.py`
 - Create: `tests/domain/backtest/services/test_turnover_rate.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 ```python
 # tests/domain/backtest/services/test_turnover_rate.py
@@ -1828,9 +1828,9 @@ def test_turnover_rate_basic():
     assert report.turnover_rate < 1.0
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # 在 BacktestReport 类中追加 @property
@@ -1846,13 +1846,13 @@ def turnover_rate(self) -> float:
     return total_trade_value / avg_equity
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run python -m pytest tests/domain/backtest/services/test_turnover_rate.py -v
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/domain/backtest/entities/backtest_report.py tests/domain/backtest/services/test_turnover_rate.py
@@ -1866,7 +1866,7 @@ git commit -m "feat: add BacktestReport.turnover_rate property"
 **Files:**
 - Modify: `src/application/backtest_app.py`
 
-- [ ] **Step 1: 增加截面循环方法**
+- [x] **Step 1: 增加截面循环方法**
 
 在 `run_backtest()` 的时序策略循环之前，插入路由逻辑和截面方法。
 
@@ -1892,7 +1892,7 @@ for i, strategy in enumerate(strategies):
     reports.append(report)
 ```
 
-- [ ] **Step 2: 实现 `_run_cross_sectional_strategy()`**
+- [x] **Step 2: 实现 `_run_cross_sectional_strategy()`**
 
 ```python
 def _run_cross_sectional_strategy(
@@ -2019,25 +2019,25 @@ def _run_cross_sectional_strategy(
     return report
 ```
 
-- [ ] **Step 3: 添加导入**
+- [x] **Step 3: 添加导入**
 
 在 `backtest_app.py` 顶部添加：
 ```python
 from src.domain.strategy.services.cross_sectional_strategy import CrossSectionalStrategy
 ```
 
-- [ ] **Step 4: 修改 `_record_snapshot` 支持无 prices 场景**
+- [x] **Step 4: 修改 `_record_snapshot` 支持无 prices 场景**
 
 现有 `_record_snapshot` 需要 `current_prices` 参数 — 截面循环中已构造，兼容。
 
-- [ ] **Step 5: 运行现有回测测试确认不破坏时序路径**
+- [x] **Step 5: 运行现有回测测试确认不破坏时序路径**
 
 ```bash
 uv run python -m pytest tests/application/test_backtest_app.py -v
 ```
 Expected: all existing tests PASS
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/application/backtest_app.py
@@ -2051,7 +2051,7 @@ git commit -m "feat: add dual-mode backtest loop with cross-sectional path"
 **Files:**
 - Modify: `src/infrastructure/visualization/plotter.py`
 
-- [ ] **Step 1: 增强 Plotter**
+- [x] **Step 1: 增强 Plotter**
 
 ```python
 def plot(self, report: BacktestReport, benchmark_data: list[float] | None = None,
@@ -2124,7 +2124,7 @@ def plot(self, report: BacktestReport, benchmark_data: list[float] | None = None
         plt.close(fig)
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add src/infrastructure/visualization/plotter.py
@@ -2138,7 +2138,7 @@ git commit -m "feat: enhance plotter with benchmark overlay, drawdown panel, and
 **Files:**
 - Modify: `resources/backtest.yaml`
 
-- [ ] **Step 1: 更新配置**
+- [x] **Step 1: 更新配置**
 
 ```yaml
 backtest:
@@ -2181,7 +2181,7 @@ data:
     token: "bd02c391c531732dc221165af820ea5fec582e4251cdf70115ed264d"
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add resources/backtest.yaml
@@ -2195,7 +2195,7 @@ git commit -m "feat: update backtest.yaml for MicroValueStrategy with risk and c
 **Files:**
 - Create: `tests/infrastructure/mock/test_micro_value_integration.py`
 
-- [ ] **Step 1: 编写集成测试（使用 Mock 数据，不依赖 Tushare）**
+- [x] **Step 1: 编写集成测试（使用 Mock 数据，不依赖 Tushare）**
 
 ```python
 # tests/infrastructure/mock/test_micro_value_integration.py
@@ -2271,27 +2271,27 @@ class TestMicroValueIntegration:
         print(f"Trades: {report.trade_count}")
 ```
 
-- [ ] **Step 2: 运行集成测试**
+- [x] **Step 2: 运行集成测试**
 
 ```bash
 uv run python -m pytest tests/infrastructure/mock/test_micro_value_integration.py -v --ignore=tests/infrastructure/gateway/
 ```
 Expected: PASS (verifies the full pipeline works end-to-end)
 
-- [ ] **Step 3: 运行全部测试确认无回归**
+- [x] **Step 3: 运行全部测试确认无回归**
 
 ```bash
 uv run python -m pytest tests/ --ignore=tests/infrastructure/gateway/ -v
 ```
 Expected: all tests PASS
 
-- [ ] **Step 4: 运行 lint**
+- [x] **Step 4: 运行 lint**
 
 ```bash
 uv run ruff check src/
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add tests/infrastructure/mock/test_micro_value_integration.py

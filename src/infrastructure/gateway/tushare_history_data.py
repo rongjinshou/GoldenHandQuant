@@ -1,6 +1,8 @@
 import os
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+
 from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
@@ -23,10 +25,10 @@ class TushareHistoryDataFetcher(IHistoryDataFetcher):
             self.pro = None
 
     def fetch_history_bars(
-        self, 
-        symbol: str, 
-        timeframe: Timeframe, 
-        start_date: str, 
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        start_date: str,
         end_date: str
     ) -> list[Bar]:
         """获取历史 K 线数据。
@@ -37,7 +39,7 @@ class TushareHistoryDataFetcher(IHistoryDataFetcher):
         # 1. 构造缓存路径
         data_dir = Path("data")
         data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         csv_filename = f"{symbol}_{timeframe.value}_tushare.csv"
         csv_path = data_dir / csv_filename
 
@@ -45,7 +47,7 @@ class TushareHistoryDataFetcher(IHistoryDataFetcher):
         pd_end_dt = pd.to_datetime(end_date)
 
         df = None
-        
+
         # 2. 尝试读取本地缓存
         if csv_path.exists():
             try:
@@ -66,14 +68,17 @@ class TushareHistoryDataFetcher(IHistoryDataFetcher):
         # 3. 调用 Tushare 接口下载
         if df is None:
             if not ts or not self.pro:
-                raise ImportError("tushare module not found or TUSHARE_TOKEN not set. Please set the token or use cached data.")
+                raise ImportError(
+                    "tushare module not found or TUSHARE_TOKEN not set. "
+                    "Please set the token or use cached data."
+                )
 
             print(f"[{symbol}] Downloading history data from Tushare ({timeframe.value})...")
-            
+
             # Tushare format: YYYYMMDD
             ts_start_date = start_date.replace("-", "")
             ts_end_date = end_date.replace("-", "")
-            
+
             freq_map = {
                 Timeframe.DAY_1: "D",
                 Timeframe.MIN_1: "1min",
@@ -90,10 +95,10 @@ class TushareHistoryDataFetcher(IHistoryDataFetcher):
             # Tushare expects symbol like 000001.SZ or 600000.SH which matches our domain
             try:
                 df = ts.pro_bar(
-                    ts_code=symbol, 
-                    start_date=ts_start_date, 
-                    end_date=ts_end_date, 
-                    freq=freq, 
+                    ts_code=symbol,
+                    start_date=ts_start_date,
+                    end_date=ts_end_date,
+                    freq=freq,
                     adj="qfq"
                 )
             except Exception as e:
@@ -120,12 +125,15 @@ class TushareHistoryDataFetcher(IHistoryDataFetcher):
                 "ts_code": "symbol",
                 "vol": "volume"
             })
-            
+
             # Convert datetime string to datetime object
             df["datetime"] = pd.to_datetime(df["datetime"])
 
             # Cache the full downloaded data
-            save_df = df[["datetime", "symbol", "open", "high", "low", "close", "volume"]]
+            save_cols = ["datetime", "symbol", "open", "high", "low", "close", "volume"]
+            if "pre_close" in df.columns:
+                save_cols.append("pre_close")
+            save_df = df[save_cols]
             save_df.to_csv(csv_path, index=False)
 
         # 4. 转换为 Bar 对象列表
@@ -134,12 +142,17 @@ class TushareHistoryDataFetcher(IHistoryDataFetcher):
             bars.append(Bar(
                 symbol=str(row["symbol"]),
                 timeframe=timeframe,
-                timestamp=row["datetime"].to_pydatetime() if isinstance(row["datetime"], pd.Timestamp) else row["datetime"],
+                timestamp=(
+                    row["datetime"].to_pydatetime()
+                    if isinstance(row["datetime"], pd.Timestamp)
+                    else row["datetime"]
+                ),
                 open=float(row["open"]),
                 high=float(row["high"]),
                 low=float(row["low"]),
                 close=float(row["close"]),
-                volume=float(row["volume"])
+                volume=float(row["volume"]),
+                prev_close=float(row.get("pre_close", 0.0)) if "pre_close" in row.index else 0.0,
             ))
-            
+
         return bars

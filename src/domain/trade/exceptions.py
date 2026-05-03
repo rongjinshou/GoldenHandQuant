@@ -15,7 +15,7 @@ class MarketClosedError(TradeError):
 
     def __init__(self, ticker: str = "", detail: str = "") -> None:
         self.ticker = ticker
-        msg = f"Market is closed"
+        msg = "Market is closed"
         if ticker:
             msg += f" for {ticker}"
         if detail:

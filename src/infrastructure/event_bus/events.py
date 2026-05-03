@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from src.domain.market.value_objects.bar import Bar
-from src.domain.trade.entities.order import Order
 from src.domain.strategy.value_objects.signal import Signal
+from src.domain.trade.entities.order import Order
 
 
 @dataclass(slots=True, kw_only=True)

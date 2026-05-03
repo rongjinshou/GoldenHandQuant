@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.trade.value_objects.order_type import OrderType
 
 

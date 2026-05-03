@@ -1,9 +1,9 @@
+from src.domain.account.entities.asset import Asset
+from src.domain.account.entities.position import Position
 from src.domain.risk.services.base_risk_policy import BaseRiskPolicy
 from src.domain.risk.value_objects.risk_check_result import RiskCheckResult
 from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
-from src.domain.account.entities.position import Position
-from src.domain.account.entities.asset import Asset
 
 
 class PositionLimitPolicy(BaseRiskPolicy):

@@ -1,7 +1,6 @@
-from datetime import datetime
 
-from src.infrastructure.persistence.database import Database
 from src.domain.trade.entities.order import Order
+from src.infrastructure.persistence.database import Database
 
 
 class OrderRepository:

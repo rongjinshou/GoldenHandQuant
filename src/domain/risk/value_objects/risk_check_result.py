@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Self
 
+
 @dataclass(slots=True, kw_only=True)
 class RiskCheckResult:
     """风控检查结果。

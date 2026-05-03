@@ -1,9 +1,8 @@
-import math
-from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
-from src.domain.trade.value_objects.order_direction import OrderDirection
-from src.domain.strategy.value_objects.signal import Signal
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
+from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
+from src.domain.strategy.value_objects.signal import Signal
+from src.domain.trade.value_objects.order_direction import OrderDirection
 
 
 class KellySizer(IPositionSizer):

@@ -1,21 +1,38 @@
 backtest:
   symbols:
-    - "600096.SH"
+    - "000852.SH"
   start_date: "2016-01-01"
   end_date: "2026-04-29"
   base_timeframe: "1d"
   initial_capital: 1000000.0
   plot: true
+  benchmark: "000852.SH"
 
 strategy:
-  name: "DualMaStrategy"
+  name: "MicroValueStrategy"
+  top_n: 9
 
 position_sizing:
-  type: "FixedRatioSizer"
-  ratio: 0.2
+  type: "EqualWeightSizer"
+
+risk:
+  system_gate:
+    index_symbol: "000852.SH"
+    ma_period: 20
+  stop_loss:
+    max_loss_ratio: 0.03
+  policies:
+    - "limit_up_break"
+    - "hard_stop_loss"
+
+costs:
+  commission_rate: 0.0002
+  tax_rate: 0.001
+  min_commission: 5.0
+  slippage: 0.003
 
 data:
   cache_dir: "data/"
   history_fetcher: "TushareHistoryDataFetcher"
   tushare:
-    token: "bd02c391c531732dc221165af820ea5fec582e4251cdf70115ed264d"
+    token: ""

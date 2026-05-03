@@ -1,17 +1,17 @@
-from datetime import datetime
-from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
-from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
+from src.domain.account.entities.account_repository import AccountRepository
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
-from src.domain.account.entities.account_repository import AccountRepository
-from src.domain.trade.entities.order import Order
-from src.domain.trade.value_objects.order_status import OrderStatus
-from src.domain.trade.value_objects.order_direction import OrderDirection
-from src.domain.trade.value_objects.order_type import OrderType
+from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
 from src.domain.backtest.value_objects.trade_record import TradeRecord
-from src.domain.trade.exceptions import OrderSubmitError
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 from src.domain.market.value_objects.price_limit import calculate_price_limits
+from src.domain.trade.entities.order import Order
+from src.domain.trade.exceptions import OrderSubmitError
+from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
+from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.domain.trade.value_objects.order_status import OrderStatus
+from src.domain.trade.value_objects.order_type import OrderType
+
 
 class MockTradeGateway(ITradeGateway, IAccountGateway):
     """基于内存的模拟交易网关 (包含账户功能)。
@@ -115,7 +115,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         # 1. 基础验证
         if order.volume <= 0:
             raise OrderSubmitError("Volume must be positive")
-        
+
         # 2. 获取当前行情
         bars = self.market_gateway.get_recent_bars(order.ticker, "1d", 1)
         if not bars:
@@ -147,12 +147,12 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             exec_price = ref_price * (1 + self.SLIPPAGE_BUY)
         else:
             exec_price = ref_price * (1 - self.SLIPPAGE_SELL)
-            
+
         # 4. 计算成交数量 (流动性限制)
         max_vol = int(bar.volume * self.CAPACITY_LIMIT_RATIO)
         # 向下取整到 100 整数倍 (假设 order.volume 已经是 100 倍数，这里再次确保)
         max_vol = (max_vol // 100) * 100
-        
+
         fill_volume = min(order.volume, max_vol)
         if fill_volume < 100:
             # 如果流动性不足以成交一手，则拒绝或全撤 (这里选择废单)
@@ -178,32 +178,37 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
 
         # 5. 预估成本与资金/持仓检查
         total_cost, commission, tax, transfer_fee = self._calculate_costs(exec_price, fill_volume, order.direction)
-        
+
         if order.direction == OrderDirection.BUY:
             # 买入: 需有足够资金支付 (成交金额 + 所有费用)
             # 注意: 这里的 cost 是正数，表示总支出
             if self.asset.available_cash < total_cost:
                 order.status = OrderStatus.REJECTED
-                raise OrderSubmitError(f"Insufficient funds: need {total_cost:.2f}, have {self.asset.available_cash:.2f}")
-        
+                raise OrderSubmitError(
+                    f"Insufficient funds: need {total_cost:.2f}, have {self.asset.available_cash:.2f}"
+                )
+
         elif order.direction == OrderDirection.SELL:
             # 卖出: 需有足够可用持仓
             position = self.positions.get(order.ticker)
             if not position or position.available_volume < fill_volume:
                 order.status = OrderStatus.REJECTED
-                raise OrderSubmitError(f"Insufficient position: need {fill_volume}, have {position.available_volume if position else 0}")
+                avail = position.available_volume if position else 0
+                raise OrderSubmitError(
+                    f"Insufficient position: need {fill_volume}, have {avail}"
+                )
 
         # 6. 提交成功，开始撮合
         order.submit()
         self.orders[order.order_id] = order
-        
+
         # 7. 冻结资金 (严格遵循: SUBMITTED -> Freeze)
         # 买入冻结预估金额，卖出不冻结资金
         frozen_amount = 0.0
         if order.direction == OrderDirection.BUY:
             frozen_amount = total_cost
             self.asset.freeze_cash(frozen_amount)
-            
+
         # 8. 执行成交 (Atomic fill for backtest)
         try:
             self._simulate_fill(order, exec_price, fill_volume, commission, tax, transfer_fee, frozen_amount)
@@ -211,15 +216,17 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             if frozen_amount > 0:
                 self.asset.unfreeze_cash(frozen_amount)
             raise
-            
+
         return order.order_id
 
-    def _calculate_costs(self, price: float, volume: int, direction: OrderDirection) -> tuple[float, float, float, float]:
+    def _calculate_costs(
+        self, price: float, volume: int, direction: OrderDirection
+    ) -> tuple[float, float, float, float]:
         """计算交易成本。
-        
+
         Returns:
             (total_impact, commission, tax, transfer_fee)
-            total_impact: 
+            total_impact:
                 - Buy: amount + fees (positive, amount to deduct)
                 - Sell: amount - fees (positive, amount to add)
         """
@@ -227,19 +234,19 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         commission = max(amount * self.COMMISSION_RATE, self.MIN_COMMISSION)
         transfer_fee = amount * self.TRANSFER_FEE_RATE
         tax = amount * self.STAMP_DUTY_RATE if direction == OrderDirection.SELL else 0.0
-        
+
         total_fees = commission + transfer_fee + tax
-        
+
         if direction == OrderDirection.BUY:
             return amount + total_fees, commission, tax, transfer_fee
         else:
             return amount - total_fees, commission, tax, transfer_fee
 
-    def _simulate_fill(self, order: Order, price: float, volume: int, 
-                      commission: float, tax: float, transfer_fee: float, 
+    def _simulate_fill(self, order: Order, price: float, volume: int,
+                      commission: float, tax: float, transfer_fee: float,
                       frozen_amount: float) -> None:
         """执行成交并更新状态。"""
-        
+
         # 1. 资金结算
         if order.direction == OrderDirection.BUY:
             # 计算本次成交对应的冻结资金比例 (按数量比例释放)
@@ -254,7 +261,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             # 确保不超额解冻 (防御性编程)
             to_unfreeze = min(used_frozen, self.asset.frozen_cash)
             self.asset.deduct_frozen_cash(to_unfreeze)
-            
+
             # 扣除实际成本 (在 _calculate_costs 中已包含本金+费用)
             actual_cost = price * volume + commission + tax + transfer_fee
 
@@ -276,7 +283,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
                 self.asset.available_cash += abs(diff)
 
             self.asset.total_asset -= (commission + tax + transfer_fee) # 资产减少费用
-            
+
         elif order.direction == OrderDirection.SELL:
             income = price * volume - commission - tax - transfer_fee
             self.asset.available_cash += income
@@ -301,7 +308,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             # so pnl = (price - cost) * volume - fees
             fees = commission + tax + transfer_fee
             realized_pnl = (price - cost) * volume - fees
-            
+
             position.on_sell_filled(volume, price)
 
         # 清理空持仓
@@ -340,7 +347,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
                  # 这里主要是配合架构规范 4.4
                  order.status = OrderStatus.CANCELED
                  # 如果有冻结资金需解冻 (本实现中买入立即成交或拒绝，不存在挂单，但为了接口完整性)
-                 pass 
+                 pass
 
     def daily_settlement(self) -> None:
         """日终结算: T+1 持仓可用化。"""

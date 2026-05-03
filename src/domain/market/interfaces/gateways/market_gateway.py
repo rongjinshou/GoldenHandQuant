@@ -1,6 +1,8 @@
 from typing import Protocol
+
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
+
 
 class IMarketGateway(Protocol):
     """行情网关接口 (实盘 + 回测通用)。

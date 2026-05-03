@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
-from src.domain.trade.entities.order import Order
+
 from src.domain.risk.value_objects.risk_check_result import RiskCheckResult
+from src.domain.trade.entities.order import Order
+
 
 class BaseRiskPolicy(ABC):
     """风控策略接口。"""

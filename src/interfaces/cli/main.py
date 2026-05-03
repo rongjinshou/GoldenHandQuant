@@ -6,8 +6,8 @@ from src.domain.risk.services.simple_risk_policy import SimpleRiskPolicy
 from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
-from src.infrastructure.gateway.qmt_trade import QmtTradeGateway
 from src.infrastructure.config.settings import load_trading_config
+from src.infrastructure.gateway.qmt_trade import QmtTradeGateway
 
 # 配置日志
 logging.basicConfig(
