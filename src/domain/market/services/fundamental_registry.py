@@ -27,6 +27,10 @@ class FundamentalRegistry:
         date_key = date.replace(hour=0, minute=0, second=0, microsecond=0)
         return self._by_symbol.get(symbol, {}).get(date_key)
 
+    def load_snapshots(self, snapshots: list[FundamentalSnapshot]) -> None:
+        for snapshot in snapshots:
+            self.add(snapshot)
+
     def get_all_at_date(self, date: datetime) -> list[FundamentalSnapshot]:
         date_key = date.replace(hour=0, minute=0, second=0, microsecond=0)
         return self._by_date.get(date_key, [])

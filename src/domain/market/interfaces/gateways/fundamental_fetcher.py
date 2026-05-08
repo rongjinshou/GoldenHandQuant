@@ -15,10 +15,14 @@ class IFundamentalFetcher(Protocol):
         """
         ...
 
+
+class IIndexDataFetcher(Protocol):
+    """指数日线数据获取接口（用于风控门禁和基准比较）。"""
+
     def fetch_index_daily(
         self, index_symbol: str, start_date: str, end_date: str
     ) -> list[dict]:
-        """获取指数日线数据（用于风控门禁和基准比较）。
+        """获取指数日线数据。
 
         Returns:
             list[dict]: 每项含 trade_date, open, high, low, close, volume 等字段。

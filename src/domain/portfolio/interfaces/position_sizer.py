@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
+from src.domain.portfolio.entities.order_target import OrderTarget
 from src.domain.strategy.value_objects.signal import Signal
 
 
@@ -30,7 +31,7 @@ class IPositionSizer(ABC):
         prices: dict[str, float],
         asset: Asset,
         positions: list[Position],
-    ) -> list:
+    ) -> list[OrderTarget]:
         """批量计算目标仓位。
 
         Args:

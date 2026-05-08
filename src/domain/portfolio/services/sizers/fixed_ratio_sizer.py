@@ -1,6 +1,6 @@
-
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
+from src.domain.portfolio.entities.order_target import OrderTarget
 from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
 from src.domain.strategy.value_objects.signal import Signal
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
@@ -98,8 +98,7 @@ class FixedRatioSizer(IPositionSizer):
     def calculate_targets(
         self, signals: list[Signal], prices: dict[str, float],
         asset: Asset, positions: list[Position],
-    ) -> list:
-        from src.domain.portfolio.entities.order_target import OrderTarget
+    ) -> list[OrderTarget]:
         from src.domain.trade.value_objects.order_direction import OrderDirection
 
         pos_map = {p.ticker: p for p in positions}

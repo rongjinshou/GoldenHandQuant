@@ -15,6 +15,7 @@ from src.domain.backtest.interfaces.gateways.backtest_market_gateway import IBac
 from src.domain.backtest.services.performance_evaluator import PerformanceEvaluator
 from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot
 from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
+from src.domain.market.services.fundamental_registry import FundamentalRegistry
 from src.domain.market.value_objects.suspension import StockStatusRegistry
 from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.portfolio.entities.order_target import OrderTarget
@@ -24,8 +25,10 @@ from src.domain.strategy.services.base_strategy import BaseStrategy
 from src.domain.strategy.services.cross_sectional_strategy import CrossSectionalStrategy
 from src.domain.trade.entities.order import Order
 from src.domain.trade.exceptions import OrderSubmitError, TradeError
+from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.trade.value_objects.order_type import OrderType
+from src.infrastructure.config.settings import RiskSettings
 
 
 class BacktestAppService:
@@ -43,8 +46,8 @@ class BacktestAppService:
         history_fetcher: IHistoryDataFetcher | None = None,
         sizer: IPositionSizer | None = None,
         status_registry: StockStatusRegistry | None = None,
-        fundamental_registry=None,
-        risk_settings=None,
+        fundamental_registry: FundamentalRegistry | None = None,
+        risk_settings: RiskSettings | None = None,
     ) -> None:
         self.market_gateway = market_gateway
         self.trade_gateway = trade_gateway
@@ -154,7 +157,11 @@ class BacktestAppService:
             )
 
     def _execute_targets(self, targets: list[OrderTarget], current_time: datetime, account_id: str) -> None:
-        for target in targets:
+        # SELL 优先执行，释放资金后再 BUY
+        sell_targets = [t for t in targets if t.direction == OrderDirection.SELL]
+        buy_targets = [t for t in targets if t.direction == OrderDirection.BUY]
+
+        for target in sell_targets + buy_targets:
             order = Order(
                 order_id=f"ORD_{current_time.strftime('%Y%m%d%H%M%S')}_{target.symbol}",
                 account_id=account_id,

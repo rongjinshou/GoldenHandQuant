@@ -80,3 +80,16 @@ class TestEqualWeightSizerBatch:
         for t in buy_targets:
             assert t.volume >= 100
             assert t.volume % 100 == 0
+
+    def test_calculate_targets_skips_within_threshold(self):
+        """偏离度在阈值内时不应产生交易目标。"""
+        sizer = EqualWeightSizer(n_symbols=2, rebalance_threshold=0.05)
+        # 目标每 symbol: 50000, 当前持仓 A: 51000 (偏离 2%, < 5% 阈值)
+        pos = _pos("A", 5100, 5100, avg_cost=10.0)
+        signals = [_signal("A", OrderDirection.BUY), _signal("B", OrderDirection.BUY)]
+        targets = sizer.calculate_targets(
+            signals=signals, prices={"A": 10.0, "B": 10.0},
+            asset=_asset(100000), positions=[pos],
+        )
+        a_targets = [t for t in targets if t.symbol == "A"]
+        assert len(a_targets) == 0  # A 在阈值内，不应产生目标

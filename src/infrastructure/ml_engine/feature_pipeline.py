@@ -64,6 +64,7 @@ class FeaturePipeline:
                 name=fund.name, list_date=fund.list_date,
                 market_cap=fund.market_cap,
                 roe_ttm=fund.roe_ttm, ocf_ttm=fund.ocf_ttm,
+                prev_close=bar.prev_close if bar.prev_close > 0 else None,
             ))
 
         return snapshots

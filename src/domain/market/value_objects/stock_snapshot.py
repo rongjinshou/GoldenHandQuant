@@ -17,3 +17,4 @@ class StockSnapshot:
     market_cap: float
     roe_ttm: float | None = None
     ocf_ttm: float | None = None
+    prev_close: float | None = None

@@ -61,7 +61,7 @@ def test_fundamental_snapshot_nullable_fields():
 - [x] **Step 2: 运行测试确认失败**
 
 ```bash
-uv run python -m pytest tests/domain/market/test_fundamental_snapshot.py -v
+python -m pytest tests/domain/market/test_fundamental_snapshot.py -v
 ```
 Expected: FAIL (module not found)
 
@@ -101,7 +101,7 @@ class FundamentalSnapshot:
 - [x] **Step 4: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/domain/market/test_fundamental_snapshot.py -v
+python -m pytest tests/domain/market/test_fundamental_snapshot.py -v
 ```
 Expected: 2 PASS
 
@@ -160,7 +160,7 @@ def test_stock_snapshot_nullable_financials():
 - [x] **Step 2: 运行测试确认失败**
 
 ```bash
-uv run python -m pytest tests/domain/market/test_stock_snapshot.py -v
+python -m pytest tests/domain/market/test_stock_snapshot.py -v
 ```
 
 - [x] **Step 3: 实现 StockSnapshot**
@@ -190,7 +190,7 @@ class StockSnapshot:
 - [x] **Step 4: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/domain/market/test_stock_snapshot.py -v
+python -m pytest tests/domain/market/test_stock_snapshot.py -v
 ```
 Expected: 2 PASS
 
@@ -303,7 +303,7 @@ class TestFundamentalRegistry:
 - [x] **Step 2: 运行测试确认失败**
 
 ```bash
-uv run python -m pytest tests/domain/market/test_fundamental_registry.py -v
+python -m pytest tests/domain/market/test_fundamental_registry.py -v
 ```
 
 - [x] **Step 3: 实现 FundamentalRegistry**
@@ -345,7 +345,7 @@ class FundamentalRegistry:
 - [x] **Step 4: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/domain/market/test_fundamental_registry.py -v
+python -m pytest tests/domain/market/test_fundamental_registry.py -v
 ```
 Expected: 3 PASS
 
@@ -384,7 +384,7 @@ class Bar:
 - [x] **Step 2: 运行现有测试确认兼容**
 
 ```bash
-uv run python -m pytest tests/domain/strategy/test_dual_ma_strategy.py tests/domain/market/test_entities.py -v
+python -m pytest tests/domain/strategy/test_dual_ma_strategy.py tests/domain/market/test_entities.py -v
 ```
 Expected: all PASS (prev_close 有默认值，不影响现有 Bar 构造)
 
@@ -472,7 +472,7 @@ class TestBuildCrossSection:
 - [x] **Step 2: 运行测试确认失败**
 
 ```bash
-uv run python -m pytest tests/infrastructure/ml_engine/test_feature_pipeline_cross_section.py -v
+python -m pytest tests/infrastructure/ml_engine/test_feature_pipeline_cross_section.py -v
 ```
 
 - [x] **Step 3: 实现 build_cross_section**
@@ -510,7 +510,7 @@ def build_cross_section(
 - [x] **Step 4: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/infrastructure/ml_engine/test_feature_pipeline_cross_section.py -v
+python -m pytest tests/infrastructure/ml_engine/test_feature_pipeline_cross_section.py -v
 ```
 Expected: 3 PASS
 
@@ -560,7 +560,7 @@ for _, row in df.iterrows():
 - [x] **Step 2: 运行现有 Tushare 测试确认兼容**
 
 ```bash
-uv run python -m pytest tests/infrastructure/gateway/test_tushare_history_data.py -v --ignore=tests/infrastructure/gateway/
+python -m pytest tests/infrastructure/gateway/test_tushare_history_data.py -v --ignore=tests/infrastructure/gateway/
 ```
 Expected: should still pass (test may be skipped if no token, which is fine)
 
@@ -628,7 +628,7 @@ class TestFilterST:
 - [x] **Step 2: 运行测试确认失败**
 
 ```bash
-uv run python -m pytest tests/domain/strategy/test_filters.py::TestFilterST -v
+python -m pytest tests/domain/strategy/test_filters.py::TestFilterST -v
 ```
 
 - [x] **Step 3: 实现 filter_st**
@@ -649,7 +649,7 @@ def filter_st(snapshots: list[StockSnapshot]) -> list[StockSnapshot]:
 - [x] **Step 4: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/domain/strategy/test_filters.py::TestFilterST -v
+python -m pytest tests/domain/strategy/test_filters.py::TestFilterST -v
 ```
 Expected: 3 PASS
 
@@ -690,7 +690,7 @@ class TestFilterNewListing:
 - [x] **Step 2: 运行测试确认失败**
 
 ```bash
-uv run python -m pytest tests/domain/strategy/test_filters.py::TestFilterNewListing -v
+python -m pytest tests/domain/strategy/test_filters.py::TestFilterNewListing -v
 ```
 
 - [x] **Step 3: 实现**
@@ -987,7 +987,7 @@ class CrossSectionalStrategy(BaseStrategy, ABC):
 - [x] **Step 4: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/domain/strategy/test_cross_sectional_strategy.py -v
+python -m pytest tests/domain/strategy/test_cross_sectional_strategy.py -v
 ```
 Expected: 3 PASS
 
@@ -1150,7 +1150,7 @@ class MicroValueStrategy(CrossSectionalStrategy):
 - [x] **Step 4: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/domain/strategy/test_micro_value_strategy.py -v
+python -m pytest tests/domain/strategy/test_micro_value_strategy.py -v
 ```
 Expected: 6 PASS
 
@@ -1335,7 +1335,7 @@ def calculate_targets(
 - [x] **Step 4: 运行全部 EqualWeightSizer 测试**
 
 ```bash
-uv run python -m pytest tests/domain/portfolio/test_equal_weight_sizer.py -v
+python -m pytest tests/domain/portfolio/test_equal_weight_sizer.py -v
 ```
 Expected: all PASS (old + new)
 
@@ -1381,7 +1381,7 @@ def calculate_targets(
 - [x] **Step 2: 运行现有 FixedRatioSizer 测试确认兼容**
 
 ```bash
-uv run python -m pytest tests/domain/portfolio/test_fixed_ratio_sizer.py -v
+python -m pytest tests/domain/portfolio/test_fixed_ratio_sizer.py -v
 ```
 
 - [x] **Step 3: 提交**
@@ -1523,7 +1523,7 @@ class SystemRiskGate:
 - [x] **Step 4: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/domain/risk/test_risk_signal_policies.py::TestSystemRiskGate -v
+python -m pytest tests/domain/risk/test_risk_signal_policies.py::TestSystemRiskGate -v
 ```
 Expected: 4 PASS
 
@@ -1849,7 +1849,7 @@ def turnover_rate(self) -> float:
 - [x] **Step 4: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/domain/backtest/services/test_turnover_rate.py -v
+python -m pytest tests/domain/backtest/services/test_turnover_rate.py -v
 ```
 
 - [x] **Step 5: 提交**
@@ -2033,7 +2033,7 @@ from src.domain.strategy.services.cross_sectional_strategy import CrossSectional
 - [x] **Step 5: 运行现有回测测试确认不破坏时序路径**
 
 ```bash
-uv run python -m pytest tests/application/test_backtest_app.py -v
+python -m pytest tests/application/test_backtest_app.py -v
 ```
 Expected: all existing tests PASS
 
@@ -2274,21 +2274,21 @@ class TestMicroValueIntegration:
 - [x] **Step 2: 运行集成测试**
 
 ```bash
-uv run python -m pytest tests/infrastructure/mock/test_micro_value_integration.py -v --ignore=tests/infrastructure/gateway/
+python -m pytest tests/infrastructure/mock/test_micro_value_integration.py -v --ignore=tests/infrastructure/gateway/
 ```
 Expected: PASS (verifies the full pipeline works end-to-end)
 
 - [x] **Step 3: 运行全部测试确认无回归**
 
 ```bash
-uv run python -m pytest tests/ --ignore=tests/infrastructure/gateway/ -v
+python -m pytest tests/ --ignore=tests/infrastructure/gateway/ -v
 ```
 Expected: all tests PASS
 
 - [x] **Step 4: 运行 lint**
 
 ```bash
-uv run ruff check src/
+ruff check src/
 ```
 
 - [x] **Step 5: 提交**
@@ -2325,11 +2325,11 @@ Sprint 5 (应用层):
 
 ```bash
 # 全部测试
-uv run python -m pytest tests/ --ignore=tests/infrastructure/gateway/ -v
+python -m pytest tests/ --ignore=tests/infrastructure/gateway/ -v
 
 # Lint
-uv run ruff check src/
+ruff check src/
 
 # 回测执行
-uv run python -m src.interfaces.cli.run_backtest
+python -m src.interfaces.cli.run_backtest
 ```

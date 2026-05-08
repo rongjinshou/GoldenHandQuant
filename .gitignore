@@ -8,4 +8,5 @@ libs/xtquant/
 *.egg-info/
 .claude/
 .omc/
-uv.lock
+.conda/
+resources/backtest.yaml

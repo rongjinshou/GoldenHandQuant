@@ -1,5 +1,6 @@
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
+from src.domain.portfolio.entities.order_target import OrderTarget
 from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
 from src.domain.strategy.value_objects.signal import Signal
 from src.domain.trade.value_objects.order_direction import OrderDirection
@@ -45,8 +46,7 @@ class EqualWeightSizer(IPositionSizer):
     def calculate_targets(
         self, signals: list[Signal], prices: dict[str, float],
         asset: Asset, positions: list[Position],
-    ) -> list:
-        from src.domain.portfolio.entities.order_target import OrderTarget
+    ) -> list[OrderTarget]:
         from src.domain.trade.value_objects.order_direction import OrderDirection
 
         targets: list[OrderTarget] = []
@@ -82,6 +82,9 @@ class EqualWeightSizer(IPositionSizer):
             pos = pos_map.get(sig.symbol)
             current_value = pos.total_volume * price if pos else 0.0
             diff_value = target_value_per - current_value
+            # 跳过偏离度在阈值内的标的，避免同时产生 BUY 和 SELL
+            if target_value_per > 0 and abs(diff_value) / target_value_per < self._threshold:
+                continue
             diff_volume = int(diff_value / price)
             diff_volume = (diff_volume // 100) * 100
 

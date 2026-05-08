@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -17,7 +16,7 @@ class TushareHistoryDataFetcher(IHistoryDataFetcher):
     """Tushare 历史数据获取器实现。"""
 
     def __init__(self, token: str | None = None) -> None:
-        self.token = token or os.getenv("TUSHARE_TOKEN")
+        self.token = token
         if self.token and ts:
             ts.set_token(self.token)
             self.pro = ts.pro_api()

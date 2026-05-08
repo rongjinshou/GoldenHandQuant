@@ -1,5 +1,3 @@
-import os
-
 try:
     import tushare as ts
 except ImportError:
@@ -10,7 +8,7 @@ class TushareIndexFetcher:
     """专门用于获取指数数据的 Fetcher。"""
 
     def __init__(self, token: str | None = None) -> None:
-        self.token = token or os.getenv("TUSHARE_TOKEN")
+        self.token = token
         if self.token and ts:
             ts.set_token(self.token)
             self.pro = ts.pro_api()

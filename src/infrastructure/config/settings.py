@@ -11,11 +11,13 @@ class BacktestSettings:
     base_timeframe: str = "1d"
     initial_capital: float = 1_000_000.0
     plot: bool = True
+    benchmark: str = "000852.SH"
 
 
 @dataclass(slots=True, kw_only=True)
 class StrategySettings:
     name: str = "DualMaStrategy"
+    top_n: int = 9
 
 
 @dataclass(slots=True, kw_only=True)
@@ -45,9 +47,20 @@ class DataSettings:
 
 
 @dataclass(slots=True, kw_only=True)
+class SystemGateSettings:
+    index_symbol: str = "000852.SH"
+    ma_period: int = 20
+
+
+@dataclass(slots=True, kw_only=True)
+class StopLossSettings:
+    max_loss_ratio: float = 0.03
+
+
+@dataclass(slots=True, kw_only=True)
 class RiskSettings:
-    system_gate: dict = field(default_factory=dict)
-    stop_loss: dict = field(default_factory=dict)
+    system_gate: SystemGateSettings = field(default_factory=SystemGateSettings)
+    stop_loss: StopLossSettings = field(default_factory=StopLossSettings)
     policies: list[str] = field(default_factory=list)
 
 
@@ -71,22 +84,30 @@ class AppSettings:
 
 
 def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
-    import os
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     data_dict = data.get("data", {})
     tushare_dict = data_dict.pop("tushare", {})
-    tushare_token = tushare_dict.get("token") or os.environ.get("TUSHARE_TOKEN")
+    tushare_token = tushare_dict.get("token")
     tushare_settings = TushareDataSettings(token=tushare_token)
     data_settings = DataSettings(tushare=tushare_settings, **data_dict)
+
+    risk_data = data.get("risk", {})
+    system_gate_dict = risk_data.pop("system_gate", {})
+    stop_loss_dict = risk_data.pop("stop_loss", {})
+    risk_settings = RiskSettings(
+        system_gate=SystemGateSettings(**system_gate_dict),
+        stop_loss=StopLossSettings(**stop_loss_dict),
+        **risk_data,
+    )
 
     return AppSettings(
         backtest=BacktestSettings(**data.get("backtest", {})),
         strategy=StrategySettings(**data.get("strategy", {})),
         position_sizing=PositionSizingSettings(**data.get("position_sizing", {})),
         data=data_settings,
-        risk=RiskSettings(**data.get("risk", {})),
+        risk=risk_settings,
         costs=CostsSettings(**data.get("costs", {})),
     )
 

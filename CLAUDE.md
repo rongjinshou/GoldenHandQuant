@@ -6,23 +6,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 QuantFlow — A 股量化交易系统（实盘 + 回测框架），基于 DDD 单体架构, python3.13。
 
+## 环境配置
+
+```bash
+# 创建 conda 环境
+conda create -n goldenhandquant python=3.13 -y
+
+# 激活环境
+conda activate goldenhandquant
+
+# 安装项目依赖（基于 pyproject.toml）
+pip install -e ".[dev,api]"
+```
+
+### WSL 环境特殊说明
+
+在 WSL 中使用 xtquant（QMT SDK）需要调用 Windows 的 Python：
+
+```bash
+# Windows conda Python 路径
+WIN_PYTHON="/mnt/c/Users/11492/.conda/envs/goldenhandquant/python.exe"
+
+# 使用 Windows Python 运行需要 xtquant 的代码
+$WIN_PYTHON your_script.py
+
+# 使用 WSL Python 运行回测等不需要 xtquant 的代码
+python -m src.interfaces.cli.run_backtest
+```
+
+**注意：** xtquant 是 Windows 特定的包，只能在 Windows Python 环境中使用。
+
 ## 常用命令
 
 ```bash
 # 运行全部测试
-uv run python -m pytest tests/ --ignore=tests/infrastructure/gateway/
+python -m pytest tests/ --ignore=tests/infrastructure/gateway/
 
 # 运行单个测试文件
-uv run python -m pytest tests/domain/trade/test_order.py
+python -m pytest tests/domain/trade/test_order.py
 
 # 运行单个测试用例
-uv run python -m pytest tests/domain/trade/test_order.py::TestOrder::test_submit_should_change_status_to_submitted
+python -m pytest tests/domain/trade/test_order.py::TestOrder::test_submit_should_change_status_to_submitted
 
 # 运行 ruff lint
-uv run ruff check src/
+ruff check src/
 
 # 执行回测
-uv run python -m src.interfaces.cli.run_backtest
+python -m src.interfaces.cli.run_backtest
 ```
 
 ## 核心架构
@@ -65,7 +95,7 @@ uv run python -m src.interfaces.cli.run_backtest
 
 ## 代码规范
 
-完整规范见 `.trae/rules/architecture.md`。核心要点：
+完整规范见 `docs/rules/architecture.md`。核心要点：
 
 - **Python 3.13+**：使用 `list[X]`、`dict[K,V]`、`X | None`（弃用 `List`、`Dict`、`Optional`）
 - **Dataclass**：实体/值对象使用 `@dataclass(slots=True, kw_only=True)`

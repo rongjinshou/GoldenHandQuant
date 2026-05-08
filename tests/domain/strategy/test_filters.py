@@ -86,6 +86,30 @@ class TestFilterTradingStatus:
         assert len(result) == 1
         assert result[0].symbol == "000002.SZ"
 
+    def test_keeps_equal_ohlc_not_at_limit_with_prev_close(self):
+        """OHLC 全等但未触及涨跌停价时应保留（prev_close=10.0, close=10.0 非涨跌停）。"""
+        snaps = [
+            _snap("000001.SZ", open=10.0, high=10.0, low=10.0, close=10.0, prev_close=10.0),
+        ]
+        result = filter_trading_status(snaps)
+        assert len(result) == 1
+
+    def test_removes_limit_up_with_prev_close(self):
+        """OHLC 全等且触及涨停价时应剔除（prev_close=10.0, 涨停价=11.0）。"""
+        snaps = [
+            _snap("000001.SZ", open=11.0, high=11.0, low=11.0, close=11.0, prev_close=10.0),
+        ]
+        result = filter_trading_status(snaps)
+        assert len(result) == 0
+
+    def test_removes_limit_down_with_prev_close(self):
+        """OHLC 全等且触及跌停价时应剔除（prev_close=10.0, 跌停价=9.0）。"""
+        snaps = [
+            _snap("000001.SZ", open=9.0, high=9.0, low=9.0, close=9.0, prev_close=10.0),
+        ]
+        result = filter_trading_status(snaps)
+        assert len(result) == 0
+
 class TestFilterQuality:
     def test_keeps_stocks_above_median_roe_and_positive_ocf(self):
         snaps = [

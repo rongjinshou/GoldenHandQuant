@@ -74,10 +74,12 @@ def main():
     print("Initializing strategy and app service...")
 
     fundamental_registry = None
+    stock_universe: list[str] = []
     if strategy_name == "MicroValueStrategy":
         from src.domain.market.services.fundamental_registry import FundamentalRegistry
         from src.domain.strategy.services.strategies.micro_value_strategy import MicroValueStrategy
-        strategy = MicroValueStrategy()
+        top_n = settings.strategy.top_n if hasattr(settings, 'strategy') else 9
+        strategy = MicroValueStrategy(top_n=top_n)
         fundamental_registry = FundamentalRegistry()
 
         # 加载基本面数据
@@ -86,6 +88,32 @@ def main():
             fund_fetcher = TushareFundamentalFetcher(token=tushare_token)
             snapshots = fund_fetcher.fetch_by_range(start_date, end_date)
             fundamental_registry.load_snapshots(snapshots)
+        else:
+            from src.infrastructure.gateway.qmt_fundamental_fetcher import QmtFundamentalFetcher
+            fund_fetcher = QmtFundamentalFetcher()
+            # 获取沪深 A 股列表作为回测股票池
+            from src.infrastructure.gateway.xtquant_client import xtdata as _xt
+            for sector in ['沪深A股']:
+                try:
+                    stock_universe.extend(_xt.get_stock_list_in_sector(sector))
+                except Exception:
+                    pass
+            stock_universe = sorted(set(stock_universe))
+            # 沙盒测试: 限制股票数量以加速数据加载
+            max_stocks = 500
+            if len(stock_universe) > max_stocks:
+                import random
+                random.seed(42)
+                stock_universe = sorted(random.sample(stock_universe, max_stocks))
+                print(f"Stock universe: limited to {max_stocks} stocks (from full market)")
+            else:
+                print(f"Stock universe: {len(stock_universe)} stocks")
+            snapshots = fund_fetcher.fetch_by_range(start_date, end_date, symbols=stock_universe)
+            fundamental_registry.load_snapshots(snapshots)
+
+        # 从 registry 提取实际有数据的股票
+        stock_universe = sorted({s.symbol for s in snapshots})
+        print(f"Stocks with fundamental data: {len(stock_universe)}")
     else:
         strategy = DualMaStrategy()
 
@@ -102,10 +130,19 @@ def main():
     )
 
     # 4. 自动拉取/读取指定周期数据
-    print("\n[Step 1] Preparing Data...")
+    # 使用 stock_universe (有基本面数据的股票) + 指数 + 风控指数作为数据准备范围
+    index_symbols: list[str] = []
+    if 'settings' in locals() and hasattr(settings, 'risk') and settings.risk:
+        idx = settings.risk.system_gate.get("index_symbol")
+        if idx:
+            index_symbols.append(idx)
+            print(f"Index symbol for SystemRiskGate: {idx}")
+
+    combined = stock_universe + symbols + index_symbols if stock_universe else symbols + index_symbols
+    data_symbols = list(set(combined))
+    print(f"\n[Step 1] Preparing Data ({len(data_symbols)} symbols)...")
     try:
-        all_symbols = list(set(symbols + ["000852.SH"]))
-        app.prepare_data(all_symbols, tf, start_date, end_date)
+        app.prepare_data(data_symbols, tf, start_date, end_date)
         print("Data preparation completed.")
     except Exception as e:
         print(f"Error preparing data: {e}")
@@ -113,12 +150,13 @@ def main():
         return
 
     # 5. 执行回测循环
-    print("\n[Step 2] Running Backtest...")
-    # 转换日期字符串为 datetime 对象用于 run_backtest
+    # 回测标的 = stock_universe (策略从中选股)
+    backtest_symbols = stock_universe if stock_universe else symbols
+    print(f"\n[Step 2] Running Backtest ({len(backtest_symbols)} symbols)...")
     dt_start = datetime.strptime(start_date, "%Y-%m-%d")
     dt_end = datetime.strptime(end_date, "%Y-%m-%d")
 
-    reports = app.run_backtest(symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf, plot=plot)
+    reports = app.run_backtest(backtest_symbols, start_date=dt_start, end_date=dt_end, base_timeframe=tf, plot=plot)
     if not reports:
         print("No backtest reports generated.")
         return

@@ -1,4 +1,4 @@
-import os
+import bisect
 from datetime import datetime
 
 import pandas as pd
@@ -14,7 +14,7 @@ except ImportError:
 
 class TushareFundamentalFetcher(IFundamentalFetcher):
     def __init__(self, token: str | None = None) -> None:
-        self.token = token or os.getenv("TUSHARE_TOKEN")
+        self.token = token
         if self.token and ts:
             ts.set_token(self.token)
             self.pro = ts.pro_api()
@@ -56,16 +56,21 @@ class TushareFundamentalFetcher(IFundamentalFetcher):
             start_date=ts_start, end_date=ts_end, fields='ts_code,ann_date,roe_ttm,ocf_ttm'
         )
 
-        fina_dict = {}
+        # 按 (symbol, ann_date) 构建财务数据索引，避免未来函数
+        # fina_by_sym[sym] = (sorted_ann_dates: list[str], data_list: list[dict])
+        fina_by_sym: dict[str, tuple[list[str], list[dict]]] = {}
         if df_fina is not None and not df_fina.empty:
-            # 排序保留最新的 ann_date
             df_fina = df_fina.sort_values(by=['ts_code', 'ann_date'])
-            for _, row in df_fina.iterrows():
-                sym = row['ts_code']
-                fina_dict[sym] = {
-                    "roe_ttm": row['roe_ttm'] if pd.notna(row['roe_ttm']) else None,
-                    "ocf_ttm": row['ocf_ttm'] if pd.notna(row['ocf_ttm']) else None,
-                }
+            for sym, group in df_fina.groupby('ts_code'):
+                dates: list[str] = []
+                data_list: list[dict] = []
+                for _, row in group.iterrows():
+                    dates.append(row['ann_date'])
+                    data_list.append({
+                        "roe_ttm": row['roe_ttm'] if pd.notna(row['roe_ttm']) else None,
+                        "ocf_ttm": row['ocf_ttm'] if pd.notna(row['ocf_ttm']) else None,
+                    })
+                fina_by_sym[sym] = (dates, data_list)
 
         snapshots = []
         for _, row in df_daily_basic.iterrows():
@@ -78,7 +83,13 @@ class TushareFundamentalFetcher(IFundamentalFetcher):
             if pd.isna(list_date):
                 continue
 
-            fina_info = fina_dict.get(symbol, {})
+            # 查找 ann_date <= trade_date 的最近一条财务数据
+            fina_info: dict = {}
+            if symbol in fina_by_sym:
+                dates, data_list = fina_by_sym[symbol]
+                idx = bisect.bisect_right(dates, row['trade_date'])
+                if idx > 0:
+                    fina_info = data_list[idx - 1]
 
             snapshot = FundamentalSnapshot(
                 symbol=symbol,

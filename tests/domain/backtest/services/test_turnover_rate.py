@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime
 from src.domain.backtest.entities.backtest_report import BacktestReport
 from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot
@@ -22,9 +23,9 @@ def test_turnover_rate_basic():
         equity_curve=[s.total_asset for s in snapshots],
         daily_returns=[s.return_rate for s in snapshots],
     )
-    # turnover = sum(trade_value) / avg_equity
+    # turnover = sum(trade_value) / avg_equity / n_days
     # trade_value = 1000 * 10 = 10000
     # avg_equity = (100000 + 101000) / 2 = 100500
-    # daily_turnover = 10000 / 100500 ≈ 0.0995
-    assert report.turnover_rate > 0
-    assert report.turnover_rate < 1.0
+    # daily_turnover = (10000 / 100500) / 2 ≈ 0.04975
+    expected = (10000 / 100500) / 2
+    assert report.turnover_rate == pytest.approx(expected, rel=1e-6)

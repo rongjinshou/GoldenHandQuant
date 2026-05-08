@@ -17,6 +17,7 @@ from src.domain.strategy.services.cross_sectional_strategy import CrossSectional
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.infrastructure.config.settings import RiskSettings
 from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
 
 
@@ -109,7 +110,7 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         trade_gateway: ITradeGateway,
         fundamental_registry=None,
         index_symbol: str = "000852.SH",
-        risk_settings=None,
+        risk_settings: RiskSettings | None = None,
     ):
         self.strategy = strategy
         self.sizer = sizer
@@ -117,16 +118,12 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         self.trade_gateway = trade_gateway
         self.fundamental_registry = fundamental_registry
 
-        if risk_settings and getattr(risk_settings, "system_gate", {}).get("index_symbol"):
-            self.index_symbol = risk_settings.system_gate.get("index_symbol")
-        else:
-            self.index_symbol = index_symbol
+        self.index_symbol = risk_settings.system_gate.index_symbol if risk_settings else index_symbol
 
         self.system_gate = SystemRiskGate()
+        self._index_cache_date: datetime | None = None
 
-        max_loss = 0.03
-        if risk_settings and getattr(risk_settings, "stop_loss", {}).get("max_loss_ratio"):
-            max_loss = risk_settings.stop_loss.get("max_loss_ratio")
+        max_loss = risk_settings.stop_loss.max_loss_ratio if risk_settings else 0.03
 
         self.risk_signal_gen = RiskSignalGenerator([
             LimitUpBreakPolicy(),
@@ -134,10 +131,12 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         ])
 
     def evaluate(self, context: DayContext) -> tuple[list[OrderTarget], dict[str, float]]:
-        # Inject index data to system_gate
-        index_bars = self.market_gateway.get_recent_bars(self.index_symbol, context.base_timeframe, 100)
-        if index_bars:
-            self.system_gate.set_index_data(index_bars)
+        # 仅在交易日变化时刷新指数数据，避免重复请求
+        if self._index_cache_date != context.current_time:
+            index_bars = self.market_gateway.get_recent_bars(self.index_symbol, context.base_timeframe, 100)
+            if index_bars:
+                self.system_gate.set_index_data(index_bars)
+            self._index_cache_date = context.current_time
 
         bars: dict[str, Bar] = {}
         for sym in context.symbols:

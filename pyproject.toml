@@ -28,7 +28,7 @@ dev = [
     "black>=23.0",
     "httpx",
 ]
-qmt = ["xtquant"]
+qmt = ["xtquant"]  # Windows/WSL only
 api = ["fastapi", "uvicorn"]
 
 [tool.pytest.ini_options]
