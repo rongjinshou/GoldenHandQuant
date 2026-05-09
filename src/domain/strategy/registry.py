@@ -55,9 +55,46 @@ def _build_micro_value(params: dict[str, Any]) -> BaseStrategy:
 
 
 def _build_multi_factor(params: dict[str, Any]) -> BaseStrategy:
+    from src.domain.strategy.factors.fundamental_factors import (
+        AssetTurnoverFactor,
+        CurrentRatioFactor,
+        DebtToEquityFactor,
+        DividendYieldFactor,
+        EarningsGrowthFactor,
+        GrossMarginFactor,
+        NetMarginFactor,
+        PCFRatioFactor,
+        PSRatioFactor,
+        ROAFactor,
+    )
     from src.domain.strategy.factors.low_volatility_factor import LowVolatilityFactor
+    from src.domain.strategy.factors.price_volume_factors import (
+        ATR14Factor,
+        AvgTurnover20dFactor,
+        Illiquidity20dFactor,
+        Return5dFactor,
+        Return60dFactor,
+        RSI14Factor,
+        Skewness20dFactor,
+        TurnoverFactor,
+        Volatility60dFactor,
+    )
+    from src.domain.strategy.factors.price_volume_factors import (
+        MACDFactor as MACDHistFactor,
+    )
     from src.domain.strategy.factors.quality_factor import ROEQualityFactor
     from src.domain.strategy.factors.reversal_factor import ReversalFactor
+    from src.domain.strategy.factors.technical_factors import (
+        ClosePositionFactor,
+        GapFactor,
+        High20dProximityFactor,
+        MA5CrossFactor,
+        MA20CrossFactor,
+        MA60CrossFactor,
+        MACDCrossFactor,
+        OBVSlope20dFactor,
+        PriceRangeFactor,
+    )
     from src.domain.strategy.factors.value_factor import PBValueFactor, PEValueFactor
     from src.domain.strategy.services.strategies.multi_factor_strategy import MultiFactorStrategy
 
@@ -66,11 +103,48 @@ def _build_multi_factor(params: dict[str, Any]) -> BaseStrategy:
     weights = []
 
     factor_map = {
+        # 价值因子
         "pb_value": PBValueFactor(),
         "pe_value": PEValueFactor(),
-        "quality": ROEQualityFactor(),
+        # 质量因子
+        "roe": ROEQualityFactor(),
+        "roa": ROAFactor(),
+        "gross_margin": GrossMarginFactor(),
+        "net_margin": NetMarginFactor(),
+        "asset_turnover": AssetTurnoverFactor(),
+        "current_ratio": CurrentRatioFactor(),
+        "debt_to_equity": DebtToEquityFactor(),
+        # 估值因子
+        "pcf_ratio": PCFRatioFactor(),
+        "ps_ratio": PSRatioFactor(),
+        "dividend_yield": DividendYieldFactor(),
+        # 成长因子
+        "earnings_growth": EarningsGrowthFactor(),
+        # 动量/反转因子
+        "return_5d": Return5dFactor(),
         "reversal": ReversalFactor(),
+        "return_60d": Return60dFactor(),
+        # 波动率因子
         "low_volatility": LowVolatilityFactor(),
+        "volatility_60d": Volatility60dFactor(),
+        "atr_14": ATR14Factor(),
+        "skewness_20d": Skewness20dFactor(),
+        # 流动性因子
+        "turnover": TurnoverFactor(),
+        "avg_turnover_20d": AvgTurnover20dFactor(),
+        "illiquidity_20d": Illiquidity20dFactor(),
+        # 技术因子
+        "rsi_14": RSI14Factor(),
+        "macd_hist": MACDHistFactor(),
+        "macd_cross": MACDCrossFactor(),
+        "ma5_cross": MA5CrossFactor(),
+        "ma20_cross": MA20CrossFactor(),
+        "ma60_cross": MA60CrossFactor(),
+        "high_20d_proximity": High20dProximityFactor(),
+        "obv_slope_20d": OBVSlope20dFactor(),
+        "price_range": PriceRangeFactor(),
+        "close_position": ClosePositionFactor(),
+        "gap": GapFactor(),
     }
 
     for name, weight in weights_dict.items():
@@ -93,14 +167,32 @@ _register(StrategyConfig(
     name="multi_factor",
     factory=_build_multi_factor,
     strategy_type="cross_section",
-    description="多因子选股策略 (价值+质量+反转+低波动)",
+    description="多因子选股策略 (30 因子: 价值+质量+动量+波动+技术+流动性)",
     default_params={
         "top_n": 10,
         "weights": {
-            "pb_value": 0.25,
-            "quality": 0.25,
-            "reversal": 0.25,
-            "low_volatility": 0.25,
+            # 价值因子 (2)
+            "pb_value": 1, "pe_value": 1,
+            # 质量因子 (6)
+            "roe": 1, "roa": 1, "gross_margin": 1, "net_margin": 1,
+            "asset_turnover": 1, "current_ratio": 1,
+            # 杠杆因子 (1)
+            "debt_to_equity": 1,
+            # 估值因子 (2)
+            "pcf_ratio": 1, "ps_ratio": 1,
+            # 收益/分红因子 (2)
+            "dividend_yield": 1, "earnings_growth": 1,
+            # 动量/反转因子 (3)
+            "return_5d": 1, "reversal": 1, "return_60d": 1,
+            # 波动率因子 (4)
+            "low_volatility": 1, "volatility_60d": 1, "atr_14": 1, "skewness_20d": 1,
+            # 流动性因子 (3)
+            "turnover": 1, "avg_turnover_20d": 1, "illiquidity_20d": 1,
+            # 技术因子 (7)
+            "rsi_14": 1, "macd_hist": 1, "macd_cross": 1,
+            "ma5_cross": 1, "ma20_cross": 1, "ma60_cross": 1,
+            "high_20d_proximity": 1, "obv_slope_20d": 1,
+            "price_range": 1, "close_position": 1, "gap": 1,
         },
     },
 ))

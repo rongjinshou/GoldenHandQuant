@@ -11,7 +11,20 @@ from src.domain.strategy.value_objects.signal_direction import SignalDirection
 logger = logging.getLogger(__name__)
 
 # 因子名称集合：低值高分（需要 invert）
-INVERT_FACTORS = {"pb_value", "pe_value", "reversal_20d", "low_volatility_20d"}
+INVERT_FACTORS = {
+    # 价值/估值
+    "pb_value", "pe_value", "pcf_ratio", "ps_ratio",
+    # 反转/动量
+    "reversal_20d", "return_5d",
+    # 波动率/风险
+    "low_volatility_20d", "volatility_60d", "atr_14", "skewness_20d",
+    # 流动性
+    "turnover", "avg_turnover_20d", "illiquidity_20d",
+    # 技术
+    "rsi_14", "high_20d_proximity", "price_range",
+    # 杠杆
+    "debt_to_equity",
+}
 
 
 class MultiFactorStrategy(CrossSectionalStrategy):
