@@ -55,10 +55,10 @@ def _build_micro_value(params: dict[str, Any]) -> BaseStrategy:
 
 
 def _build_multi_factor(params: dict[str, Any]) -> BaseStrategy:
-    from src.domain.strategy.factors.value_factor import PBValueFactor, PEValueFactor
+    from src.domain.strategy.factors.low_volatility_factor import LowVolatilityFactor
     from src.domain.strategy.factors.quality_factor import ROEQualityFactor
     from src.domain.strategy.factors.reversal_factor import ReversalFactor
-    from src.domain.strategy.factors.low_volatility_factor import LowVolatilityFactor
+    from src.domain.strategy.factors.value_factor import PBValueFactor, PEValueFactor
     from src.domain.strategy.services.strategies.multi_factor_strategy import MultiFactorStrategy
 
     weights_dict = params.get("weights", {})
