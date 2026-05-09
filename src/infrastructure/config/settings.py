@@ -73,6 +73,16 @@ class CostsSettings:
 
 
 @dataclass(slots=True, kw_only=True)
+class LiveTradeSettings:
+    strategy: str = "dual_ma"
+    symbols: list[str] = field(default_factory=list)
+    position_ratio: float = 0.1
+    slippage_buy: float = 0.001
+    slippage_sell: float = 0.001
+    bar_lookback: int = 100
+
+
+@dataclass(slots=True, kw_only=True)
 class AppSettings:
     backtest: BacktestSettings = field(default_factory=BacktestSettings)
     strategy: StrategySettings = field(default_factory=StrategySettings)
@@ -81,6 +91,7 @@ class AppSettings:
     data: DataSettings = field(default_factory=DataSettings)
     risk: RiskSettings = field(default_factory=RiskSettings)
     costs: CostsSettings = field(default_factory=CostsSettings)
+    live_trade: LiveTradeSettings = field(default_factory=LiveTradeSettings)
 
 
 def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
@@ -115,6 +126,15 @@ def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
 def load_trading_config(path: str = "resources/trading.yaml") -> AppSettings:
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
+
+    live_trade_data = data.get("live_trade", {})
+    live_trade_data.pop("strategy_params", None)
+    live_trade = LiveTradeSettings(**live_trade_data)
+
+    qmt_data = data.get("qmt", {})
+    qmt = QmtSettings(**qmt_data)
+
     return AppSettings(
-        qmt=QmtSettings(**data.get("qmt", {})),
+        qmt=qmt,
+        live_trade=live_trade,
     )

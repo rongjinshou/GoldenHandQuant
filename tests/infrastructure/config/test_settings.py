@@ -6,6 +6,7 @@ from src.infrastructure.config.settings import (
     AppSettings,
     BacktestSettings,
     QmtSettings,
+    LiveTradeSettings,
 )
 
 
@@ -71,3 +72,45 @@ def test_qmt_settings_defaults():
     settings = QmtSettings()
     assert settings.account_type == "STOCK"
     assert settings.session_id == 123456
+
+
+def test_live_trade_settings_defaults():
+    settings = LiveTradeSettings()
+    assert settings.strategy == "dual_ma"
+    assert settings.symbols == []
+    assert settings.position_ratio == 0.1
+    assert settings.slippage_buy == 0.001
+    assert settings.slippage_sell == 0.001
+    assert settings.bar_lookback == 100
+
+
+def test_load_trading_config_with_live_trade():
+    yaml_content = """
+qmt:
+  userdata_path: "/test/path"
+  session_id: 999
+  account_id: "12345678"
+  account_type: "STOCK"
+live_trade:
+  strategy: "custom_strategy"
+  symbols:
+    - "600519.SH"
+  position_ratio: 0.2
+  slippage_buy: 0.002
+  slippage_sell: 0.002
+  bar_lookback: 200
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(yaml_content)
+        tmp_path = f.name
+
+    try:
+        settings = load_trading_config(tmp_path)
+        assert settings.qmt.userdata_path == "/test/path"
+        assert settings.live_trade.strategy == "custom_strategy"
+        assert settings.live_trade.symbols == ["600519.SH"]
+        assert settings.live_trade.position_ratio == 0.2
+        assert settings.live_trade.slippage_buy == 0.002
+        assert settings.live_trade.bar_lookback == 200
+    finally:
+        os.unlink(tmp_path)

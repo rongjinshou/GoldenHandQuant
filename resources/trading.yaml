@@ -13,3 +13,15 @@ trading:
     - "600000.SH"
   timeframe: "1d"
   bar_lookback: 100
+
+live_trade:
+  strategy: "dual_ma"
+  symbols:
+    - "600000.SH"
+    - "000001.SZ"
+  position_ratio: 0.1
+  slippage_buy: 0.001
+  slippage_sell: 0.001
+  bar_lookback: 100
+  # strategy_params:
+  #   top_n: 9
