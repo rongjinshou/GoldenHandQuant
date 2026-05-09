@@ -45,7 +45,7 @@ class TushareFundamentalFetcher(IFundamentalFetcher):
         # 2. 每日指标 (daily_basic) 获取市值
         # 为了不超限频，只拉取这段时间的横截面快照数据
         df_daily_basic = self.pro.daily_basic(
-            ts_code='', start_date=ts_start, end_date=ts_end, fields='ts_code,trade_date,total_mv'
+            ts_code='', start_date=ts_start, end_date=ts_end, fields='ts_code,trade_date,total_mv,pe_ttm,pb'
         )
         if df_daily_basic is None or df_daily_basic.empty:
             return []
@@ -99,6 +99,8 @@ class TushareFundamentalFetcher(IFundamentalFetcher):
                 market_cap=row['total_mv'] * 10000,  # 万转元
                 roe_ttm=fina_info.get("roe_ttm"),
                 ocf_ttm=fina_info.get("ocf_ttm"),
+                pe_ratio=row['pe_ttm'] if pd.notna(row.get('pe_ttm')) else None,
+                pb_ratio=row['pb'] if pd.notna(row.get('pb')) else None,
             )
             snapshots.append(snapshot)
 
