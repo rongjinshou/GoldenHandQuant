@@ -22,3 +22,5 @@ class FundamentalSnapshot:
     market_cap: float
     roe_ttm: float | None = None
     ocf_ttm: float | None = None
+    pe_ratio: float | None = None  # 市盈率 (TTM)
+    pb_ratio: float | None = None  # 市净率
