@@ -15,7 +15,7 @@ sys.path.append(os.getcwd())
 from src.application.backtest_app import BacktestAppService
 from src.domain.backtest.services.performance_evaluator import PerformanceEvaluator
 from src.domain.market.value_objects.timeframe import Timeframe
-from src.domain.strategy.services.strategies.dual_ma_strategy import DualMaStrategy
+from src.domain.strategy.registry import create_strategy, get_strategy
 from src.infrastructure.config.settings import load_backtest_config
 from src.infrastructure.mock.mock_market import MockMarketGateway
 from src.infrastructure.mock.mock_trade import MockTradeGateway
@@ -73,13 +73,31 @@ def main():
     # 3. 初始化策略与应用
     print("Initializing strategy and app service...")
 
+    # Map config names to registry names
+    strategy_name_map = {
+        "DualMaStrategy": "dual_ma",
+        "MicroValueStrategy": "micro_value",
+    }
+    registry_name = strategy_name_map.get(strategy_name, strategy_name.lower())
+
+    try:
+        config = get_strategy(registry_name)
+    except KeyError:
+        print(f"Unknown strategy: {strategy_name}, falling back to dual_ma")
+        registry_name = "dual_ma"
+        config = get_strategy(registry_name)
+
+    strategy_params = {}
+    if hasattr(settings, 'strategy') and hasattr(settings.strategy, 'top_n'):
+        strategy_params["top_n"] = settings.strategy.top_n
+
+    strategy = create_strategy(registry_name, strategy_params)
+    print(f"Strategy: {config.description}")
+
     fundamental_registry = None
     stock_universe: list[str] = []
-    if strategy_name == "MicroValueStrategy":
+    if config.strategy_type == "cross_section":
         from src.domain.market.services.fundamental_registry import FundamentalRegistry
-        from src.domain.strategy.services.strategies.micro_value_strategy import MicroValueStrategy
-        top_n = settings.strategy.top_n if hasattr(settings, 'strategy') else 9
-        strategy = MicroValueStrategy(top_n=top_n)
         fundamental_registry = FundamentalRegistry()
 
         # 加载基本面数据
@@ -114,8 +132,6 @@ def main():
         # 从 registry 提取实际有数据的股票
         stock_universe = sorted({s.symbol for s in snapshots})
         print(f"Stocks with fundamental data: {len(stock_universe)}")
-    else:
-        strategy = DualMaStrategy()
 
     evaluator = PerformanceEvaluator()
 
