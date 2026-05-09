@@ -46,6 +46,7 @@ class FeaturePipeline:
         date: datetime,
         bars: dict[str, Bar],
         registry: FundamentalRegistry,
+        bar_history: dict[str, list[Bar]] | None = None,
     ) -> list:
         from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 
@@ -56,6 +57,27 @@ class FeaturePipeline:
             fund = fundamentals.get(symbol)
             if fund is None:
                 continue
+
+            # 从 bar 历史计算 20 日收益率和波动率
+            return_20d = None
+            volatility_20d = None
+            if bar_history and symbol in bar_history:
+                hist = bar_history[symbol]
+                if len(hist) >= 21:
+                    closes = [b.close for b in hist]
+                    if closes[0] > 0:
+                        return_20d = (closes[-1] - closes[0]) / closes[0]
+                    # 日收益率的标准差
+                    daily_returns = [
+                        (closes[i] - closes[i-1]) / closes[i-1]
+                        for i in range(1, len(closes))
+                        if closes[i-1] > 0
+                    ]
+                    if len(daily_returns) >= 2:
+                        mean_ret = sum(daily_returns) / len(daily_returns)
+                        variance = sum((r - mean_ret) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+                        volatility_20d = variance ** 0.5
+
             snapshots.append(StockSnapshot(
                 symbol=symbol,
                 date=date,
@@ -64,7 +86,11 @@ class FeaturePipeline:
                 name=fund.name, list_date=fund.list_date,
                 market_cap=fund.market_cap,
                 roe_ttm=fund.roe_ttm, ocf_ttm=fund.ocf_ttm,
+                pe_ratio=fund.pe_ratio,
+                pb_ratio=fund.pb_ratio,
                 prev_close=bar.prev_close if bar.prev_close > 0 else None,
+                return_20d=return_20d,
+                volatility_20d=volatility_20d,
             ))
 
         return snapshots

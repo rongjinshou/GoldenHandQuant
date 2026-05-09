@@ -18,6 +18,7 @@ class BacktestSettings:
 class StrategySettings:
     name: str = "DualMaStrategy"
     top_n: int = 9
+    weights: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True, kw_only=True)

@@ -90,6 +90,8 @@ def main():
     strategy_params = {}
     if hasattr(settings, 'strategy') and hasattr(settings.strategy, 'top_n'):
         strategy_params["top_n"] = settings.strategy.top_n
+    if hasattr(settings, 'strategy') and hasattr(settings.strategy, 'weights') and settings.strategy.weights:
+        strategy_params["weights"] = settings.strategy.weights
 
     strategy = create_strategy(registry_name, strategy_params)
     print(f"Strategy: {config.description}")

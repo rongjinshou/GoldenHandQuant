@@ -139,15 +139,17 @@ class CrossSectionalStrategyRunner(StrategyRunner):
             self._index_cache_date = context.current_time
 
         bars: dict[str, Bar] = {}
+        bar_history: dict[str, list[Bar]] = {}
         for sym in context.symbols:
-            recent = self.market_gateway.get_recent_bars(sym, context.base_timeframe, 1)
+            recent = self.market_gateway.get_recent_bars(sym, context.base_timeframe, 21)
             if recent:
                 bars[sym] = recent[-1]
+                bar_history[sym] = recent
 
         universe = []
         if self.fundamental_registry:
             universe = FeaturePipeline.build_cross_section(
-                context.current_time, bars, self.fundamental_registry
+                context.current_time, bars, self.fundamental_registry, bar_history
             )
 
         gate = self.system_gate.check_gate(context.current_time)

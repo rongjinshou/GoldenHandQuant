@@ -1,0 +1,46 @@
+backtest:
+  symbols:
+    - "600096.SH"
+    - "605589.SH"
+    - "000021.SZ"
+    - "002284.SZ"
+    - "002648.SZ"
+  start_date: "2024-01-01"
+  end_date: "2026-05-08"
+  base_timeframe: "1d"
+  initial_capital: 150000.0
+  plot: true
+  benchmark: "000300.SH"
+
+strategy:
+  name: "MultiFactorStrategy"
+  top_n: 3
+  weights:
+    pb_value: 0.25
+    quality: 0.25
+    reversal: 0.25
+    low_volatility: 0.25
+
+position_sizing:
+  type: "EqualWeightSizer"
+
+risk:
+  system_gate:
+    index_symbol: "000300.SH"
+    ma_period: 20
+  stop_loss:
+    max_loss_ratio: 0.05
+  policies:
+    - "hard_stop_loss"
+
+costs:
+  commission_rate: 0.0002
+  tax_rate: 0.001
+  min_commission: 5.0
+  slippage: 0.003
+
+data:
+  cache_dir: "data/"
+  history_fetcher: "QmtHistoryDataFetcher"
+  tushare:
+    token: "bd02c391c531732dc221165af820ea5fec582e4251cdf70115ed264d"
