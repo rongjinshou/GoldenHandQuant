@@ -141,7 +141,7 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         bars: dict[str, Bar] = {}
         bar_history: dict[str, list[Bar]] = {}
         for sym in context.symbols:
-            recent = self.market_gateway.get_recent_bars(sym, context.base_timeframe, 21)
+            recent = self.market_gateway.get_recent_bars(sym, context.base_timeframe, 120)
             if recent:
                 bars[sym] = recent[-1]
                 bar_history[sym] = recent
