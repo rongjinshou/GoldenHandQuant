@@ -13,7 +13,7 @@ from src.domain.market.value_objects.timeframe import Timeframe
 def _make_bar(symbol: str, close: float) -> Bar:
     return Bar(
         symbol=symbol, timeframe=Timeframe.DAY_1,
-        timestamp=datetime.now(), open=close, high=close,
+        timestamp=datetime(2026, 1, 1), open=close, high=close,
         low=close, close=close, volume=1000,
     )
 

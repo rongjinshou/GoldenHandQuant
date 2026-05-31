@@ -47,7 +47,7 @@ class TestLimitUpBreakPolicy:
         policy = LimitUpBreakPolicy()
         pos = Position(account_id="A", ticker="000001.SZ", total_volume=1000, available_volume=1000, average_cost=10.0)
         # prev_close=10.0, limit_up=11.00, high hits 11.00 but close 10.80 < 11.00
-        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime.now(),
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2026, 1, 1),
                   open=10.5, high=11.00, low=10.5, close=10.80, volume=1e6, prev_close=10.0)
         signals = policy.evaluate_positions([pos], {"000001.SZ": bar})
         assert len(signals) == 1
@@ -57,7 +57,7 @@ class TestLimitUpBreakPolicy:
     def test_no_trigger_when_close_at_limit_up(self):
         policy = LimitUpBreakPolicy()
         pos = Position(account_id="A", ticker="000001.SZ", total_volume=1000, available_volume=1000, average_cost=10.0)
-        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime.now(),
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2026, 1, 1),
                   open=10.5, high=11.00, low=10.5, close=11.00, volume=1e6, prev_close=10.0)
         signals = policy.evaluate_positions([pos], {"000001.SZ": bar})
         assert len(signals) == 0
@@ -65,7 +65,7 @@ class TestLimitUpBreakPolicy:
     def test_no_trigger_when_not_touching_limit_up(self):
         policy = LimitUpBreakPolicy()
         pos = Position(account_id="A", ticker="000001.SZ", total_volume=1000, available_volume=1000, average_cost=10.0)
-        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime.now(),
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2026, 1, 1),
                   open=10.5, high=10.90, low=10.5, close=10.80, volume=1e6, prev_close=10.0)
         signals = policy.evaluate_positions([pos], {"000001.SZ": bar})
         assert len(signals) == 0
@@ -74,7 +74,7 @@ class TestHardStopLossPolicy:
     def test_triggers_sell_when_loss_exceeds_threshold(self):
         policy = HardStopLossPolicy(max_loss_ratio=0.03)
         pos = Position(account_id="A", ticker="000001.SZ", total_volume=1000, available_volume=1000, average_cost=10.0)
-        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime.now(),
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2026, 1, 1),
                   open=9.0, high=9.0, low=9.0, close=9.50, volume=1e6)
         # loss = (9.50 - 10.0) / 10.0 = -5% > -3%
         signals = policy.evaluate_positions([pos], {"000001.SZ": bar})
@@ -84,7 +84,7 @@ class TestHardStopLossPolicy:
     def test_no_trigger_when_loss_within_threshold(self):
         policy = HardStopLossPolicy(max_loss_ratio=0.03)
         pos = Position(account_id="A", ticker="000001.SZ", total_volume=1000, available_volume=1000, average_cost=10.0)
-        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime.now(),
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2026, 1, 1),
                   open=9.8, high=9.8, low=9.8, close=9.80, volume=1e6)
         # loss = (9.80 - 10.0) / 10.0 = -2% > -3%, no trigger
         signals = policy.evaluate_positions([pos], {"000001.SZ": bar})
@@ -93,7 +93,7 @@ class TestHardStopLossPolicy:
     def test_no_trigger_when_profitable(self):
         policy = HardStopLossPolicy(max_loss_ratio=0.03)
         pos = Position(account_id="A", ticker="000001.SZ", total_volume=1000, available_volume=1000, average_cost=10.0)
-        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime.now(),
+        bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2026, 1, 1),
                   open=11.0, high=11.0, low=11.0, close=11.0, volume=1e6)
         signals = policy.evaluate_positions([pos], {"000001.SZ": bar})
         assert len(signals) == 0

@@ -57,7 +57,7 @@ class TestTradingAppService:
         bar = Bar(
             symbol=symbol,
             timeframe=Timeframe.DAY_1,
-            timestamp=datetime.now(),
+            timestamp=datetime(2026, 1, 1),
             open=10.0, high=11.0, low=9.0, close=10.0, volume=1000
         )
         mock_market_gateway.get_recent_bars.return_value = [bar]
@@ -131,7 +131,7 @@ class TestTradingAppService:
         bar = Bar(
             symbol=symbol,
             timeframe=Timeframe.DAY_1,
-            timestamp=datetime.now(),
+            timestamp=datetime(2026, 1, 1),
             open=100.0, high=110.0, low=90.0, close=100.0, volume=1000
         )
         mock_market_gateway.get_recent_bars.return_value = [bar]

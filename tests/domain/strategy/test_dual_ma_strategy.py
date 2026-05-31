@@ -9,7 +9,7 @@ from src.domain.strategy.value_objects.signal_direction import SignalDirection
 class TestDualMaStrategy:
     def _create_bars(self, prices: list[float]) -> list[Bar]:
         bars = []
-        base_time = datetime.now() - timedelta(days=len(prices))
+        base_time = datetime(2026, 1, 1) - timedelta(days=len(prices))
         for i, price in enumerate(prices):
             bar = Bar(
                 symbol="600000.SH",

@@ -17,7 +17,7 @@ def _make_snapshot(
     positions: list[PositionDetail] | None = None,
 ) -> MonitorSnapshot:
     return MonitorSnapshot(
-        timestamp=datetime.now(),
+        timestamp=datetime(2026, 1, 1),
         asset=Asset(account_id="test", total_asset=total_asset, available_cash=500_000),
         positions=positions or [],
         risk_metrics=RiskMetrics(

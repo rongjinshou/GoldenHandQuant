@@ -1,18 +1,22 @@
-from unittest.mock import MagicMock
+from datetime import datetime
 
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
 from src.domain.risk.services.risk_policies.total_position_policy import TotalPositionPolicy
+from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 
 
-def _make_order(direction: OrderDirection, price: float = 10.0, volume: int = 100) -> MagicMock:
-    order = MagicMock()
-    order.direction = direction
-    order.price = price
-    order.volume = volume
-    order.ticker = "600000.SH"
-    return order
+def _make_order(direction: OrderDirection, price: float = 10.0, volume: int = 100) -> Order:
+    return Order(
+        order_id="TEST_ORD",
+        account_id="TEST",
+        ticker="600000.SH",
+        direction=direction,
+        price=price,
+        volume=volume,
+        created_at=datetime(2026, 1, 1),
+    )
 
 
 def test_buy_within_limit_passes():

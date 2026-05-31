@@ -17,7 +17,7 @@ from src.interfaces.cli.signal_review.review_ui import SignalReviewUI
 
 def _make_bars(symbol: str, prices: list[float]) -> list[Bar]:
     bars = []
-    base = datetime.now() - timedelta(days=len(prices))
+    base = datetime(2026, 1, 1) - timedelta(days=len(prices))
     for i, p in enumerate(prices):
         bars.append(Bar(
             symbol=symbol, timeframe=Timeframe.DAY_1,

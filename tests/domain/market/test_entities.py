@@ -5,7 +5,7 @@ from src.domain.market.value_objects.timeframe import Timeframe
 class TestBar:
     def test_init_should_store_values_correctly(self):
         # Arrange
-        now = datetime.now()
+        now = datetime(2026, 1, 1)
         
         # Act
         bar = Bar(

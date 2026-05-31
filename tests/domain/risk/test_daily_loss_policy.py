@@ -1,15 +1,22 @@
-from unittest.mock import MagicMock
+from datetime import datetime
 
 from src.domain.risk.services.circuit_breaker import CircuitBreaker
 from src.domain.risk.services.risk_policies.daily_loss_policy import DailyLossPolicy
 from src.domain.risk.value_objects.circuit_breaker_state import BreakerStatus, CircuitBreakerState
+from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 
 
-def _make_order(direction: OrderDirection) -> MagicMock:
-    order = MagicMock()
-    order.direction = direction
-    return order
+def _make_order(direction: OrderDirection) -> Order:
+    return Order(
+        order_id="TEST_ORD",
+        account_id="TEST",
+        ticker="600000.SH",
+        direction=direction,
+        price=10.0,
+        volume=100 if direction == OrderDirection.BUY else 100,
+        created_at=datetime(2026, 1, 1),
+    )
 
 
 def test_normal_state_passes_all_orders():

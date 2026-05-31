@@ -8,7 +8,7 @@ from datetime import datetime
 
 def test_equal_weight_within_threshold_returns_zero():
     sizer = EqualWeightSizer(n_symbols=5, rebalance_threshold=0.05)
-    signal = Signal(symbol="000001.SZ", direction=OrderDirection.BUY, generated_at=datetime.now())
+    signal = Signal(symbol="000001.SZ", direction=OrderDirection.BUY, generated_at=datetime(2026, 1, 1))
     asset = Asset(account_id="TEST", total_asset=100000, available_cash=100000, frozen_cash=0)
     # 目标: 20000, 当前: 20000 (exactly at target)
     pos = Position(account_id="TEST", ticker="000001.SZ", total_volume=2000, available_volume=2000, average_cost=10.0)
@@ -18,7 +18,7 @@ def test_equal_weight_within_threshold_returns_zero():
 
 def test_equal_weight_underweight_buys():
     sizer = EqualWeightSizer(n_symbols=5, rebalance_threshold=0.05)
-    signal = Signal(symbol="000001.SZ", direction=OrderDirection.BUY, generated_at=datetime.now())
+    signal = Signal(symbol="000001.SZ", direction=OrderDirection.BUY, generated_at=datetime(2026, 1, 1))
     asset = Asset(account_id="TEST", total_asset=100000, available_cash=100000, frozen_cash=0)
     # 目标: 20000, 当前: 0 (严重 underweight)
     volume = sizer.calculate_target(signal, price=10.0, asset=asset, position=None)
@@ -27,7 +27,7 @@ def test_equal_weight_underweight_buys():
 
 def test_equal_weight_mismatched_signal_direction_returns_zero():
     sizer = EqualWeightSizer(n_symbols=5, rebalance_threshold=0.05)
-    signal = Signal(symbol="000001.SZ", direction=OrderDirection.SELL, generated_at=datetime.now())
+    signal = Signal(symbol="000001.SZ", direction=OrderDirection.SELL, generated_at=datetime(2026, 1, 1))
     asset = Asset(account_id="TEST", total_asset=100000, available_cash=100000, frozen_cash=0)
     # Underweight but signal is SELL -> no action
     volume = sizer.calculate_target(signal, price=10.0, asset=asset, position=None)
@@ -37,7 +37,7 @@ def test_equal_weight_mismatched_signal_direction_returns_zero():
 from src.domain.portfolio.entities.order_target import OrderTarget
 
 def _signal(symbol, direction=OrderDirection.BUY):
-    return Signal(symbol=symbol, direction=direction, confidence_score=1.0, generated_at=datetime.now())
+    return Signal(symbol=symbol, direction=direction, confidence_score=1.0, generated_at=datetime(2026, 1, 1))
 
 def _asset(total=100000.0):
     return Asset(account_id="TEST", total_asset=total, available_cash=total, frozen_cash=0)

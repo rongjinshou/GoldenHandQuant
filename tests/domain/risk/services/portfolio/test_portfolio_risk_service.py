@@ -112,7 +112,7 @@ class TestPortfolioRiskService:
             strategy_name="A", alert_type="overfitting",
             severity="warning", metric_name="ic_decay_rate",
             metric_value=0.55, threshold=0.5,
-            description="", detected_at=datetime.now(),
+            description="", detected_at=datetime(2026, 1, 1),
         )]
         level = self.service.assess_risk_level(div, var_95, [], alerts)
         assert level == "medium"

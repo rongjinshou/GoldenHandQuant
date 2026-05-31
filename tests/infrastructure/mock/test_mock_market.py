@@ -8,7 +8,7 @@ class TestMockMarketGateway:
     def test_add_bars_should_classify_by_timeframe(self):
         # Arrange
         gateway = MockMarketGateway()
-        now = datetime.now()
+        now = datetime(2026, 1, 1)
         
         bar_1m = Bar(symbol="S1", timeframe=Timeframe.MIN_1, timestamp=now, open=10, high=10, low=10, close=10, volume=100)
         bar_1d = Bar(symbol="S1", timeframe=Timeframe.DAY_1, timestamp=now, open=10, high=10, low=10, close=10, volume=100)

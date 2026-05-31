@@ -46,7 +46,7 @@ def _make_trade(pnl: float, executed_at: datetime | None = None) -> TradeRecord:
         volume=100,
         strategy_name="test_strategy",
         pnl=pnl,
-        executed_at=executed_at or datetime.now(),
+        executed_at=executed_at or datetime(2026, 1, 1),
     )
 
 

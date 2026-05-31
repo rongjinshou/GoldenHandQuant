@@ -1,7 +1,6 @@
 """测试 ML 收益预测策略。"""
 
 from datetime import datetime
-from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -11,6 +10,22 @@ from src.domain.strategy.services.strategies.ml_return_prediction_strategy impor
     MLReturnPredictionStrategy,
 )
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
+
+
+class FakeInferenceEngine:
+    """Fake 推理引擎，用于替换 MagicMock。"""
+
+    def __init__(self, predictions: dict[str, float]) -> None:
+        self._predictions = predictions
+        self.last_model_name: str | None = None
+        self.last_feature_dict: dict[str, np.ndarray] | None = None
+
+    def predict_batch(
+        self, model_name: str, feature_dict: dict[str, np.ndarray]
+    ) -> dict[str, float]:
+        self.last_model_name = model_name
+        self.last_feature_dict = feature_dict
+        return self._predictions
 
 
 def _make_snapshot(symbol: str, close: float = 10.0, **kwargs) -> StockSnapshot:
@@ -43,8 +58,8 @@ class TestMLReturnPredictionStrategy:
 
     def test_empty_universe_returns_empty(self) -> None:
         strategy = MLReturnPredictionStrategy(model_name="test_model")
-        mock_engine = MagicMock()
-        strategy.set_inference_engine(mock_engine)
+        fake_engine = FakeInferenceEngine(predictions={})
+        strategy.set_inference_engine(fake_engine)
         signals = strategy.generate_cross_sectional_signals([], [], datetime(2025, 6, 1))
         assert signals == []
 
@@ -56,9 +71,8 @@ class TestMLReturnPredictionStrategy:
 
     def test_top_n_buy_signals(self) -> None:
         strategy = MLReturnPredictionStrategy(model_name="test_model", top_n=2)
-        mock_engine = MagicMock()
-        mock_engine.predict_batch.return_value = {"A": 0.8, "B": 0.6, "C": 0.4}
-        strategy.set_inference_engine(mock_engine)
+        fake_engine = FakeInferenceEngine(predictions={"A": 0.8, "B": 0.6, "C": 0.4})
+        strategy.set_inference_engine(fake_engine)
 
         universe = [_make_snapshot("A"), _make_snapshot("B"), _make_snapshot("C")]
         signals = strategy.generate_cross_sectional_signals(universe, [], datetime(2025, 6, 1))
@@ -71,9 +85,8 @@ class TestMLReturnPredictionStrategy:
 
     def test_sell_dropped_positions(self) -> None:
         strategy = MLReturnPredictionStrategy(model_name="test_model", top_n=1)
-        mock_engine = MagicMock()
-        mock_engine.predict_batch.return_value = {"A": 0.8, "B": 0.6}
-        strategy.set_inference_engine(mock_engine)
+        fake_engine = FakeInferenceEngine(predictions={"A": 0.8, "B": 0.6})
+        strategy.set_inference_engine(fake_engine)
 
         universe = [_make_snapshot("A"), _make_snapshot("B")]
         positions = [_make_position("B")]
@@ -85,9 +98,8 @@ class TestMLReturnPredictionStrategy:
 
     def test_min_score_filters_low_predictions(self) -> None:
         strategy = MLReturnPredictionStrategy(model_name="test", top_n=3, min_score=0.5)
-        mock_engine = MagicMock()
-        mock_engine.predict_batch.return_value = {"A": 0.8, "B": 0.3, "C": 0.6}
-        strategy.set_inference_engine(mock_engine)
+        fake_engine = FakeInferenceEngine(predictions={"A": 0.8, "B": 0.3, "C": 0.6})
+        strategy.set_inference_engine(fake_engine)
 
         universe = [_make_snapshot("A"), _make_snapshot("B"), _make_snapshot("C")]
         signals = strategy.generate_cross_sectional_signals(universe, [], datetime(2025, 6, 1))
