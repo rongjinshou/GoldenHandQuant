@@ -1,10 +1,30 @@
 import logging
 from datetime import datetime
+from uuid import uuid4
 
 from src.domain.notification.interfaces.notification_gateway import INotificationGateway
+from src.domain.notification.interfaces.repositories.notification_history_repository import (
+    INotificationHistoryRepository,
+)
+from src.domain.notification.services.notification_deduplicator import (
+    NotificationDeduplicator,
+)
+from src.domain.notification.services.notification_priority_queue import (
+    NotificationPriorityQueue,
+    SendAction,
+)
+from src.domain.notification.value_objects.notification_history import (
+    NotificationHistory,
+)
 from src.domain.notification.value_objects.notification_message import (
     NotificationLevel,
     NotificationMessage,
+)
+from src.domain.notification.value_objects.notification_priority import (
+    NotificationPriority,
+)
+from src.domain.notification.value_objects.notification_receipt import (
+    NotificationReceipt,
 )
 from src.domain.trade.value_objects.execution_record import ExecutionRecord
 from src.domain.trade.value_objects.execution_stats import ExecutionStats
@@ -50,7 +70,7 @@ class NotificationHub:
     """通知中心。
 
     聚合系统内所有事件源，路由到对应的通知渠道。
-    支持频率限制、静默时段。
+    支持频率限制、静默时段、去重和优先级队列。
     """
 
     def __init__(
@@ -58,28 +78,110 @@ class NotificationHub:
         gateways: list[INotificationGateway],
         rate_limiter: RateLimiter | None = None,
         quiet_hours: tuple[int, int] | None = None,
+        deduplicator: NotificationDeduplicator | None = None,
+        priority_queue: NotificationPriorityQueue | None = None,
+        history_repository: INotificationHistoryRepository | None = None,
     ) -> None:
         self._gateways = gateways
         self._rate_limiter = rate_limiter or RateLimiter()
         self._quiet_hours = quiet_hours  # (start_hour, end_hour)
+        self._deduplicator = deduplicator
+        self._priority_queue = priority_queue
+        self._history_repository = history_repository
 
     def notify(self, message: NotificationMessage) -> None:
-        """发送通知到所有渠道。"""
-        # 紧急消息不受静默时段限制
-        if message.level != NotificationLevel.EMERGENCY:
+        """发送通知到所有渠道。
+
+        流程：去重检查 -> 优先级路由 -> 频率/静默限制 -> 发送 -> 记录历史。
+        """
+        # 去重检查
+        if self._deduplicator and self._deduplicator.is_duplicate(message):
+            logger.debug("重复通知，跳过: %s", message.title)
+            return
+
+        # 紧急消息不受静默时段和频率限制
+        is_emergency = message.level == NotificationLevel.EMERGENCY
+        is_critical = message.level == NotificationLevel.CRITICAL
+
+        if not is_emergency:
             if self._is_quiet_hour():
                 logger.debug("静默时段，跳过通知: %s", message.title)
                 return
 
-        if not self._rate_limiter.allow():
-            logger.warning("通知频率超限，跳过: %s", message.title)
+        if not is_emergency and not is_critical:
+            if not self._rate_limiter.allow():
+                logger.warning("通知频率超限，跳过: %s", message.title)
+                return
+
+        # 优先级队列路由
+        if self._priority_queue:
+            result = self._priority_queue.enqueue(message)
+            if result.action == SendAction.SEND_IMMEDIATELY:
+                self._dispatch(message)
+                self._record_history(message)
+            elif result.action == SendAction.SEND_BATCH:
+                for msg in result.messages:
+                    self._dispatch(msg)
+                    self._record_history(msg)
+            else:
+                # QUEUED 或 BUFFERED，暂不发送
+                logger.debug(
+                    "通知已入队 (%s): %s", result.action, message.title,
+                )
+        else:
+            self._dispatch(message)
+            self._record_history(message)
+
+    def flush(self) -> None:
+        """刷新优先级队列中所有排队的消息。
+
+        应在定时任务或日终时调用，发送排队的 WARNING 和缓存的 INFO。
+        """
+        if not self._priority_queue:
             return
 
+        # 发送排队的 WARNING
+        warnings = self._priority_queue.flush_warnings()
+        for msg in warnings:
+            self._dispatch(msg)
+            self._record_history(msg)
+
+        # 发送缓存的 INFO
+        infos = self._priority_queue.flush_info_buffer()
+        for msg in infos:
+            self._dispatch(msg)
+            self._record_history(msg)
+
+    def _dispatch(self, message: NotificationMessage) -> None:
+        """将消息分发到所有网关。"""
         for gateway in self._gateways:
             try:
                 gateway.send(message)
             except Exception as e:
                 logger.error("通知发送失败: %s - %s", message.title, e)
+
+    def _record_history(self, message: NotificationMessage) -> None:
+        """记录通知历史。"""
+        if not self._history_repository:
+            return
+        try:
+            notification_id = uuid4().hex
+            priority = NotificationPriority(message.level.value)
+            receipt = NotificationReceipt(
+                notification_id=notification_id,
+                sent_at=datetime.now(),
+                delivered=True,
+            )
+            history = NotificationHistory(
+                notification_id=notification_id,
+                message=message,
+                priority=priority,
+                receipt=receipt,
+                created_at=datetime.now(),
+            )
+            self._history_repository.save(history)
+        except Exception as e:
+            logger.error("通知历史记录失败: %s - %s", message.title, e)
 
     def notify_trade_executed(
         self, record: ExecutionRecord, *, sanitize: bool = True,
