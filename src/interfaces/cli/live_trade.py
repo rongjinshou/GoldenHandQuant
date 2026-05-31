@@ -4,6 +4,7 @@
 使用方式:
     python -m src.interfaces.cli.live_trade --strategy dual_ma --symbols 600000.SH,000001.SZ
     python -m src.interfaces.cli.live_trade  # 使用 resources/trading.yaml 默认配置
+    python -m src.interfaces.cli.live_trade --review-mode legacy  # 旧版纯文本模式
 """
 
 import argparse
@@ -40,6 +41,10 @@ def parse_args() -> argparse.Namespace:
         "--config", type=str, default="resources/trading.yaml",
         help="配置文件路径",
     )
+    parser.add_argument(
+        "--review-mode", type=str, default="rich", choices=["rich", "legacy"],
+        help="审核界面模式: rich (默认) 或 legacy (旧版纯文本)",
+    )
     return parser.parse_args()
 
 
@@ -49,62 +54,6 @@ def print_header() -> None:
     print(f"{BOLD}{CYAN}{'='*80}{RESET}")
     print(f"{BOLD}{CYAN}  GoldenHandQuant 半自动交易信号{' '*40}{now}{RESET}")
     print(f"{BOLD}{CYAN}{'='*80}{RESET}")
-
-
-def print_signal_table(displays: list[SignalDisplay]) -> None:
-    if not displays:
-        print(f"\n{YELLOW}当前无交易信号。{RESET}\n")
-        return
-
-    header = (
-        f"{'序号':>4}  {'标的':<12} {'方向':<6} {'当前价':>8} {'挂单价':>8} "
-        f"{'数量':>6} {'所需资金':>10} {'触发原因'}"
-    )
-    print(f"\n{BOLD}{header}{RESET}")
-    print("-" * 80)
-
-    for i, d in enumerate(displays, 1):
-        dir_color = GREEN if d.direction == SignalDirection.BUY else RED
-        dir_text = "BUY " if d.direction == SignalDirection.BUY else "SELL"
-        print(
-            f"{i:>4}  {d.symbol:<12} {dir_color}{dir_text:<6}{RESET} "
-            f"{d.current_price:>8.2f} {d.suggested_price:>8.2f} "
-            f"{d.suggested_volume:>6} {d.required_capital:>10,.0f} "
-            f"{d.reason}"
-        )
-    print("-" * 80)
-
-
-def print_status_bar(displays: list[SignalDisplay], asset, position_count: int) -> None:
-    strategy_name = displays[0].strategy_name if displays else "-"
-    available = asset.available_cash if asset else 0
-    print(
-        f"{CYAN}策略: {strategy_name}  |  "
-        f"可用资金: {available:,.0f}  |  "
-        f"当前持仓: {position_count} 只{RESET}"
-    )
-
-
-def confirm_single(display: SignalDisplay) -> bool:
-    dir_text = "买入" if display.direction == SignalDirection.BUY else "卖出"
-    print(
-        f"\n{YELLOW}⚠ 确认下单: {dir_text} {display.symbol} "
-        f"{display.suggested_volume}股 @ {display.suggested_price:.2f} "
-        f"(约 ¥{display.required_capital:,.0f})?{RESET} [y/N]: ",
-        end="",
-    )
-    answer = input().strip().lower()
-    return answer == "y"
-
-
-def print_order_results(results: list[OrderResult]) -> None:
-    print(f"\n{BOLD}{'─'*40}{RESET}")
-    for r in results:
-        if r.success:
-            print(f"{GREEN}✅ {r.symbol} {r.direction.value} 订单已提交: {r.order_id}{RESET}")
-        else:
-            print(f"{RED}❌ {r.symbol} {r.direction.value} 下单失败: {r.error_message}{RESET}")
-    print(f"{BOLD}{'─'*40}{RESET}\n")
 
 
 def main() -> None:
@@ -135,11 +84,6 @@ def main() -> None:
     print(f"\n{BOLD}加载策略:{RESET} {config.description}")
     print(f"{BOLD}标的列表:{RESET} {', '.join(symbols)}")
     print(f"{BOLD}策略类型:{RESET} {config.strategy_type}")
-
-    if config.strategy_type == "cross_section":
-        print(f"\n{YELLOW}截面策略需要全市场基本面数据，半自动模式暂不支持。{RESET}")
-        print(f"{YELLOW}请使用 bar 类型策略（如 dual_ma）。{RESET}")
-        sys.exit(0)
 
     from src.infrastructure.gateway.qmt_market import QmtMarketGateway
     from src.infrastructure.gateway.qmt_trade import QmtTradeGateway
@@ -172,14 +116,40 @@ def main() -> None:
         bar_lookback=lt.bar_lookback,
     )
 
+    if args.review_mode == "rich":
+        _run_rich_review(service, strategy_name, symbols)
+    else:
+        _run_legacy_review(service, strategy_name, symbols, account_gw)
+
+
+def _run_rich_review(
+    service: LiveSignalService,
+    strategy_name: str,
+    symbols: list[str],
+) -> None:
+    from src.interfaces.cli.signal_review.review_store import ReviewStore
+    from src.interfaces.cli.signal_review.review_ui import SignalReviewUI
+
+    store = ReviewStore()
+    ui = SignalReviewUI(service=service, store=store)
+    ui.run(strategy_name, symbols)
+
+
+def _run_legacy_review(
+    service: LiveSignalService,
+    strategy_name: str,
+    symbols: list[str],
+    account_gw,
+) -> None:
+    """旧版纯文本审核模式 (向后兼容)。"""
     asset = account_gw.get_asset()
     positions = account_gw.get_positions()
 
     print(f"\n{BOLD}正在扫描信号...{RESET}")
     displays = service.scan(strategy_name=strategy_name, symbols=symbols)
 
-    print_signal_table(displays)
-    print_status_bar(displays, asset, len(positions))
+    _print_signal_table(displays)
+    _print_status_bar(displays, asset, len(positions))
 
     if not displays:
         return
@@ -207,7 +177,7 @@ def main() -> None:
 
     confirmed: list[SignalDisplay] = []
     for d in selected:
-        if confirm_single(d):
+        if _confirm_single(d):
             confirmed.append(d)
 
     if not confirmed:
@@ -216,7 +186,63 @@ def main() -> None:
 
     print(f"\n{BOLD}正在下单...{RESET}")
     results = service.place_confirmed_orders(confirmed)
-    print_order_results(results)
+    _print_order_results(results)
+
+
+def _print_signal_table(displays: list[SignalDisplay]) -> None:
+    if not displays:
+        print(f"\n{YELLOW}当前无交易信号。{RESET}\n")
+        return
+
+    header = (
+        f"{'序号':>4}  {'标的':<12} {'方向':<6} {'当前价':>8} {'挂单价':>8} "
+        f"{'数量':>6} {'所需资金':>10} {'触发原因'}"
+    )
+    print(f"\n{BOLD}{header}{RESET}")
+    print("-" * 80)
+
+    for i, d in enumerate(displays, 1):
+        dir_color = GREEN if d.direction == SignalDirection.BUY else RED
+        dir_text = "BUY " if d.direction == SignalDirection.BUY else "SELL"
+        print(
+            f"{i:>4}  {d.symbol:<12} {dir_color}{dir_text:<6}{RESET} "
+            f"{d.current_price:>8.2f} {d.suggested_price:>8.2f} "
+            f"{d.suggested_volume:>6} {d.required_capital:>10,.0f} "
+            f"{d.reason}"
+        )
+    print("-" * 80)
+
+
+def _print_status_bar(displays: list[SignalDisplay], asset, position_count: int) -> None:
+    strategy_name = displays[0].strategy_name if displays else "-"
+    available = asset.available_cash if asset else 0
+    print(
+        f"{CYAN}策略: {strategy_name}  |  "
+        f"可用资金: {available:,.0f}  |  "
+        f"当前持仓: {position_count} 只{RESET}"
+    )
+
+
+def _confirm_single(display: SignalDisplay) -> bool:
+    dir_text = "买入" if display.direction == SignalDirection.BUY else "卖出"
+    print(
+        f"\n{YELLOW}确认下单: {dir_text} {display.symbol} "
+        f"{display.suggested_volume}股 @ {display.suggested_price:.2f} "
+        f"(约 {display.required_capital:,.0f})?{RESET} [y/N]: ",
+        end="",
+    )
+    answer = input().strip().lower()
+    return answer == "y"
+
+
+def _print_order_results(results: list[OrderResult]) -> None:
+    print(f"\n{BOLD}{'---'}{RESET}")
+    for r in results:
+        if r.success:
+            print(f"{GREEN}  {r.symbol} {r.direction.value} 订单已提交: {r.order_id}{RESET}")
+        else:
+            print(f"{RED}  {r.symbol} {r.direction.value} 下单失败: {r.error_message}{RESET}")
+    print(f"{BOLD}{'---'}{RESET}\n")
 
 
 if __name__ == "__main__":
