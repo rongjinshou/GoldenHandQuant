@@ -32,10 +32,11 @@ def main() -> None:
         account_id = settings.qmt.account_id
         logger.info("Loaded trading configuration from resources/trading.yaml")
     except FileNotFoundError:
-        qmt_path = r"D:\国金QMT交易端模拟\userdata_mini"
-        session_id = 123456
-        account_id = "88888888"
-        logger.info("Config file not found, using default parameters.")
+        import os
+        qmt_path = os.environ.get("QMT_USERDATA_PATH", r"D:\国金QMT交易端模拟\userdata_mini")
+        session_id = int(os.environ.get("QMT_SESSION_ID", "123456"))
+        account_id = os.environ.get("QMT_ACCOUNT_ID", "")
+        logger.info("Config file not found, using environment variables / defaults.")
 
     try:
         gateway = QmtTradeGateway(qmt_path, session_id, account_id)

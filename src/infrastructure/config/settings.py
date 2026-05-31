@@ -1,6 +1,27 @@
+import os
+import re
 from dataclasses import dataclass, field
 
 import yaml
+
+
+def _resolve_env_vars(value: str) -> str:
+    """将字符串中的 ${VAR} 占位符替换为环境变量值。"""
+    def _replace(match: re.Match) -> str:
+        var_name = match.group(1)
+        return os.environ.get(var_name, "")
+    return re.sub(r"\$\{(\w+)\}", _replace, value)
+
+
+def _resolve_dict_env_vars(data: object) -> object:
+    """递归解析字典中所有字符串值的 ${VAR} 占位符。"""
+    if isinstance(data, str):
+        return _resolve_env_vars(data)
+    if isinstance(data, dict):
+        return {k: _resolve_dict_env_vars(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_resolve_dict_env_vars(item) for item in data]
+    return data
 
 
 @dataclass(slots=True, kw_only=True)
@@ -195,6 +216,8 @@ def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
+    data = _resolve_dict_env_vars(data)
+
     data_dict = data.get("data", {})
     tushare_dict = data_dict.pop("tushare", {})
     tushare_token = tushare_dict.get("token")
@@ -236,6 +259,8 @@ def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
 def load_trading_config(path: str = "resources/trading.yaml") -> AppSettings:
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
+
+    data = _resolve_dict_env_vars(data)
 
     live_trade_data = data.get("live_trade", {})
     live_trade_data.pop("strategy_params", None)

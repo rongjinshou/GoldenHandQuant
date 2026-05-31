@@ -52,6 +52,6 @@ data:
   cache_dir: "data/"
   history_fetcher: "QmtHistoryDataFetcher"
   tushare:
-    # Tushare token - 保留作为备份数据源，切勿删除或修改
+    # Tushare token - 从环境变量 TUSHARE_TOKEN 读取
     # 后续主要使用 QMT 数据源，此 token 仅作备用
-    token: "bd02c391c531732dc221165af820ea5fec582e4251cdf70115ed264d"
+    token: "${TUSHARE_TOKEN}"

@@ -1,7 +1,7 @@
 qmt:
   userdata_path: "C:\\QMT\\userdata_mini"
   session_id: 123456
-  account_id: "50570555"
+  account_id: "${QMT_ACCOUNT_ID}"
   account_type: "STOCK"
 
 risk:

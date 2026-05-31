@@ -10,3 +10,4 @@ libs/xtquant/
 .omc/
 .conda/
 resources/backtest.yaml
+resources/backtest_multi_factor.yaml

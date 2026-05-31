@@ -1,8 +1,22 @@
-from fastapi import APIRouter, Depends
+import hmac
+import os
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
 
 router = APIRouter()
+
+API_TOKEN = os.environ.get("DASHBOARD_API_TOKEN", "")
+
+
+def _verify_auth(authorization: str = Header(default="")) -> None:
+    """验证 Bearer token。"""
+    token = authorization.removeprefix("Bearer ").strip()
+    if not API_TOKEN:
+        raise HTTPException(status_code=503, detail="DASHBOARD_API_TOKEN not configured")
+    if not hmac.compare_digest(token, API_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def get_account_gateway() -> IAccountGateway:
@@ -13,7 +27,10 @@ def get_account_gateway() -> IAccountGateway:
 
 
 @router.get("/asset")
-async def get_asset(gateway: IAccountGateway = Depends(get_account_gateway)):
+async def get_asset(
+    _auth: None = Depends(_verify_auth),
+    gateway: IAccountGateway = Depends(get_account_gateway),
+):
     asset = gateway.get_asset()
     if asset is None:
         return {"error": "Asset not found"}
@@ -26,7 +43,10 @@ async def get_asset(gateway: IAccountGateway = Depends(get_account_gateway)):
 
 
 @router.get("/positions")
-async def get_positions(gateway: IAccountGateway = Depends(get_account_gateway)):
+async def get_positions(
+    _auth: None = Depends(_verify_auth),
+    gateway: IAccountGateway = Depends(get_account_gateway),
+):
     positions = gateway.get_positions()
     return [
         {

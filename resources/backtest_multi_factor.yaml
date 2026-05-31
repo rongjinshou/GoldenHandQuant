@@ -43,4 +43,4 @@ data:
   cache_dir: "data/"
   history_fetcher: "QmtHistoryDataFetcher"
   tushare:
-    token: "bd02c391c531732dc221165af820ea5fec582e4251cdf70115ed264d"
+    token: "${TUSHARE_TOKEN}"

@@ -95,9 +95,9 @@ class WebDashboard:
         self._push_event("resume", {"operator": "web"})
         return {"status": "resumed"}
 
-    def add_event_queue(self) -> queue.Queue:
+    def add_event_queue(self, maxsize: int = 256) -> queue.Queue:
         """添加 SSE 事件队列。"""
-        q: queue.Queue = queue.Queue()
+        q: queue.Queue = queue.Queue(maxsize=maxsize)
         self._event_queues.append(q)
         return q
 
@@ -126,7 +126,8 @@ def create_app(dashboard: WebDashboard) -> object:
     需要安装 fastapi 和 uvicorn。
     """
     try:
-        from fastapi import FastAPI, Header, HTTPException
+        from fastapi import Depends, FastAPI, Header, HTTPException, Request
+        from fastapi.middleware.cors import CORSMiddleware
         from fastapi.responses import StreamingResponse
     except ImportError:
         raise ImportError(
@@ -136,36 +137,61 @@ def create_app(dashboard: WebDashboard) -> object:
 
     app = FastAPI(title="GoldenHandQuant Dashboard")
 
+    # CORS 中间件
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost", "http://127.0.0.1"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
+
+    # 安全头中间件
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    def _verify_auth(authorization: str = Header(default="")) -> str:
+        """验证 Bearer token，返回有效 token 或抛出 401。"""
+        token = authorization.removeprefix("Bearer ").strip()
+        if not dashboard._auth:
+            raise HTTPException(status_code=503, detail="Auth not configured")
+        if not dashboard._auth.verify(token):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return token
+
     @app.get("/api/status")
-    async def api_status():
+    async def api_status(_token: str = Depends(_verify_auth)):
         return dashboard.get_status()
 
     @app.get("/api/stats")
-    async def api_stats():
+    async def api_stats(_token: str = Depends(_verify_auth)):
         return dashboard.get_stats()
 
     @app.get("/api/health")
-    async def api_health():
+    async def api_health(_token: str = Depends(_verify_auth)):
         return dashboard.get_health()
 
     @app.post("/api/control/pause")
-    async def api_pause(authorization: str = Header(default="")):
-        token = authorization.removeprefix("Bearer ").strip()
+    async def api_pause(token: str = Depends(_verify_auth)):
         result = dashboard.pause(token)
         if "error" in result:
             raise HTTPException(status_code=401, detail=result["error"])
         return result
 
     @app.post("/api/control/resume")
-    async def api_resume(authorization: str = Header(default="")):
-        token = authorization.removeprefix("Bearer ").strip()
+    async def api_resume(token: str = Depends(_verify_auth)):
         result = dashboard.resume(token)
         if "error" in result:
             raise HTTPException(status_code=401, detail=result["error"])
         return result
 
     @app.get("/api/events")
-    async def api_events():
+    async def api_events(_token: str = Depends(_verify_auth)):
         q = dashboard.add_event_queue()
 
         async def event_stream():
