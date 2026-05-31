@@ -1,7 +1,7 @@
 # GoldenHandQuant 架构宪法与开发规范 (Architecture & Coding Guidelines)
 
 ## 1. 系统定位与核心架构
-* **系统名称**: QuantFlow
+* **系统名称**: GoldenHandQuant
 * **业务场景**: 中国 A 股量化交易系统（实盘/回测框架）
 * **架构模式**: 基于领域驱动设计 (DDD) 的单体架构 (Monolithic Architecture)
 * **核心驱动**: 进程内事件驱动 (In-Memory Event-Driven)
@@ -21,7 +21,7 @@
 请严格按照以下目录结构划分模块：
 
 ```
-QuantFlow/
+GoldenHandQuant/
 ├── config/                 # 配置文件存放区 (yaml/json)
 ├── data/                   # 本地数据缓存与预训练模型存放区
 ├── logs/                   # 运行日志存放区

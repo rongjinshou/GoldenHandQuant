@@ -1,7 +1,7 @@
 qmt:
-  userdata_path: "D:\\国金QMT交易端模拟\\userdata_mini"
+  userdata_path: "C:\\QMT\\userdata_mini"
   session_id: 123456
-  account_id: "88888888"
+  account_id: "50570555"
   account_type: "STOCK"
 
 risk:
@@ -17,8 +17,11 @@ trading:
 live_trade:
   strategy: "dual_ma"
   symbols:
-    - "600000.SH"
-    - "000001.SZ"
+    - "600096.SH"
+    - "605589.SH"
+    - "000021.SZ"
+    - "002284.SZ"
+    - "002648.SZ"
   position_ratio: 0.1
   slippage_buy: 0.001
   slippage_sell: 0.001

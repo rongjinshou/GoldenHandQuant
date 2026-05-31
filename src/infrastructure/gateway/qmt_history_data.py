@@ -1,5 +1,4 @@
 from pathlib import Path
-from threading import Event
 
 import pandas as pd
 
@@ -78,37 +77,20 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                 print(f"Error reading cache {csv_path}: {e}, re-downloading...")
                 df = None
 
-        # 3. 调用 QMT 接口下载 (如果缓存未命中)
+        # 3. 调用 QMT 接口获取数据 (如果缓存未命中)
         if df is None:
             if xtdata is None:
                 raise ImportError("xtquant module not found. Please install it or use cached data.")
 
-            xtdata.download_financial_data(stock_list=[symbol])
+            # 确保数据已下载（已缓存时 0.0s 完成）
+            try:
+                xtdata.download_history_data(
+                    stock_code=symbol, period=timeframe.value,
+                    start_time=qmt_start_date, end_time=qmt_end_date,
+                )
+            except Exception:
+                pass
 
-            # 3.1 下载历史数据
-            print(f"[{symbol}] Downloading history data ({timeframe.value})...")
-            download_complete = Event()
-
-            def _download_callback(data):
-                # 修复回调死锁：只有当明确完成时才放行
-                if data.get('finished', 0) == data.get('total', 1) or data.get('finished') is True:
-                    download_complete.set()
-            print(qmt_start_date)
-            xtdata.download_history_data2(
-                stock_list=[symbol],
-                period=timeframe.value,
-                start_time=qmt_start_date,
-                end_time=qmt_end_date,
-                callback=_download_callback
-            )
-
-            # 由于你之前提到不想用 download_financial_data 阻塞
-            # 这里超时时间可以设短一点，比如 5-10 秒。
-            # 60 秒还是太长了，如果本地缓存最新，它根本不触发回调，你得干等一分钟。
-            if not download_complete.wait(timeout=60):
-                print(f"[{symbol}] Notice: Data might be up-to-date or download timed out.")
-
-            # 3.2 获取数据 (去掉 'time' 字段，防止冗余)
             field_list = ['open', 'high', 'low', 'close', 'volume']
 
             data_map = xtdata.get_market_data_ex(
@@ -118,7 +100,7 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                 start_time=qmt_start_date,
                 end_time=qmt_end_date,
                 dividend_type='front',
-                fill_data=True
+                fill_data=False,
             )
 
             if symbol not in data_map or data_map[symbol].empty:
@@ -159,7 +141,7 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                     start_time=qmt_start_date,
                     end_time=qmt_end_date,
                     dividend_type="none",
-                    fill_data=True,
+                    fill_data=False,
                 )
                 if symbol in unadj_map and not unadj_map[symbol].empty:
                     unadj_series = unadj_map[symbol]["close"]

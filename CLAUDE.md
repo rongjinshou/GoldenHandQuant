@@ -103,3 +103,17 @@ python -m src.interfaces.cli.run_backtest
 - **Domain 红线**：`src/domain/` 下禁止 import 任何第三方库（pandas、numpy 等）
 - **测试**：pytest + AAA 模式；domain 层测试不需要 mock；测试文件命名 `test_<源文件名>.py`，目录结构与 `src/` 镜像映射
 - **QMT/xtquant**：获取 K 线必须用 `get_market_data_ex()`（禁用旧版 `get_market_data()`），必须指定 `dividend_type='front'`
+
+## Superpowers 配置
+
+设计文档（specs）存放在 `docs/feat/` 目录下，格式为：
+
+```
+docs/feat/MMDD-feature-name/
+  └── YYYY-MM-DD-feature-name-design.md
+  └── YYYY-MM-DD-feature-name-plan.md
+```
+
+示例：`docs/feat/0520-agent-team-v2/2026-05-20-agent-team-v2-design.md`
+
+superpowers 的 brainstorming/writing-plans skill 应遵循此目录结构，不要使用 `docs/superpowers/specs/`。
