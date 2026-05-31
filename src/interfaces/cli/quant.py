@@ -7,6 +7,10 @@
     python -m src.interfaces.cli.quant live --strategy dual_ma
     python -m src.interfaces.cli.quant compare --strategies a,b
     python -m src.interfaces.cli.quant factor-test --factors pb_value
+    python -m src.interfaces.cli.quant auto-trade --config resources/trading.yaml
+    python -m src.interfaces.cli.quant ml-train --start-date 2020-01-01 --end-date 2024-12-31
+    python -m src.interfaces.cli.quant ml-evaluate --model-name lgbm_5d
+    python -m src.interfaces.cli.quant monitor status
 """
 
 import argparse
@@ -57,6 +61,37 @@ def build_parser() -> argparse.ArgumentParser:
     # --- list ---
     subparsers.add_parser("list", help="列出所有可用策略")
 
+    # --- auto-trade ---
+    p_at = subparsers.add_parser("auto-trade", help="自动交易引擎")
+    p_at.add_argument("--config", default="resources/trading.yaml", help="交易配置文件路径")
+    p_at.add_argument("--once", action="store_true", help="仅执行一次交易循环")
+    p_at.add_argument("--enable", action="store_true", help="显式启用自动交易")
+
+    # --- ml-train ---
+    p_mt = subparsers.add_parser("ml-train", help="ML 模型训练")
+    p_mt.add_argument("--symbols", type=str, default="000300.SH", help="股票列表，逗号分隔")
+    p_mt.add_argument("--start-date", type=str, required=True, help="训练开始日期")
+    p_mt.add_argument("--end-date", type=str, required=True, help="训练结束日期")
+    p_mt.add_argument("--label-horizon", type=int, default=5, help="前瞻天数")
+    p_mt.add_argument("--model-name", type=str, default="lgbm_return_5d", help="模型名称")
+    p_mt.add_argument("--n-trials", type=int, default=50, help="Optuna 搜索次数")
+    p_mt.add_argument("--n-cv-splits", type=int, default=5, help="CV 折数")
+    p_mt.add_argument("--top-n", type=int, default=10, help="选股 Top N")
+    p_mt.add_argument("--config", type=str, default=None, help="YAML 配置文件路径")
+
+    # --- ml-evaluate ---
+    p_me = subparsers.add_parser("ml-evaluate", help="ML 模型评估")
+    p_me.add_argument("--model-name", type=str, required=True, help="模型名称")
+    p_me.add_argument("--eval-start", type=str, required=True, help="评估开始日期")
+    p_me.add_argument("--eval-end", type=str, required=True, help="评估结束日期")
+    p_me.add_argument("--quintiles", type=int, default=5, help="分层数")
+    p_me.add_argument("--plot", action="store_true", help="绘制图表")
+
+    # --- monitor ---
+    p_mon = subparsers.add_parser("monitor", help="系统监控")
+    p_mon.add_argument("monitor_command", choices=["status", "stats", "pause", "resume"], help="监控子命令")
+    p_mon.add_argument("--strategy", type=str, default=None, help="策略名称 (pause/resume)")
+
     return parser
 
 
@@ -94,6 +129,35 @@ def main() -> None:
 
             for s in list_strategies():
                 print(f"  {s.name:<20} [{s.strategy_type}] {s.description}")
+        case "auto-trade":
+            from src.interfaces.cli.auto_trade import main as auto_trade_main
+
+            auto_trade_main()
+        case "ml-train":
+            from src.interfaces.cli.ml_train import main as ml_train_main
+
+            ml_train_main()
+        case "ml-evaluate":
+            from src.interfaces.cli.ml_evaluate import main as ml_evaluate_main
+
+            ml_evaluate_main()
+        case "monitor":
+            from src.interfaces.cli.monitor import (
+                cmd_pause,
+                cmd_resume,
+                cmd_stats,
+                cmd_status,
+            )
+
+            monitor_commands = {
+                "status": cmd_status,
+                "stats": cmd_stats,
+                "pause": cmd_pause,
+                "resume": cmd_resume,
+            }
+            handler = monitor_commands.get(args.monitor_command)
+            if handler:
+                handler(args)
 
 
 if __name__ == "__main__":

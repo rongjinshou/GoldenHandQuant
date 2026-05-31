@@ -1,3 +1,4 @@
+import logging
 import math
 from datetime import datetime
 
@@ -6,6 +7,8 @@ from src.domain.backtest.entities.comparison_report import (
     ComparisonReport,
     StrategyMetricRow,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ComparisonReportService:
@@ -95,9 +98,10 @@ class ComparisonReportService:
             return [[1.0]] if n == 1 else []
 
         if len(aligned_dates) < 30:
-            print(
-                f"Warning: Only {len(aligned_dates)} common dates available. "
-                "Correlation results may be unreliable (need >= 30)."
+            logger.warning(
+                "Only %d common dates available. "
+                "Correlation results may be unreliable (need >= 30).",
+                len(aligned_dates),
             )
 
         # 构建每个策略在对齐日期上的日收益率序列

@@ -1,13 +1,12 @@
-from abc import ABC, abstractmethod
+from typing import Protocol
 
 from src.domain.portfolio.entities.strategy_allocation import StrategyAllocation
 from src.domain.portfolio.entities.strategy_performance import StrategyPerformance
 
 
-class IAllocationAlgorithm(ABC):
+class IAllocationAlgorithm(Protocol):
     """资金分配算法接口。"""
 
-    @abstractmethod
     def calculate(
         self,
         total_capital: float,

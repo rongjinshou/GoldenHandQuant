@@ -1,11 +1,10 @@
-from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Protocol
 
 
-class IRebalanceTrigger(ABC):
+class IRebalanceTrigger(Protocol):
     """再平衡触发器接口。"""
 
-    @abstractmethod
     def should_rebalance(self, current_date: datetime, last_rebalance: datetime | None) -> bool:
         """判断是否应触发再平衡。
 
@@ -18,7 +17,6 @@ class IRebalanceTrigger(ABC):
         """
         ...
 
-    @abstractmethod
     def record_rebalance(self, rebalance_date: datetime) -> None:
         """记录再平衡时间。"""
         ...

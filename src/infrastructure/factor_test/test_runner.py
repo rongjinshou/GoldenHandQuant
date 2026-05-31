@@ -4,7 +4,7 @@ from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.factor_test.evaluator import FactorExpressionEvaluator
 from src.domain.strategy.factor_test.lexer import tokenize
 from src.domain.strategy.factor_test.parser import FactorExpressionParser
-from src.domain.strategy.factor_test.report import FactorTestReport
+from src.domain.strategy.factor_test.report import FactorTestReport, ScoredFactorTestReport
 from src.domain.strategy.factor_test.scorer import FactorScorer
 from src.infrastructure.factor_test.decay_analyzer import DecayAnalyzer
 from src.infrastructure.factor_test.ic_calculator import ICCalculator
@@ -30,7 +30,7 @@ class FactorTestRunner:
         prices_by_date: dict[str, dict[str, float]],
         test_period: tuple[str, str] = ("", ""),
         num_layers: int = 5,
-    ) -> FactorTestReport:
+    ) -> ScoredFactorTestReport:
         """执行完整因子测试流程。
 
         Args:
@@ -42,7 +42,7 @@ class FactorTestRunner:
             num_layers: 分层数
 
         Returns:
-            FactorTestReport
+            ScoredFactorTestReport
         """
         # 1. 解析表达式
         tokens = tokenize(expression_str)
@@ -70,7 +70,7 @@ class FactorTestRunner:
         total_count = sum(len(v) for v in snapshots_by_date.values())
         avg_count = total_count // len(snapshots_by_date) if snapshots_by_date else 0
 
-        # 6. 构建报告
+        # 6. 构建报告（不含评分）
         report = FactorTestReport(
             expression=expression_str,
             test_period=test_period,
@@ -89,11 +89,11 @@ class FactorTestRunner:
             decay_ics=decay_ics,
         )
 
-        # 7. 综合评分
+        # 7. 综合评分 — 一次性构建包含评分的完整报告
         score, grade, reasons = self._scorer.score(report)
-        # FactorTestReport 是 frozen dataclass，用 object.__setattr__ 设置评分字段
-        object.__setattr__(report, "score", score)
-        object.__setattr__(report, "grade", grade)
-        object.__setattr__(report, "grade_reasons", reasons)
-
-        return report
+        return ScoredFactorTestReport(
+            report=report,
+            score=score,
+            grade=grade,
+            grade_reasons=reasons,
+        )

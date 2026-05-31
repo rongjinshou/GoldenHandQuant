@@ -180,41 +180,50 @@ class PortfolioRiskService:
     ) -> list[str]:
         """生成风险建议。"""
         recs: list[str] = []
+        recs.extend(self._check_correlation(correlation))
+        recs.extend(self._check_diversification(diversification, correlation))
+        recs.extend(self._check_stress_tests(stress_tests))
+        recs.extend(self._check_ml_alerts(ml_alerts))
+        return recs
 
-        # 相关性过高
+    @staticmethod
+    def _check_correlation(correlation: CorrelationMatrix) -> list[str]:
+        """检查相关性过高。"""
         if correlation.max_correlation_pair[2] > 0.7:
             a, b, r = correlation.max_correlation_pair
-            recs.append(f"策略 {a} 与 {b} 相关性过高({r:.2f})，建议替换其中一个或降低权重")
+            return [f"策略 {a} 与 {b} 相关性过高({r:.2f})，建议替换其中一个或降低权重"]
+        return []
 
-        # 分散效果不足
+    @staticmethod
+    def _check_diversification(
+        diversification: DiversificationResult, correlation: CorrelationMatrix,
+    ) -> list[str]:
+        """检查分散度和资金集中度。"""
+        recs: list[str] = []
         if diversification.diversification_ratio < 1.1:
             recs.append("组合分散效果不足，建议增加低相关策略")
+        if diversification.concentration_index > 0.35 and correlation.strategy_names:
+            recs.append("资金过度集中，建议重新分配权重")
+        return recs
 
-        # 资金过度集中
-        if diversification.concentration_index > 0.35:
-            names = correlation.strategy_names
-            # 找到权重最大的策略
-            if names:
-                recs.append("资金过度集中，建议重新分配权重")
-
-        # 压力测试不通过
+    @staticmethod
+    def _check_stress_tests(stress_tests: list[StressTestResult]) -> list[str]:
+        """检查压力测试不通过的情况。"""
+        recs: list[str] = []
         for t in stress_tests:
             if not t.passed:
                 recs.append(f"{t.scenario_name} 场景下组合损失 {t.portfolio_loss:.1%}，超过阈值，建议降低仓位")
+        return recs
 
-        # 过拟合告警
+    @staticmethod
+    def _check_ml_alerts(ml_alerts: list[MLRiskAlert]) -> list[str]:
+        """检查 ML 相关告警。"""
+        recs: list[str] = []
         for a in ml_alerts:
             if a.alert_type == "overfitting" and a.severity == "critical":
                 recs.append(f"{a.strategy_name} 存在过拟合风险（{a.metric_name} {a.metric_value:.0%}），建议重新训练")
-
-        # 特征漂移告警
-        for a in ml_alerts:
-            if a.alert_type == "feature_drift":
+            elif a.alert_type == "feature_drift":
                 recs.append(f"{a.strategy_name} 的特征发生漂移，建议检查数据源")
-
-        # 表现退化告警
-        for a in ml_alerts:
-            if a.alert_type == "performance_degradation":
+            elif a.alert_type == "performance_degradation":
                 recs.append(f"{a.strategy_name} 表现持续退化，建议暂停并评估")
-
         return recs

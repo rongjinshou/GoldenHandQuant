@@ -143,62 +143,85 @@ def main():
 
 
 def _load_data(start_date: str, end_date: str):
-    """加载历史数据，构建截面快照和收益率。
-
-    优先使用 TushareHistoryDataFetcher，不可用时尝试 QmtHistoryDataFetcher。
-    """
+    """加载历史数据，构建截面快照和收益率。"""
     from src.domain.market.services.fundamental_registry import FundamentalRegistry
     from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
 
-    # 尝试加载配置
-    try:
-        from src.infrastructure.config.settings import load_backtest_config
-        settings = load_backtest_config()
-        history_fetcher_type = settings.data.history_fetcher
-        tushare_token = settings.data.tushare.token
-    except (FileNotFoundError, AttributeError):
-        history_fetcher_type = "TushareHistoryDataFetcher"
-        tushare_token = None
-
-    # 初始化数据获取器
-    if history_fetcher_type == "TushareHistoryDataFetcher":
-        from src.infrastructure.gateway.tushare_fundamental_fetcher import TushareFundamentalFetcher
-        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
-        fetcher = TushareHistoryDataFetcher(token=tushare_token)
-        fund_fetcher = TushareFundamentalFetcher(token=tushare_token)
-    else:
-        from src.infrastructure.gateway.qmt_fundamental_fetcher import QmtFundamentalFetcher
-        from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
-        fetcher = QmtHistoryDataFetcher()
-        fund_fetcher = QmtFundamentalFetcher()
-
-    # 获取股票列表
-    symbols: list[str] = []
-    if history_fetcher_type != "TushareHistoryDataFetcher":
-        try:
-            from src.infrastructure.gateway.xtquant_client import xtdata as _xt
-            for sector in ['沪深A股']:
-                symbols.extend(_xt.get_stock_list_in_sector(sector))
-            symbols = sorted(set(symbols))[:500]
-        except Exception:
-            pass
-
-    if not symbols:
-        symbols = ["000001.SZ", "000002.SZ", "600000.SH"]
+    history_fetcher_type, tushare_token = _load_fetcher_config()
+    fetcher, fund_fetcher = _create_fetchers(history_fetcher_type, tushare_token)
+    symbols = _resolve_symbols(history_fetcher_type)
 
     print(f"Loading data for {len(symbols)} symbols from {start_date} to {end_date}...")
 
-    # 加载基本面数据
     fund_snapshots = fund_fetcher.fetch_by_range(start_date, end_date, symbols=symbols)
     registry = FundamentalRegistry()
     registry.load_snapshots(fund_snapshots)
 
-    # 获取 bar 数据
     bars_by_symbol = fetcher.fetch(symbols=symbols, start_date=start_date, end_date=end_date)
 
-    # 构建截面
+    snapshots_by_date, prices_by_date = _build_cross_sections(
+        bars_by_symbol, registry, FeaturePipeline,
+    )
+    returns_by_date = _compute_returns(prices_by_date)
+
+    print(f"Data loaded: {len(snapshots_by_date)} trading days, "
+          f"avg {sum(len(v) for v in snapshots_by_date.values()) // max(len(snapshots_by_date), 1)} stocks/day")
+
+    return snapshots_by_date, returns_by_date, prices_by_date
+
+
+def _load_fetcher_config() -> tuple[str, str | None]:
+    """加载数据获取器配置。"""
+    try:
+        from src.infrastructure.config.settings import load_backtest_config
+        settings = load_backtest_config()
+        return settings.data.history_fetcher, settings.data.tushare.token
+    except (FileNotFoundError, AttributeError):
+        return "TushareHistoryDataFetcher", None
+
+
+def _create_fetchers(
+    fetcher_type: str, tushare_token: str | None,
+):
+    """根据类型创建数据获取器。"""
+    if fetcher_type == "TushareHistoryDataFetcher":
+        from src.infrastructure.gateway.tushare_fundamental_fetcher import TushareFundamentalFetcher
+        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
+        return (
+            TushareHistoryDataFetcher(token=tushare_token),
+            TushareFundamentalFetcher(token=tushare_token),
+        )
+    from src.infrastructure.gateway.qmt_fundamental_fetcher import QmtFundamentalFetcher
+    from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
+    return QmtHistoryDataFetcher(), QmtFundamentalFetcher()
+
+
+def _resolve_symbols(fetcher_type: str) -> list[str]:
+    """获取股票列表。"""
+    if fetcher_type != "TushareHistoryDataFetcher":
+        try:
+            from src.infrastructure.gateway.xtquant_client import xtdata as _xt
+            symbols: list[str] = []
+            for sector in ['沪深A股']:
+                symbols.extend(_xt.get_stock_list_in_sector(sector))
+            symbols = sorted(set(symbols))[:500]
+            if symbols:
+                return symbols
+        except Exception:
+            pass
+    return ["000001.SZ", "000002.SZ", "600000.SH"]
+
+
+def _build_cross_sections(
+    bars_by_symbol: dict, registry, feature_pipeline,
+) -> tuple[dict[str, list], dict[str, dict[str, float]]]:
+    """构建每日截面快照和价格字典。"""
     from src.domain.market.value_objects.bar import Bar
-    dates = sorted({b.date.strftime("%Y-%m-%d") for bars in bars_by_symbol.values() for b in bars})
+
+    dates = sorted({
+        b.date.strftime("%Y-%m-%d")
+        for bars in bars_by_symbol.values() for b in bars
+    })
 
     snapshots_by_date: dict[str, list] = {}
     prices_by_date: dict[str, dict[str, float]] = {}
@@ -221,14 +244,20 @@ def _load_data(start_date: str, end_date: str):
             if hist:
                 bar_history[symbol] = hist
 
-        cross = FeaturePipeline.build_cross_section(
-            date=dt, bars=bars_on_date, registry=registry, bar_history=bar_history
+        cross = feature_pipeline.build_cross_section(
+            date=dt, bars=bars_on_date, registry=registry, bar_history=bar_history,
         )
         if cross:
             snapshots_by_date[date_str] = cross
             prices_by_date[date_str] = {s.symbol: s.close for s in cross}
 
-    # 构建收益率
+    return snapshots_by_date, prices_by_date
+
+
+def _compute_returns(
+    prices_by_date: dict[str, dict[str, float]],
+) -> dict[str, dict[str, float]]:
+    """根据价格序列计算日收益率。"""
     returns_by_date: dict[str, dict[str, float]] = {}
     sorted_dates = sorted(prices_by_date.keys())
     for i in range(len(sorted_dates) - 1):
@@ -240,11 +269,7 @@ def _load_data(start_date: str, end_date: str):
                 rets[sym] = p1[sym] / p0[sym] - 1
         if rets:
             returns_by_date[d0] = rets
-
-    print(f"Data loaded: {len(snapshots_by_date)} trading days, "
-          f"avg {sum(len(v) for v in snapshots_by_date.values()) // max(len(snapshots_by_date), 1)} stocks/day")
-
-    return snapshots_by_date, returns_by_date, prices_by_date
+    return returns_by_date
 
 
 if __name__ == "__main__":

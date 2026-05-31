@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class RebalanceFrequency(Enum):
+class RebalanceFrequency(StrEnum):
     """再平衡频率枚举。"""
 
     DAILY = "daily"
