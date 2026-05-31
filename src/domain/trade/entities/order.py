@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from src.domain.common.domain_event import DomainEvent
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.trade.value_objects.order_type import OrderType
@@ -11,6 +12,7 @@ class Order:
     """订单实体。
 
     遵循 A 股交易规则与状态机流转。
+    每次状态变更自动产出领域事件，供 EventStore 持久化。
 
     Attributes:
         order_id: 订单 ID。
@@ -48,6 +50,9 @@ class Order:
     # 备注/错误信息
     remark: str = ""
 
+    # 领域事件收集器（不参与序列化/比较）
+    _pending_events: list[DomainEvent] = field(default_factory=list, repr=False, compare=False)
+
     def __post_init__(self) -> None:
         """初始化验证。
 
@@ -76,6 +81,12 @@ class Order:
             raise RuntimeError(f"Cannot submit order in status {self.status}")
         self.status = OrderStatus.SUBMITTED
         self.updated_at = datetime.now()
+        self._emit("OrderSubmitted", {
+            "ticker": self.ticker,
+            "direction": self.direction.value,
+            "price": self.price,
+            "volume": self.volume,
+        })
 
     def on_fill(self, fill_volume: int, fill_price: float) -> None:
         """订单成交回报处理。
@@ -114,6 +125,13 @@ class Order:
             self.status = OrderStatus.PARTIAL_FILLED
 
         self.updated_at = datetime.now()
+        self._emit("OrderFilled", {
+            "fill_volume": fill_volume,
+            "fill_price": fill_price,
+            "total_traded_volume": self.traded_volume,
+            "traded_price": self.traded_price,
+            "new_status": self.status.value,
+        })
 
     def cancel(self) -> None:
         """撤单成功。
@@ -134,6 +152,10 @@ class Order:
                 raise RuntimeError(f"Cannot cancel order in status {self.status}")
 
         self.updated_at = datetime.now()
+        self._emit("OrderCanceled", {
+            "final_status": self.status.value,
+            "traded_volume": self.traded_volume,
+        })
 
     def reject(self, reason: str) -> None:
         """拒单。
@@ -153,3 +175,23 @@ class Order:
         self.status = OrderStatus.REJECTED
         self.remark = reason
         self.updated_at = datetime.now()
+        self._emit("OrderRejected", {"reason": reason})
+
+    def collect_pending_events(self) -> list[DomainEvent]:
+        """收集并清空待发布的领域事件。
+
+        Returns:
+            本实体自上次收集以来产出的全部领域事件。
+        """
+        events = list(self._pending_events)
+        self._pending_events.clear()
+        return events
+
+    def _emit(self, event_type: str, payload: dict[str, object]) -> None:
+        """内部方法：记录领域事件（不直接发布，由调用方统一收集持久化）。"""
+        self._pending_events.append(DomainEvent(
+            event_type=event_type,
+            aggregate_id=self.order_id,
+            aggregate_type="Order",
+            payload=payload,
+        ))

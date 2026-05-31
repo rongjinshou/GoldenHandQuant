@@ -2,6 +2,7 @@ from datetime import datetime
 
 from src.domain.account.entities.asset import Asset
 from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot
+from src.domain.common.domain_event import DomainEvent
 from src.domain.risk.value_objects.circuit_breaker_state import (
     BreakerStatus,
     CircuitBreakerState,
@@ -43,6 +44,7 @@ class CircuitBreaker:
         self._events: list[RiskEvent] = []
         self._initial_capital: float = 0.0
         self._day_open_asset: float = 0.0
+        self._pending_domain_events: list[DomainEvent] = []
 
     @property
     def state(self) -> CircuitBreakerState:
@@ -73,6 +75,9 @@ class CircuitBreaker:
                 trigger_reason=self._state.trigger_reason,
                 daily_loss_rate=self._state.daily_loss_rate,
             )
+            self._emit_domain_event("CircuitBreakerCooldownEntered", {
+                "trigger_reason": self._state.trigger_reason,
+            })
         elif self._state.status == BreakerStatus.COOLDOWN:
             self._state = CircuitBreakerState(status=BreakerStatus.NORMAL)
             self._events.append(RiskEvent(
@@ -80,6 +85,7 @@ class CircuitBreaker:
                 severity=RiskSeverity.INFO,
                 message="Circuit breaker recovered, trading resumed.",
             ))
+            self._emit_domain_event("CircuitBreakerRecovered", {})
 
     def evaluate(
         self,
@@ -137,4 +143,27 @@ class CircuitBreaker:
             event_type=RiskEventType.CIRCUIT_BREAKER_ON,
             severity=RiskSeverity.CRITICAL,
             message=f"CIRCUIT BREAKER TRIGGERED: {reason}",
+        ))
+        self._emit_domain_event("CircuitBreakerTriggered", {
+            "reason": reason,
+            "daily_loss_rate": daily_loss_rate,
+        })
+
+    def collect_pending_events(self) -> list[DomainEvent]:
+        """收集并清空待发布的领域事件。
+
+        Returns:
+            本实体自上次收集以来产出的全部领域事件。
+        """
+        events = list(self._pending_domain_events)
+        self._pending_domain_events.clear()
+        return events
+
+    def _emit_domain_event(self, event_type: str, payload: dict[str, object]) -> None:
+        """内部方法：记录领域事件。"""
+        self._pending_domain_events.append(DomainEvent(
+            event_type=event_type,
+            aggregate_id="circuit_breaker",
+            aggregate_type="CircuitBreaker",
+            payload=payload,
         ))
