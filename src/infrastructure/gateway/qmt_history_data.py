@@ -173,3 +173,22 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                     continue
 
         return bars
+
+    def fetch(
+        self,
+        symbols: list[str],
+        start_date: str,
+        end_date: str,
+    ) -> dict[str, list[Bar]]:
+        """批量获取多只标的的历史 K 线。"""
+        result: dict[str, list[Bar]] = {}
+        for sym in symbols:
+            bars = self.fetch_history_bars(
+                symbol=sym,
+                timeframe=Timeframe.DAY_1,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            if bars:
+                result[sym] = bars
+        return result

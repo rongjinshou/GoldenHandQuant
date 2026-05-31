@@ -79,7 +79,7 @@ def fetch_sector(sector: str, top: int = 20) -> dict:
     # 下载历史数据
     for sym in stocks:
         try:
-            xtdata.download_history_data(stock_code=sym, period='1d', count=5)
+            xtdata.download_history_data(stock_code=sym, period='1d', start_time='', end_time='')
         except Exception:
             pass
 

@@ -146,7 +146,7 @@ def fetch_indicators(symbol: str, period: str = "1d", bars: int = 120) -> dict:
     from src.infrastructure.gateway.xtquant_client import xtdata
 
     # 下载历史数据
-    xtdata.download_history_data(stock_code=symbol, period=period, count=bars)
+    xtdata.download_history_data(stock_code=symbol, period=period, start_time='', end_time='')
 
     data = xtdata.get_market_data_ex(
         field_list=['open', 'high', 'low', 'close', 'volume'],

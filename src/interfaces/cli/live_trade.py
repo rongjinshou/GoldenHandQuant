@@ -93,6 +93,10 @@ def main() -> None:
         print(f"{RED}QMT 路径未配置。请在 {args.config} 中设置 qmt.userdata_path。{RESET}")
         sys.exit(1)
 
+    if not qmt.account_id:
+        print(f"{RED}QMT 账户未配置。请设置环境变量 QMT_ACCOUNT_ID 或在配置文件中设置 qmt.account_id。{RESET}")
+        sys.exit(1)
+
     print(f"\n{BOLD}连接 QMT...{RESET}")
     try:
         market_gw = QmtMarketGateway()

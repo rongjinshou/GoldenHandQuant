@@ -219,7 +219,7 @@ def _build_cross_sections(
     from src.domain.market.value_objects.bar import Bar
 
     dates = sorted({
-        b.date.strftime("%Y-%m-%d")
+        b.timestamp.strftime("%Y-%m-%d")
         for bars in bars_by_symbol.values() for b in bars
     })
 
@@ -231,7 +231,7 @@ def _build_cross_sections(
         bars_on_date: dict[str, Bar] = {}
         for symbol, bars in bars_by_symbol.items():
             for b in bars:
-                if b.date.strftime("%Y-%m-%d") == date_str:
+                if b.timestamp.strftime("%Y-%m-%d") == date_str:
                     bars_on_date[symbol] = b
                     break
 
@@ -240,7 +240,7 @@ def _build_cross_sections(
 
         bar_history: dict[str, list[Bar]] = {}
         for symbol, bars in bars_by_symbol.items():
-            hist = [b for b in bars if b.date.strftime("%Y-%m-%d") <= date_str]
+            hist = [b for b in bars if b.timestamp.strftime("%Y-%m-%d") <= date_str]
             if hist:
                 bar_history[symbol] = hist
 

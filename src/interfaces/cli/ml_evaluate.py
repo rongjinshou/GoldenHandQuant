@@ -6,14 +6,20 @@ import argparse
 import sys
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="ML 收益预测模型评估")
-    parser.add_argument("--model-name", type=str, required=True, help="模型名称")
-    parser.add_argument("--eval-start", type=str, required=True, help="评估开始日期")
-    parser.add_argument("--eval-end", type=str, required=True, help="评估结束日期")
-    parser.add_argument("--quintiles", type=int, default=5, help="分层数")
-    parser.add_argument("--plot", action="store_true", help="绘制图表")
-    args = parser.parse_args()
+def main(args: argparse.Namespace | None = None) -> None:
+    """ML 模型评估入口。
+
+    Args:
+        args: 预解析的参数（quant 子命令调用时传入）。为 None 时从 sys.argv 解析。
+    """
+    if args is None:
+        parser = argparse.ArgumentParser(description="ML 收益预测模型评估")
+        parser.add_argument("--model-name", type=str, required=True, help="模型名称")
+        parser.add_argument("--eval-start", type=str, required=True, help="评估开始日期")
+        parser.add_argument("--eval-end", type=str, required=True, help="评估结束日期")
+        parser.add_argument("--quintiles", type=int, default=5, help="分层数")
+        parser.add_argument("--plot", action="store_true", help="绘制图表")
+        args = parser.parse_args()
 
     print(f"[ML Evaluate] 模型: {args.model_name}")
     print(f"[ML Evaluate] 评估区间: {args.eval_start} ~ {args.eval_end}")

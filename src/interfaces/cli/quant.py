@@ -132,15 +132,15 @@ def main() -> None:
         case "auto-trade":
             from src.interfaces.cli.auto_trade import main as auto_trade_main
 
-            auto_trade_main()
+            auto_trade_main(args)
         case "ml-train":
             from src.interfaces.cli.ml_train import main as ml_train_main
 
-            ml_train_main()
+            ml_train_main(args)
         case "ml-evaluate":
             from src.interfaces.cli.ml_evaluate import main as ml_evaluate_main
 
-            ml_evaluate_main()
+            ml_evaluate_main(args)
         case "monitor":
             from src.interfaces.cli.monitor import (
                 cmd_pause,

@@ -157,7 +157,7 @@ def run_backtest(args: argparse.Namespace) -> None:
     # 准备数据
     index_symbols: list[str] = []
     if settings and hasattr(settings, "risk") and settings.risk:
-        idx = settings.risk.system_gate.get("index_symbol")
+        idx = settings.risk.system_gate.index_symbol
         if idx:
             index_symbols.append(idx)
 
