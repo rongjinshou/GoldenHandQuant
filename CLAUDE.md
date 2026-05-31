@@ -53,6 +53,9 @@ ruff check src/
 
 # 执行回测
 python -m src.interfaces.cli.run_backtest
+
+# 多策略对比
+python -m src.interfaces.cli.compare_strategies --strategies dual_ma,micro_value --plot
 ```
 
 ## 核心架构

@@ -8,6 +8,7 @@ from src.domain.market.value_objects.suspension import StockStatusRegistry
 from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.portfolio.entities.order_target import OrderTarget
 from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
+from src.domain.risk.services.circuit_breaker import CircuitBreaker
 from src.domain.risk.services.risk_policies.hard_stop_loss_policy import HardStopLossPolicy
 from src.domain.risk.services.risk_policies.limit_up_break_policy import LimitUpBreakPolicy
 from src.domain.risk.services.risk_signal_generator import RiskSignalGenerator
@@ -49,14 +50,20 @@ class SingleStrategyRunner(StrategyRunner):
         market_gateway: IMarketGateway,
         trade_gateway: ITradeGateway,
         status_registry: StockStatusRegistry | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
     ):
         self.strategy = strategy
         self.sizer = sizer
         self.market_gateway = market_gateway
         self.trade_gateway = trade_gateway
         self.status_registry = status_registry
+        self.circuit_breaker = circuit_breaker
 
     def evaluate(self, context: DayContext) -> tuple[list[OrderTarget], dict[str, float]]:
+        # 熔断器检查: TRIGGERED 时直接返回空
+        if self.circuit_breaker and self.circuit_breaker.state.blocks_all_trading:
+            return [], {}
+
         strategy_market_data: dict[str, list[Bar]] = {}
         execution_prices: dict[str, float] = {}
         current_prices: dict[str, float] = {}
@@ -111,12 +118,14 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         fundamental_registry=None,
         index_symbol: str = "000852.SH",
         risk_settings: RiskSettings | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
     ):
         self.strategy = strategy
         self.sizer = sizer
         self.market_gateway = market_gateway
         self.trade_gateway = trade_gateway
         self.fundamental_registry = fundamental_registry
+        self.circuit_breaker = circuit_breaker
 
         self.index_symbol = risk_settings.system_gate.index_symbol if risk_settings else index_symbol
 
@@ -131,6 +140,10 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         ])
 
     def evaluate(self, context: DayContext) -> tuple[list[OrderTarget], dict[str, float]]:
+        # 熔断器检查: TRIGGERED 时直接返回空
+        if self.circuit_breaker and self.circuit_breaker.state.blocks_all_trading:
+            return [], {}
+
         # 仅在交易日变化时刷新指数数据，避免重复请求
         if self._index_cache_date != context.current_time:
             index_bars = self.market_gateway.get_recent_bars(self.index_symbol, context.base_timeframe, 100)
@@ -162,6 +175,10 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         all_signals = strategy_signals + risk_signals
 
         if not gate.pass_buy:
+            all_signals = [s for s in all_signals if s.direction != SignalDirection.BUY]
+
+        # 熔断器 COOLDOWN: 仅允许卖出
+        if self.circuit_breaker and self.circuit_breaker.state.allows_sell_only:
             all_signals = [s for s in all_signals if s.direction != SignalDirection.BUY]
 
         prices = {sym: bar.open for sym, bar in bars.items()}

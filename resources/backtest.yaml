@@ -21,6 +21,23 @@ risk:
     ma_period: 20
   stop_loss:
     max_loss_ratio: 0.03
+  circuit_breaker:
+    enabled: false
+    max_daily_loss: 0.03
+    max_total_drawdown: 0.20
+    cooldown_days: 1
+  notification:
+    console: true
+    wechat:
+      enabled: false
+      webhook_url: ""
+    email:
+      enabled: false
+      smtp_host: ""
+      smtp_port: 465
+      sender: ""
+      password: ""
+      receivers: []
   policies:
     - "limit_up_break"
     - "hard_stop_loss"

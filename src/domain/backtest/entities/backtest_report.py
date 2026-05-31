@@ -28,6 +28,7 @@ class BacktestReport:
     dates: list[datetime] = field(default_factory=list)
     equity_curve: list[float] = field(default_factory=list)
     daily_returns: list[float] = field(default_factory=list)
+    strategy_name: str = ""
 
     @property
     def turnover_rate(self) -> float:

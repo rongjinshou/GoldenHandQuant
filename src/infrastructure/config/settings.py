@@ -59,9 +59,42 @@ class StopLossSettings:
 
 
 @dataclass(slots=True, kw_only=True)
+class CircuitBreakerSettings:
+    enabled: bool = False
+    max_daily_loss: float = 0.03
+    max_total_drawdown: float = 0.20
+    cooldown_days: int = 1
+
+
+@dataclass(slots=True, kw_only=True)
+class WeChatNotificationSettings:
+    enabled: bool = False
+    webhook_url: str = ""
+
+
+@dataclass(slots=True, kw_only=True)
+class EmailNotificationSettings:
+    enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 465
+    sender: str = ""
+    password: str = ""
+    receivers: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True, kw_only=True)
+class NotificationSettings:
+    console: bool = True
+    wechat: WeChatNotificationSettings = field(default_factory=WeChatNotificationSettings)
+    email: EmailNotificationSettings = field(default_factory=EmailNotificationSettings)
+
+
+@dataclass(slots=True, kw_only=True)
 class RiskSettings:
     system_gate: SystemGateSettings = field(default_factory=SystemGateSettings)
     stop_loss: StopLossSettings = field(default_factory=StopLossSettings)
+    circuit_breaker: CircuitBreakerSettings = field(default_factory=CircuitBreakerSettings)
+    notification: NotificationSettings = field(default_factory=NotificationSettings)
     policies: list[str] = field(default_factory=list)
 
 
@@ -84,6 +117,63 @@ class LiveTradeSettings:
 
 
 @dataclass(slots=True, kw_only=True)
+class AutoTradeSettings:
+    """自动交易配置。"""
+    enabled: bool = False
+    strategy_names: list[str] = field(default_factory=list)
+    symbols: list[str] = field(default_factory=list)
+    execution_times: list[str] = field(default_factory=lambda: ["09:35", "14:50"])
+    max_orders_per_cycle: int = 20
+    min_confidence: float = 0.6
+    check_interval_seconds: int = 60
+
+
+@dataclass(slots=True, kw_only=True)
+class AnomalySettings:
+    """异常检测配置。"""
+    min_win_rate: float = 0.45
+    max_consecutive_losses: int = 5
+    lookback_trades: int = 20
+    crash_threshold: float = -0.03
+    max_price_jump: float = 0.10
+    volume_spike_ratio: float = 10.0
+
+
+@dataclass(slots=True, kw_only=True)
+class TelegramNotificationSettings:
+    enabled: bool = False
+    bot_token: str = ""
+    chat_id: str = ""
+
+
+@dataclass(slots=True, kw_only=True)
+class AutoNotificationSettings:
+    """自动交易通知配置。"""
+    quiet_hours_start: int = 23
+    quiet_hours_end: int = 7
+    rate_limit_per_minute: int = 10
+    telegram: TelegramNotificationSettings = field(
+        default_factory=TelegramNotificationSettings,
+    )
+
+
+@dataclass(slots=True, kw_only=True)
+class MonitorAlertSettings:
+    daily_loss_threshold: float = 0.03
+    stock_loss_threshold: float = 0.05
+    position_ratio_max: float = 0.80
+    position_ratio_min: float = 0.10
+    concentration_max: float = 0.30
+
+
+@dataclass(slots=True, kw_only=True)
+class MonitorSettings:
+    refresh_interval: int = 3
+    snapshot_dir: str = "data/snapshots/"
+    alerts: MonitorAlertSettings = field(default_factory=MonitorAlertSettings)
+
+
+@dataclass(slots=True, kw_only=True)
 class AppSettings:
     backtest: BacktestSettings = field(default_factory=BacktestSettings)
     strategy: StrategySettings = field(default_factory=StrategySettings)
@@ -93,6 +183,12 @@ class AppSettings:
     risk: RiskSettings = field(default_factory=RiskSettings)
     costs: CostsSettings = field(default_factory=CostsSettings)
     live_trade: LiveTradeSettings = field(default_factory=LiveTradeSettings)
+    monitor: MonitorSettings = field(default_factory=MonitorSettings)
+    auto_trade: AutoTradeSettings = field(default_factory=AutoTradeSettings)
+    anomaly: AnomalySettings = field(default_factory=AnomalySettings)
+    auto_notification: AutoNotificationSettings = field(
+        default_factory=AutoNotificationSettings,
+    )
 
 
 def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
@@ -108,9 +204,22 @@ def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
     risk_data = data.get("risk", {})
     system_gate_dict = risk_data.pop("system_gate", {})
     stop_loss_dict = risk_data.pop("stop_loss", {})
+    cb_dict = risk_data.pop("circuit_breaker", {})
+    notif_dict = risk_data.pop("notification", {})
+
+    wechat_dict = notif_dict.pop("wechat", {})
+    email_dict = notif_dict.pop("email", {})
+    notification_settings = NotificationSettings(
+        wechat=WeChatNotificationSettings(**wechat_dict),
+        email=EmailNotificationSettings(**email_dict),
+        **notif_dict,
+    )
+
     risk_settings = RiskSettings(
         system_gate=SystemGateSettings(**system_gate_dict),
         stop_loss=StopLossSettings(**stop_loss_dict),
+        circuit_breaker=CircuitBreakerSettings(**cb_dict),
+        notification=notification_settings,
         **risk_data,
     )
 
@@ -135,7 +244,15 @@ def load_trading_config(path: str = "resources/trading.yaml") -> AppSettings:
     qmt_data = data.get("qmt", {})
     qmt = QmtSettings(**qmt_data)
 
+    monitor_data = data.get("monitor", {})
+    alerts_data = monitor_data.pop("alerts", {})
+    monitor = MonitorSettings(
+        alerts=MonitorAlertSettings(**alerts_data),
+        **monitor_data,
+    )
+
     return AppSettings(
         qmt=qmt,
         live_trade=live_trade,
+        monitor=monitor,
     )

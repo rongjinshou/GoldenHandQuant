@@ -21,6 +21,8 @@ from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.portfolio.entities.order_target import OrderTarget
 from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
 from src.domain.portfolio.services.sizers.fixed_ratio_sizer import FixedRatioSizer
+from src.domain.risk.services.circuit_breaker import CircuitBreaker
+from src.domain.risk.services.risk_event_dispatcher import RiskEventDispatcher
 from src.domain.strategy.services.base_strategy import BaseStrategy
 from src.domain.strategy.services.cross_sectional_strategy import CrossSectionalStrategy
 from src.domain.trade.entities.order import Order
@@ -48,6 +50,8 @@ class BacktestAppService:
         status_registry: StockStatusRegistry | None = None,
         fundamental_registry: FundamentalRegistry | None = None,
         risk_settings: RiskSettings | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
+        event_dispatcher: RiskEventDispatcher | None = None,
     ) -> None:
         self.market_gateway = market_gateway
         self.trade_gateway = trade_gateway
@@ -58,6 +62,8 @@ class BacktestAppService:
         self.status_registry = status_registry
         self.fundamental_registry = fundamental_registry
         self.risk_settings = risk_settings
+        self.circuit_breaker = circuit_breaker
+        self.event_dispatcher = event_dispatcher
         self.snapshots: list[DailySnapshot] = []
         self.settlement_service = DailySettlementService()
 
@@ -145,7 +151,8 @@ class BacktestAppService:
                 market_gateway=self.market_gateway,
                 trade_gateway=self.trade_gateway,
                 fundamental_registry=self.fundamental_registry,
-                risk_settings=self.risk_settings
+                risk_settings=self.risk_settings,
+                circuit_breaker=self.circuit_breaker,
             )
         else:
             return SingleStrategyRunner(
@@ -153,7 +160,8 @@ class BacktestAppService:
                 sizer=self.sizer,
                 market_gateway=self.market_gateway,
                 trade_gateway=self.trade_gateway,
-                status_registry=self.status_registry
+                status_registry=self.status_registry,
+                circuit_breaker=self.circuit_breaker,
             )
 
     def _execute_targets(self, targets: list[OrderTarget], current_time: datetime, account_id: str) -> None:
@@ -210,14 +218,25 @@ class BacktestAppService:
             return self.evaluator.evaluate(
                 start_date=start_date, end_date=end_date,
                 initial_capital=initial_capital, snapshots=[], trades=[],
+                strategy_name=strategy.name,
             )
 
         progress = BacktestProgress(len(valid_timestamps))
         runner = self._build_runner(strategy)
 
+        # 初始化熔断器
+        if self.circuit_breaker:
+            self.circuit_breaker.set_initial_capital(initial_capital)
+
         for current_time in valid_timestamps:
             progress.update(current_time)
             self.market_gateway.set_current_time(current_time)
+
+            # 盘前重置熔断器
+            if self.circuit_breaker:
+                asset = self.trade_gateway.get_asset()
+                day_open_asset = asset.total_asset if asset else initial_capital
+                self.circuit_breaker.reset_daily(current_time, day_open_asset)
 
             context = DayContext(
                 current_time=current_time,
@@ -230,11 +249,20 @@ class BacktestAppService:
             self._execute_targets(targets, current_time, account_id)
             self._settle_and_snapshot(current_time, close_prices)
 
+            # 盘后评估熔断器 + 分发事件
+            if self.circuit_breaker:
+                asset = self.trade_gateway.get_asset()
+                if asset:
+                    self.circuit_breaker.evaluate(asset, self.snapshots)
+                if self.event_dispatcher and self.circuit_breaker.events:
+                    self.event_dispatcher.dispatch_all(self.circuit_breaker.events)
+
         report = self.evaluator.evaluate(
             start_date=start_date, end_date=end_date,
             initial_capital=initial_capital,
             snapshots=self.snapshots,
             trades=self.trade_gateway.list_trade_records(),
+            strategy_name=strategy.name,
         )
 
         if plot:
@@ -281,6 +309,7 @@ class BacktestAppService:
                 reports.append(self.evaluator.evaluate(
                     start_date=start_date, end_date=end_date,
                     initial_capital=initial_capital, snapshots=[], trades=[],
+                    strategy_name=strategy.name,
                 ))
                 continue
 
@@ -288,9 +317,19 @@ class BacktestAppService:
             progress = BacktestProgress(len(valid_timestamps))
             runner = self._build_runner(strategy)
 
+            # 初始化熔断器
+            if self.circuit_breaker:
+                self.circuit_breaker.set_initial_capital(initial_capital)
+
             for current_time in valid_timestamps:
                 progress.update(current_time)
                 self.market_gateway.set_current_time(current_time)
+
+                # 盘前重置熔断器
+                if self.circuit_breaker:
+                    asset = self.trade_gateway.get_asset()
+                    day_open_asset = asset.total_asset if asset else initial_capital
+                    self.circuit_breaker.reset_daily(current_time, day_open_asset)
 
                 context = DayContext(
                     current_time=current_time,
@@ -313,6 +352,14 @@ class BacktestAppService:
                 self._execute_targets(targets, current_time, sub_account_id)
                 self._settle_and_snapshot(current_time, close_prices)
 
+                # 盘后评估熔断器 + 分发事件
+                if self.circuit_breaker:
+                    asset = self.trade_gateway.get_asset()
+                    if asset:
+                        self.circuit_breaker.evaluate(asset, self.snapshots)
+                    if self.event_dispatcher and self.circuit_breaker.events:
+                        self.event_dispatcher.dispatch_all(self.circuit_breaker.events)
+
                 await bus.publish(DailySettlementEvent(
                     timestamp=current_time,
                     date=current_time,
@@ -324,6 +371,7 @@ class BacktestAppService:
                 initial_capital=initial_capital,
                 snapshots=self.snapshots,
                 trades=self.trade_gateway.list_trade_records(),
+                strategy_name=strategy.name,
             )
 
             if plot and is_last:

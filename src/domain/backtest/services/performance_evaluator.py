@@ -21,6 +21,7 @@ class PerformanceEvaluator:
         initial_capital: float,
         snapshots: list[DailySnapshot],
         trades: list[TradeRecord],
+        strategy_name: str = "",
     ) -> BacktestReport:
         if not snapshots:
             return BacktestReport(
@@ -36,6 +37,7 @@ class PerformanceEvaluator:
                 trade_count=len(trades),
                 trades=trades,
                 snapshots=snapshots,
+                strategy_name=strategy_name,
             )
 
         final_capital = snapshots[-1].total_asset
@@ -88,4 +90,5 @@ class PerformanceEvaluator:
             dates=dates,
             equity_curve=equity_curve,
             daily_returns=daily_returns,
+            strategy_name=strategy_name,
         )

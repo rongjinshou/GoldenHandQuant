@@ -152,6 +152,22 @@ def _build_multi_factor(params: dict[str, Any]) -> BaseStrategy:
             factors.append(factor_map[name])
             weights.append(weight)
 
+    # 加载挖掘因子
+    try:
+        from src.infrastructure.ml_engine.factor_repository import FactorRepository
+        repo = FactorRepository()
+        mined_factors = repo.list_factors(status="active", min_ir=0.5)
+        for info in mined_factors:
+            try:
+                factor = repo.to_domain_factor(info["name"])
+                factor_map[info["name"]] = factor
+                default_weight = info.get("metrics", {}).get("ir", 1.0)
+                weights_dict.setdefault(info["name"], default_weight)
+            except Exception:
+                pass
+    except Exception:
+        pass  # 仓库不存在时静默跳过
+
     if not factors:
         factors = [PBValueFactor(), ROEQualityFactor()]
         weights = [0.5, 0.5]
@@ -210,4 +226,41 @@ _register(StrategyConfig(
     strategy_type="cross_section",
     description="微盘价值质量增强策略",
     default_params={"top_n": 9},
+))
+
+
+def _build_ml_return_prediction(params: dict[str, Any]) -> BaseStrategy:
+    from src.domain.strategy.services.strategies.ml_return_prediction_strategy import (
+        MLReturnPredictionStrategy,
+    )
+    from src.infrastructure.ml_engine.inference import InferenceEngine
+    from src.infrastructure.ml_engine.model_loader import ModelLoader
+
+    model_name = params.get("model_name", "lgbm_return_5d")
+    top_n = params.get("top_n", 10)
+    model_dir = params.get("model_dir", "models/")
+    feature_columns = params.get("feature_columns", None)
+
+    strategy = MLReturnPredictionStrategy(
+        model_name=model_name,
+        top_n=top_n,
+        model_dir=model_dir,
+        feature_columns=feature_columns,
+    )
+    loader = ModelLoader(model_dir=model_dir)
+    engine = InferenceEngine(loader, model_type="lightgbm")
+    strategy.set_inference_engine(engine)
+    return strategy
+
+
+_register(StrategyConfig(
+    name="ml_return_prediction",
+    factory=_build_ml_return_prediction,
+    strategy_type="cross_section",
+    description="ML 收益预测选股策略 (LightGBM)",
+    default_params={
+        "model_name": "lgbm_return_5d",
+        "top_n": 10,
+        "model_dir": "models/",
+    },
 ))

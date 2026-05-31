@@ -30,3 +30,16 @@ class ModelLoader:
             model.load_model(str(path))
             self._cache[model_name] = model
         return self._cache[model_name]
+
+    def load_lightgbm(self, model_name: str) -> Any:
+        """加载 LightGBM 模型（惰性缓存）。"""
+        if model_name not in self._cache:
+            path = self._model_dir / model_name / "model.joblib"
+            if not path.exists():
+                # 回退到旧路径格式
+                path = self._model_dir / f"{model_name}.pkl"
+            if not path.exists():
+                raise FileNotFoundError(f"Model file not found: {path}")
+            import joblib
+            self._cache[model_name] = joblib.load(str(path))
+        return self._cache[model_name]

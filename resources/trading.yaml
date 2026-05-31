@@ -28,3 +28,13 @@ live_trade:
   bar_lookback: 100
   # strategy_params:
   #   top_n: 9
+
+monitor:
+  refresh_interval: 3
+  snapshot_dir: "data/snapshots/"
+  alerts:
+    daily_loss_threshold: 0.03
+    stock_loss_threshold: 0.05
+    position_ratio_max: 0.80
+    position_ratio_min: 0.10
+    concentration_max: 0.30

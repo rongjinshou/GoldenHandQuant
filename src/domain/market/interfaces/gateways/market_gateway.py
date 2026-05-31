@@ -1,6 +1,7 @@
 from typing import Protocol
 
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.market.value_objects.timeframe import Timeframe
 
 
@@ -22,3 +23,10 @@ class IMarketGateway(Protocol):
             list[Bar]: K 线列表，按时间升序排列。
         """
         ...
+
+    def get_stock_snapshots(self, symbols: list[str]) -> list[StockSnapshot]:
+        """获取标的日频快照，供截面策略使用。
+
+        默认实现返回空列表，子类可覆盖。
+        """
+        return []

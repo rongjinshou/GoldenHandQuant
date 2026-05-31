@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import uuid4
 
 from src.domain.account.entities.asset import Asset
@@ -7,11 +8,13 @@ from src.domain.account.entities.position import Position
 from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
 from src.domain.portfolio.services.sizers.fixed_ratio_sizer import FixedRatioSizer
 from src.domain.strategy.registry import create_strategy, get_strategy
 from src.domain.strategy.services.base_strategy import BaseStrategy
+from src.domain.strategy.services.cross_sectional_strategy import CrossSectionalStrategy
 from src.domain.strategy.value_objects.signal import Signal
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.trade.entities.order import Order
@@ -118,13 +121,64 @@ class LiveSignalService:
         positions: list[Position],
         asset: Asset,
     ) -> list[SignalDisplay]:
-        """截面策略需要 StockSnapshot，暂不支持实时扫描。"""
-        logger.warning(
-            "截面策略 (%s) 需要全市场基本面数据，半自动模式暂不支持实时扫描。"
-            "请使用 bar 类型策略（如 dual_ma）。",
-            strategy.name,
+        """截面策略扫描 — 优先使用快照接口，降级为逐 symbol 拉 bar 构造。"""
+        snapshots = self.market_gateway.get_stock_snapshots(symbols)
+
+        if not snapshots:
+            logger.info("get_stock_snapshots 返回空，降级为逐 symbol 拉 bar 构造简化快照。")
+            snapshots = self._build_fallback_snapshots(symbols)
+
+        if not snapshots:
+            logger.warning("无法获取任何快照数据，截面策略 (%s) 无法扫描。", strategy.name)
+            return []
+
+        cs_strategy: CrossSectionalStrategy = strategy  # type: ignore[assignment]
+        signals = cs_strategy.generate_cross_sectional_signals(
+            snapshots, positions, datetime.now(),
         )
-        return []
+
+        # 截面策略的 market_data 映射: 从快照构造单 bar 列表
+        market_data: dict[str, list[Bar]] = {}
+        snap_map = {s.symbol: s for s in snapshots}
+        for signal in signals:
+            snap = snap_map.get(signal.symbol)
+            if snap:
+                market_data[signal.symbol] = [Bar(
+                    symbol=snap.symbol,
+                    timeframe=Timeframe.DAY_1,
+                    timestamp=snap.date,
+                    open=snap.open,
+                    high=snap.high,
+                    low=snap.low,
+                    close=snap.close,
+                    volume=snap.volume,
+                )]
+
+        return self._signals_to_displays(signals, market_data, positions, asset)
+
+    def _build_fallback_snapshots(self, symbols: list[str]) -> list[StockSnapshot]:
+        """降级方案: 逐 symbol 拉 bar 数据构造简化 StockSnapshot。"""
+        snapshots: list[StockSnapshot] = []
+        for symbol in symbols:
+            bars = self.market_gateway.get_recent_bars(
+                symbol, timeframe=Timeframe.DAY_1, limit=self.bar_lookback,
+            )
+            if not bars:
+                continue
+            latest = bars[-1]
+            snapshots.append(StockSnapshot(
+                symbol=symbol,
+                date=latest.timestamp,
+                open=latest.open,
+                high=latest.high,
+                low=latest.low,
+                close=latest.close,
+                volume=latest.volume,
+                name=symbol,
+                list_date=latest.timestamp,
+                market_cap=0.0,
+            ))
+        return snapshots
 
     def _signals_to_displays(
         self,
