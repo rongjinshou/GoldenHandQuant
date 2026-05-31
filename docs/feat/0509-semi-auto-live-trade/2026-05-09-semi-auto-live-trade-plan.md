@@ -718,7 +718,7 @@ RESET = "\033[0m"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="QuantFlow 半自动交易")
+    parser = argparse.ArgumentParser(description="GoldenHandQuant 半自动交易")
     parser.add_argument(
         "--strategy", "-s", type=str, default=None,
         help="策略名称 (如 dual_ma, micro_value)",
@@ -738,7 +738,7 @@ def print_header() -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print()
     print(f"{BOLD}{CYAN}{'='*80}{RESET}")
-    print(f"{BOLD}{CYAN}  QuantFlow 半自动交易信号{' '*40}{now}{RESET}")
+    print(f"{BOLD}{CYAN}  GoldenHandQuant 半自动交易信号{' '*40}{now}{RESET}")
     print(f"{BOLD}{CYAN}{'='*80}{RESET}")
 
 

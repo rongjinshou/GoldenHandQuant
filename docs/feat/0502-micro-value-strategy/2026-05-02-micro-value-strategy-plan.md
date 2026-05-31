@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
-**Goal:** 基于 QuantFlow DDD 架构，实现"基本面过滤 + 极小市值轮动增强"回测策略的完整数据→策略→风控→执行链路。
+**Goal:** 基于 GoldenHandQuant DDD 架构，实现"基本面过滤 + 极小市值轮动增强"回测策略的完整数据→策略→风控→执行链路。
 
 **Architecture:** 在现有 DDD 四层架构上做增量扩展：新增 CrossSectionalStrategy 截面策略基类、FundamentalSnapshot/Registry 数据模型、三层风控（Gate + Chain + SignalGenerator）、批量 Sizer 接口、双模式回测循环。Domain 层保持纯 Python 标准库依赖。
 

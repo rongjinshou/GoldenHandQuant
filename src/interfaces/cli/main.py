@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     """CLI 入口点。"""
-    logger.info("Starting QuantFlow Strategy...")
+    logger.info("Starting GoldenHandQuant Strategy...")
 
     # 1. 初始化基础设施
     # 从配置文件加载，保留硬编码回退
