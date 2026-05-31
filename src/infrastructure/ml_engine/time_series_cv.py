@@ -14,6 +14,7 @@ class TimeSeriesCVConfig:
     test_size_months: int = 6
     gap_days: int = 5
     min_train_days: int = 500
+    max_train_size: int | None = None
 
 
 class PurgedWalkForwardCV:
@@ -57,7 +58,11 @@ class PurgedWalkForwardCV:
             if train_end < min_train:
                 break
 
-            train_dates = dates[:train_end]
+            train_start = 0
+            if self._config.max_train_size is not None and train_end - train_start > self._config.max_train_size:
+                train_start = train_end - self._config.max_train_size
+
+            train_dates = dates[train_start:train_end]
             test_dates = dates[test_start:test_end]
 
             train_mask = df["date"].isin(set(train_dates))

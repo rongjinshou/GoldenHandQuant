@@ -86,6 +86,11 @@ class FactorMiner:
         )
         quick_passed = [r for r in eval_results if r.is_effective]
 
+        # Step 4.5: 共线性过滤（相关性 > 0.95 的特征对保留 IC 更高的）
+        quick_passed = self._filter_collinear(
+            quick_passed, factor_dict, corr_threshold=0.95
+        )
+
         # Step 5: 入库
         stored: list[str] = []
         details: list[dict] = []
@@ -166,6 +171,44 @@ class FactorMiner:
                 all_data[sym].append(float("nan"))
 
         return pd.DataFrame(all_data, index=all_dates)
+
+    @staticmethod
+    def _filter_collinear(
+        results: list,
+        factor_dict: dict[str, pd.DataFrame],
+        corr_threshold: float = 0.95,
+    ) -> list:
+        """过滤高共线性特征：相关性 > threshold 的对保留 IC 更高的。"""
+        if len(results) <= 1:
+            return results
+
+        names = [r.factor_name for r in results]
+        available = [n for n in names if n in factor_dict]
+        if len(available) <= 1:
+            return results
+
+        # 构建因子矩阵并计算 Pearson 相关性
+        stacked = pd.DataFrame({n: factor_dict[n].stack() for n in available})
+        corr_matrix = stacked.corr(method="pearson").abs()
+
+        # 按 |IC| 降序排列，贪心保留
+        sorted_results = sorted(results, key=lambda r: abs(r.ic_mean), reverse=True)
+        kept: set[str] = set()
+        removed: set[str] = set()
+
+        for r in sorted_results:
+            name = r.factor_name
+            if name in removed or name not in factor_dict:
+                continue
+            kept.add(name)
+            # 标记与当前因子高度相关的其他因子
+            if name in corr_matrix.columns:
+                for other in corr_matrix.columns:
+                    if other != name and other not in removed and other not in kept:
+                        if corr_matrix.loc[name, other] > corr_threshold:
+                            removed.add(other)
+
+        return [r for r in results if r.factor_name in kept]
 
     def _stack_factors(
         self,

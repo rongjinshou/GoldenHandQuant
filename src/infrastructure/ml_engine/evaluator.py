@@ -49,13 +49,13 @@ class ModelEvaluator:
         """评估预测质量（按日截面 IC）。
 
         Args:
-            predictions: columns=[date, symbol, pred, actual]。
+            predictions: columns=[date, symbol, pred, actual_return]。
         """
         ics: list[float] = []
         for _date, group in predictions.groupby("date"):
             if len(group) < 5:
                 continue
-            ic, _ = spearmanr(group["pred"], group["actual"])
+            ic, _ = spearmanr(group["pred"], group["actual_return"])
             if not np.isnan(ic):
                 ics.append(ic)
 
@@ -103,7 +103,7 @@ class ModelEvaluator:
                 if q_group.empty:
                     continue
                 # 使用 actual_return 作为收益
-                avg_ret = q_group["actual"].mean()
+                avg_ret = q_group["actual_return"].mean()
                 daily_returns[q].append(avg_ret)
 
         results: list[QuintileResult] = []

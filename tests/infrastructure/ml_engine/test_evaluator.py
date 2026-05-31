@@ -16,7 +16,7 @@ def _make_predictions(n_dates: int = 20, n_symbols: int = 10, seed: int = 42) ->
         for i in range(n_symbols):
             pred = np.random.randn()
             actual = pred * 0.3 + np.random.randn() * 0.7  # 弱相关
-            rows.append({"date": d, "symbol": f"S{i}", "pred": pred, "actual": actual})
+            rows.append({"date": d, "symbol": f"S{i}", "pred": pred, "actual_return": actual})
     return pd.DataFrame(rows)
 
 
@@ -37,7 +37,7 @@ class TestModelEvaluator:
         for d in dates:
             for i in range(10):
                 v = float(i)
-                rows.append({"date": d, "symbol": f"S{i}", "pred": v, "actual": v})
+                rows.append({"date": d, "symbol": f"S{i}", "pred": v, "actual_return": v})
         df = pd.DataFrame(rows)
         metrics = evaluator.evaluate_predictions(df)
         assert metrics.ic > 0.9  # 完美相关
@@ -62,6 +62,6 @@ class TestModelEvaluator:
 
     def test_empty_predictions_handled(self) -> None:
         evaluator = ModelEvaluator()
-        df = pd.DataFrame(columns=["date", "symbol", "pred", "actual"])
+        df = pd.DataFrame(columns=["date", "symbol", "pred", "actual_return"])
         metrics = evaluator.evaluate_predictions(df)
         assert metrics.ic == 0.0

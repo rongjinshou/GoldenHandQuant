@@ -11,7 +11,7 @@ import pandas as pd
 @dataclass(slots=True, kw_only=True)
 class LabelConfig:
     """标签生成配置。"""
-    horizon: int = 5
+    horizon: int = 20
     label_type: str = "fwd_return"  # "fwd_return" | "fwd_excess"
     winsorize_quantile: float = 0.01
 
