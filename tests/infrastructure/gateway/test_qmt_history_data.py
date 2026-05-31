@@ -1,9 +1,15 @@
+"""QMT 历史数据获取器集成测试。
+
+测试 fetch_history_bars 方法的正确性。
+"""
+
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import pandas as pd
 from datetime import datetime
 from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
 from src.domain.market.value_objects.timeframe import Timeframe
+
 
 class TestQmtHistoryDataFetcher:
 
@@ -30,83 +36,129 @@ class TestQmtHistoryDataFetcher:
             mock.return_value.__truediv__.return_value = mock.return_value
             yield mock
 
-    def test_fetch_history_bars_should_download_financial_and_history_data(self, fetcher, mock_xtdata, mock_to_csv, mock_path):
+    def test_fetch_history_bars_should_download_and_return_bars(self, fetcher, mock_xtdata, mock_to_csv, mock_path):
+        """测试 fetch_history_bars 正确下载数据并返回 Bar 列表。"""
         # Arrange
         symbol = "000001.SZ"
         timeframe = Timeframe.DAY_1
         start_date = "2023-01-01"
         end_date = "2023-01-02"
-        
-        # Mock download_history_data2 to trigger callback immediately
-        def side_effect_download(stock_list, period, start_time, end_time, callback):
-            callback({"stock_code": symbol, "finished": True})
-            
-        mock_xtdata.download_history_data2.side_effect = side_effect_download
-        
-        # Mock get_market_data_ex return value
-        # DataFrame with datetime index
-        dates = pd.to_datetime(["2023-01-01", "2023-01-02"])
+
+        # Mock get_market_data_ex 返回前复权数据
+        timestamps = [1672531200000, 1672617600000]
         df = pd.DataFrame({
-            "time": [1672531200000, 1672617600000],
             "open": [10.0, 10.5],
             "high": [11.0, 11.5],
             "low": [9.0, 9.5],
             "close": [10.5, 11.0],
-            "volume": [1000, 2000]
-        }, index=dates)
-        
-        mock_xtdata.get_market_data_ex.return_value = {symbol: df}
+            "volume": [1000, 2000],
+        }, index=timestamps)
+        df.index.name = 'datetime'
+
+        # 第一次调用返回前复权数据，第二次调用返回不复权数据
+        df_unadjusted = pd.DataFrame({
+            "close": [10.8, 11.2],
+        }, index=timestamps)
+
+        mock_xtdata.get_market_data_ex.side_effect = [
+            {symbol: df},  # 前复权数据
+            {symbol: df_unadjusted},  # 不复权数据
+        ]
 
         # Act
         bars = fetcher.fetch_history_bars(symbol, timeframe, start_date, end_date)
 
         # Assert
-        # 1. Verify financial data download (for forward adjustment)
-        mock_xtdata.download_financial_data.assert_called_once_with(stock_list=[symbol])
-        
-        # 2. Verify history data download
-        mock_xtdata.download_history_data2.assert_called_once()
-        args, kwargs = mock_xtdata.download_history_data2.call_args
-        assert kwargs['stock_list'] == [symbol]
-        assert kwargs['period'] == '1d'
-        assert kwargs['start_time'] == '20230101'
-        assert kwargs['end_time'] == '20230102'
-        assert 'callback' in kwargs
-        
-        # 3. Verify get_market_data_ex call with dividend_type='front'
-        mock_xtdata.get_market_data_ex.assert_called_once()
-        _, kwargs_get = mock_xtdata.get_market_data_ex.call_args
-        assert kwargs_get['stock_list'] == [symbol]
-        assert kwargs_get['dividend_type'] == 'front'
-        
-        # 4. Verify result bars
+        # 1. Verify history data download was called
+        mock_xtdata.download_history_data.assert_called_once()
+
+        # 2. Verify get_market_data_ex call with dividend_type='front'
+        assert mock_xtdata.get_market_data_ex.call_count == 2
+        first_call_kwargs = mock_xtdata.get_market_data_ex.call_args_list[0][1]
+        assert first_call_kwargs['stock_list'] == [symbol]
+        assert first_call_kwargs['dividend_type'] == 'front'
+
+        # 3. Verify result bars
         assert len(bars) == 2
         assert bars[0].symbol == symbol
         assert bars[0].close == 10.5
         assert bars[0].volume == 1000
 
-    def test_fetch_history_bars_should_wait_for_callback(self, fetcher, mock_xtdata):
-        # This test verifies that the threading.Event logic is in place.
-        # Since we cannot easily mock threading.Event inside the function without more patching,
-        # we rely on the fact that if download_history_data2 doesn't trigger callback, 
-        # the function might hang or timeout (if we didn't mock it to trigger).
-        # Here we just verify the call structure.
-        
+    def test_fetch_history_bars_with_cached_data_should_use_cache(self, fetcher, mock_xtdata):
+        """测试当本地缓存存在时使用缓存数据。"""
+        # Arrange
         symbol = "000001.SZ"
         timeframe = Timeframe.DAY_1
-        
-        # Mock to NOT trigger callback immediately (simulate async)
-        # But we need to patch threading.Event to avoid actual waiting in test
-        with patch("src.infrastructure.gateway.qmt_history_data.Event") as MockEvent:
-            event_instance = MockEvent.return_value
-            event_instance.wait.return_value = True # Simulate wait success
-            
-            # Mock get_market_data_ex to return empty to avoid processing
-            mock_xtdata.get_market_data_ex.return_value = {}
-            
-            fetcher.fetch_history_bars(symbol, timeframe, "2023-01-01", "2023-01-02")
-            
-            # Verify Event was created and wait was called
-            MockEvent.assert_called_once()
-            event_instance.wait.assert_called_once_with(timeout=60)
+        start_date = "2023-01-01"
+        end_date = "2023-01-02"
 
+        # 创建缓存数据
+        cached_df = pd.DataFrame({
+            "datetime": pd.to_datetime(["2023-01-01", "2023-01-02"]),
+            "open": [10.0, 10.5],
+            "high": [11.0, 11.5],
+            "low": [9.0, 9.5],
+            "close": [10.5, 11.0],
+            "volume": [1000, 2000],
+        })
+
+        # Mock Path.exists() 返回 True，表示缓存存在
+        with patch("src.infrastructure.gateway.qmt_history_data.Path") as mock_path:
+            mock_path.return_value.exists.return_value = True
+
+            # Mock pd.read_csv 返回缓存数据
+            with patch("pandas.read_csv", return_value=cached_df):
+                # Mock get_market_data_ex 返回不复权数据
+                df_unadjusted = pd.DataFrame({
+                    "close": [10.8, 11.2],
+                }, index=[1672531200000, 1672617600000])
+
+                mock_xtdata.get_market_data_ex.return_value = {symbol: df_unadjusted}
+
+                # Act
+                bars = fetcher.fetch_history_bars(symbol, timeframe, start_date, end_date)
+
+                # Assert
+                # 不应该调用 download_history_data，因为使用了缓存
+                mock_xtdata.download_history_data.assert_not_called()
+
+                # 应该返回缓存的数据
+                assert len(bars) == 2
+                assert bars[0].close == 10.5
+
+    def test_fetch_history_bars_empty_data_should_return_empty_list(self, fetcher, mock_xtdata, mock_path):
+        """测试当没有数据时返回空列表。"""
+        # Arrange
+        symbol = "000001.SZ"
+        timeframe = Timeframe.DAY_1
+        start_date = "2023-01-01"
+        end_date = "2023-01-02"
+
+        # Mock get_market_data_ex 返回空数据
+        mock_xtdata.get_market_data_ex.return_value = {}
+
+        # Act
+        bars = fetcher.fetch_history_bars(symbol, timeframe, start_date, end_date)
+
+        # Assert
+        assert bars == []
+
+    def test_fetch_history_bars_should_convert_time_format(self, fetcher, mock_xtdata, mock_path):
+        """测试时间格式从 YYYY-MM-DD 转换为 YYYYMMDD。"""
+        # Arrange
+        symbol = "000001.SZ"
+        timeframe = Timeframe.DAY_1
+        start_date = "2023-01-01"
+        end_date = "2023-01-15"
+
+        # Mock get_market_data_ex 返回空数据（简化测试）
+        mock_xtdata.get_market_data_ex.return_value = {}
+
+        # Act
+        fetcher.fetch_history_bars(symbol, timeframe, start_date, end_date)
+
+        # Assert
+        # 验证 download_history_data 被调用时使用了正确的时间格式
+        call_kwargs = mock_xtdata.download_history_data.call_args[1]
+        assert call_kwargs['start_time'] == '20230101'
+        assert call_kwargs['end_time'] == '20230115'
