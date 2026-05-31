@@ -128,34 +128,11 @@ class StrategyPoolEntry:
         for v in self.ml_versions:
             if v.version_id == version_id:
                 found = True
-                new_versions.append(
-                    MLModelVersion(
-                        version_id=v.version_id,
-                        model_type=v.model_type,
-                        trained_at=v.trained_at,
-                        training_samples=v.training_samples,
-                        feature_count=v.feature_count,
-                        metrics=v.metrics,
-                        is_active=True,
-                        notes=v.notes,
-                    )
-                )
+                new_versions.append(v.with_active(True))
+            elif v.is_active:
+                new_versions.append(v.with_active(False))
             else:
-                if v.is_active:
-                    new_versions.append(
-                        MLModelVersion(
-                            version_id=v.version_id,
-                            model_type=v.model_type,
-                            trained_at=v.trained_at,
-                            training_samples=v.training_samples,
-                            feature_count=v.feature_count,
-                            metrics=v.metrics,
-                            is_active=False,
-                            notes=v.notes,
-                        )
-                    )
-                else:
-                    new_versions.append(v)
+                new_versions.append(v)
         if not found:
             raise ValueError(f"Model version not found: {version_id}")
         self.ml_versions = new_versions
@@ -179,31 +156,9 @@ class StrategyPoolEntry:
         new_versions: list[MLModelVersion] = []
         for i, v in enumerate(self.ml_versions):
             if i == active_idx:
-                new_versions.append(
-                    MLModelVersion(
-                        version_id=v.version_id,
-                        model_type=v.model_type,
-                        trained_at=v.trained_at,
-                        training_samples=v.training_samples,
-                        feature_count=v.feature_count,
-                        metrics=v.metrics,
-                        is_active=False,
-                        notes=v.notes,
-                    )
-                )
+                new_versions.append(v.with_active(False))
             elif i == prev_idx:
-                new_versions.append(
-                    MLModelVersion(
-                        version_id=v.version_id,
-                        model_type=v.model_type,
-                        trained_at=v.trained_at,
-                        training_samples=v.training_samples,
-                        feature_count=v.feature_count,
-                        metrics=v.metrics,
-                        is_active=True,
-                        notes=v.notes,
-                    )
-                )
+                new_versions.append(v.with_active(True))
             else:
                 new_versions.append(v)
         self.ml_versions = new_versions

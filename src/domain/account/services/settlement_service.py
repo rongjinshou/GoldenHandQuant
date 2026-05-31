@@ -1,8 +1,18 @@
+from dataclasses import dataclass
+
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
 from src.domain.trade.entities.order import Order
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_status import OrderStatus
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SettlementConfig:
+    """结算费率配置（不可变值对象）。"""
+    commission_rate: float = 0.00025       # 佣金费率 (万2.5)
+    min_commission: float = 5.0            # 最低佣金 (元)
+    transfer_fee_rate: float = 0.00001     # 过户费费率 (十万分之一)
 
 
 class DailySettlementService:
@@ -13,10 +23,8 @@ class DailySettlementService:
     2. 执行 T+1 持仓结算 (将冻结持仓转为可用)。
     """
 
-    # 费率常量 (用于计算释放冻结资金)
-    COMMISSION_RATE = 0.00025
-    MIN_COMMISSION = 5.0
-    TRANSFER_FEE_RATE = 0.00001
+    def __init__(self, config: SettlementConfig | None = None) -> None:
+        self._config = config or SettlementConfig()
 
     # 印花税仅卖出收取，不涉及买入冻结资金的计算
     # 但如果是卖出单被撤销，通常不涉及资金解冻(除非卖出也冻结了资金? A股通常卖出只冻结持仓)
@@ -59,8 +67,9 @@ class DailySettlementService:
             amount = remaining_volume * order.price
 
             # 预估费用
-            commission = max(amount * self.COMMISSION_RATE, self.MIN_COMMISSION)
-            transfer_fee = amount * self.TRANSFER_FEE_RATE
+            cfg = self._config
+            commission = max(amount * cfg.commission_rate, cfg.min_commission)
+            transfer_fee = amount * cfg.transfer_fee_rate
 
             # 总冻结金额
             frozen_amount = amount + commission + transfer_fee
