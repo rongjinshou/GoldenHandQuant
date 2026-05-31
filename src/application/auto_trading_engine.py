@@ -68,13 +68,13 @@ class AutoTradingEngine:
         self._config = config or AutoTradingConfig()
         self._pause_manager = pause_manager
 
-        self._running = False
+        self._running = threading.Event()
         self._thread: threading.Thread | None = None
         self._cycle_results: list[CycleResult] = []
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        return self._running.is_set()
 
     @property
     def config(self) -> AutoTradingConfig:
@@ -191,21 +191,21 @@ class AutoTradingEngine:
 
     def start(self) -> None:
         """启动自动交易循环 (守护线程)。"""
-        if self._running:
+        if self._running.is_set():
             logger.warning("自动交易已在运行")
             return
         if not self._config.enabled:
             logger.warning("自动交易未启用，无法启动")
             return
 
-        self._running = True
+        self._running.set()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         logger.info("自动交易引擎已启动")
 
     def stop(self) -> None:
         """停止自动交易。"""
-        self._running = False
+        self._running.clear()
         if self._thread:
             self._thread.join(timeout=30)
             self._thread = None
@@ -217,7 +217,7 @@ class AutoTradingEngine:
 
     def _run_loop(self) -> None:
         """主循环: 每分钟检查是否到达执行时间。"""
-        while self._running:
+        while self._running.is_set():
             now = datetime.now()
             if self._is_trading_hour(now) and self._should_execute(now):
                 try:

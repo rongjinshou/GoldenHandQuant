@@ -121,10 +121,10 @@ class RiskSettings:
 
 @dataclass(slots=True, kw_only=True)
 class CostsSettings:
-    commission_rate: float = 0.0002
+    commission_rate: float = 0.00025
     tax_rate: float = 0.001
     min_commission: float = 5.0
-    slippage: float = 0.003
+    slippage: float = 0.001
 
 
 @dataclass(slots=True, kw_only=True)
@@ -276,8 +276,27 @@ def load_trading_config(path: str = "resources/trading.yaml") -> AppSettings:
         **monitor_data,
     )
 
+    # 解析 auto_trade 配置
+    auto_trade_data = data.get("auto_trade", {})
+    auto_trade = AutoTradeSettings(**auto_trade_data)
+
+    # 解析 anomaly 配置
+    anomaly_data = data.get("anomaly", {})
+    anomaly = AnomalySettings(**anomaly_data)
+
+    # 解析 auto_notification 配置
+    auto_notif_data = data.get("auto_notification", {})
+    telegram_data = auto_notif_data.pop("telegram", {})
+    auto_notification = AutoNotificationSettings(
+        telegram=TelegramNotificationSettings(**telegram_data),
+        **auto_notif_data,
+    )
+
     return AppSettings(
         qmt=qmt,
         live_trade=live_trade,
         monitor=monitor,
+        auto_trade=auto_trade,
+        anomaly=anomaly,
+        auto_notification=auto_notification,
     )

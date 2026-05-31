@@ -30,6 +30,7 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
         self.account_id = account_id
         self.account_type = account_type
 
+        self._initialized = False
         try:
             self.xt_trader = XtQuantTrader(path, session_id)
             self.account = StockAccount(account_id, account_type)
@@ -49,11 +50,21 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
             else:
                 logger.error(f"Failed to subscribe to account {account_id}: {subscribe_result}")
 
+            self._initialized = True
         except Exception as e:
-            logger.error(f"Failed to initialize QmtTradeGateway: {e}", exc_info=True)
+            logger.error("QmtTradeGateway 初始化失败: %s", e, exc_info=True)
+
+    def _check_initialized(self) -> bool:
+        """检查是否初始化成功。"""
+        if not self._initialized:
+            logger.error("QmtTradeGateway 未成功初始化，无法执行操作")
+            return False
+        return True
 
     def get_asset(self, account_id: str | None = None) -> Asset | None:
         """获取账户资金信息。"""
+        if not self._check_initialized():
+            return None
         try:
             xt_asset = self.xt_trader.query_stock_asset(self.account)
             if not xt_asset:
@@ -72,6 +83,8 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
 
     def get_positions(self, account_id: str | None = None) -> list[Position]:
         """获取账户持仓列表。"""
+        if not self._check_initialized():
+            return []
         try:
             xt_positions = self.xt_trader.query_stock_positions(self.account)
             if xt_positions is None:
@@ -98,6 +111,8 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
 
     def place_order(self, order: Order) -> str:
         """提交订单。"""
+        if not self._check_initialized():
+            raise OrderSubmitError("QmtTradeGateway 未成功初始化")
         try:
             order_type = -1
             match order.direction:

@@ -159,21 +159,23 @@ def _build_multi_factor(params: dict[str, Any]) -> BaseStrategy:
             factors.append(factor_map[name])
             weights.append(weight)
 
-    # 加载挖掘因子
-    try:
-        from src.infrastructure.ml_engine.factor_repository import FactorRepository
-        repo = FactorRepository()
-        mined_factors = repo.list_factors(status="active", min_ir=0.5)
-        for info in mined_factors:
-            try:
-                factor = repo.to_domain_factor(info["name"])
-                factor_map[info["name"]] = factor
-                default_weight = info.get("metrics", {}).get("ir", 1.0)
-                weights_dict.setdefault(info["name"], default_weight)
-            except Exception:
-                pass
-    except Exception:
-        pass  # 仓库不存在时静默跳过
+    # 加载挖掘因子（通过 params 注入 IFactorRepository，避免 domain 反向依赖 infrastructure）
+    from src.domain.strategy.interfaces.factor_repository import IFactorRepository
+
+    factor_repo: IFactorRepository | None = params.get("_factor_repo")
+    if factor_repo is not None:
+        try:
+            mined_factors = factor_repo.list_factors(status="active", min_ir=0.5)
+            for info in mined_factors:
+                try:
+                    factor = factor_repo.to_domain_factor(info["name"])
+                    factor_map[info["name"]] = factor
+                    default_weight = info.get("metrics", {}).get("ir", 1.0)
+                    weights_dict.setdefault(info["name"], default_weight)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     if not factors:
         factors = [PBValueFactor(), ROEQualityFactor()]
@@ -240,8 +242,6 @@ def _build_ml_return_prediction(params: dict[str, Any]) -> BaseStrategy:
     from src.domain.strategy.services.strategies.ml_return_prediction_strategy import (
         MLReturnPredictionStrategy,
     )
-    from src.infrastructure.ml_engine.inference import InferenceEngine
-    from src.infrastructure.ml_engine.model_loader import ModelLoader
 
     model_name = params.get("model_name", "lgbm_return_5d")
     top_n = params.get("top_n", 10)
@@ -254,9 +254,10 @@ def _build_ml_return_prediction(params: dict[str, Any]) -> BaseStrategy:
         model_dir=model_dir,
         feature_columns=feature_columns,
     )
-    loader = ModelLoader(model_dir=model_dir)
-    engine = InferenceEngine(loader, model_type="lightgbm")
-    strategy.set_inference_engine(engine)
+    # 通过 params 注入 IInferenceEngine，避免 domain 反向依赖 infrastructure
+    inference_engine = params.get("_inference_engine")
+    if inference_engine is not None:
+        strategy.set_inference_engine(inference_engine)
     return strategy
 
 

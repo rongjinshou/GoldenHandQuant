@@ -1,5 +1,8 @@
+import hashlib
+import hmac
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +38,7 @@ class AutoPauseManager:
         self,
         notification_gateway: INotificationGateway | None = None,
         state_file: str = "data/pause_state.json",
+        hmac_key: str | None = None,
     ) -> None:
         self._notification_gateway = notification_gateway
         self._state_file = Path(state_file)
@@ -42,6 +46,7 @@ class AutoPauseManager:
         self._paused_all: bool = False
         self._paused_all_reason: str = ""
         self._paused_all_at: datetime | None = None
+        self._hmac_key = (hmac_key or os.environ.get("PAUSE_STATE_HMAC_KEY", "")).encode()
         self._load_state()
 
     @property
@@ -154,8 +159,12 @@ class AutoPauseManager:
         """获取所有策略的暂停状态。"""
         return list(self._states.values())
 
+    def _compute_signature(self, payload: str) -> str:
+        """计算 HMAC 签名。"""
+        return hmac.new(self._hmac_key, payload.encode(), hashlib.sha256).hexdigest()
+
     def _save_state(self) -> None:
-        """持久化暂停状态到 JSON 文件。"""
+        """持久化暂停状态到 JSON 文件，附带 HMAC 签名。"""
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "paused_all": self._paused_all,
@@ -169,14 +178,31 @@ class AutoPauseManager:
                 "reason": state.reason,
                 "paused_at": state.paused_at.isoformat() if state.paused_at else None,
             }
-        self._state_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        payload = json.dumps(data, ensure_ascii=False, sort_keys=True)
+        wrapper = {
+            "payload": json.loads(payload),
+            "signature": self._compute_signature(payload),
+        }
+        self._state_file.write_text(json.dumps(wrapper, ensure_ascii=False, indent=2))
 
     def _load_state(self) -> None:
-        """从 JSON 文件加载暂停状态。"""
+        """从 JSON 文件加载暂停状态，验证 HMAC 签名完整性。"""
         if not self._state_file.exists():
             return
         try:
-            data = json.loads(self._state_file.read_text())
+            raw = json.loads(self._state_file.read_text())
+
+            # 兼容无签名的旧格式
+            if "payload" in raw and "signature" in raw:
+                payload_str = json.dumps(raw["payload"], ensure_ascii=False, sort_keys=True)
+                expected_sig = self._compute_signature(payload_str)
+                if not hmac.compare_digest(expected_sig, raw["signature"]):
+                    logger.error("暂停状态文件签名校验失败，拒绝加载（文件可能被篡改）")
+                    return
+                data = raw["payload"]
+            else:
+                data = raw
+
             self._paused_all = data.get("paused_all", False)
             self._paused_all_reason = data.get("paused_all_reason", "")
             paused_at_str = data.get("paused_all_at")
