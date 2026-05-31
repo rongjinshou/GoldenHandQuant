@@ -115,11 +115,11 @@ def _compute_derived_features(snap: StockSnapshot) -> dict[str, float | None]:
     # 波动变化率
     derived["vol_ratio_5_20"] = None
 
-    # 异常换手率 z-score
+    # 异常换手率相对偏差
     if turnover_rate is not None and avg_turnover_20d is not None and avg_turnover_20d > 0:
-        derived["turnover_zscore"] = (turnover_rate - avg_turnover_20d) / avg_turnover_20d
+        derived["turnover_relative_deviation"] = (turnover_rate - avg_turnover_20d) / avg_turnover_20d
     else:
-        derived["turnover_zscore"] = None
+        derived["turnover_relative_deviation"] = None
 
     return derived
 
@@ -226,16 +226,13 @@ class MLReturnPredictionStrategy(CrossSectionalStrategy):
             all_vals = {**base_vals, **derived}
 
             # 按 fields 顺序提取特征
+            # Issue #2 (NEW-H7): 用 0 填充缺失特征，与训练时的 NaN 处理保持一致，
+            # 而非直接跳过整只股票（跳过会导致推理时丢弃有效标的）。
             vals: list[float] = []
-            valid = True
             for f in fields:
                 v = all_vals.get(f)
-                if v is None:
-                    valid = False
-                    break
-                vals.append(float(v))
-            if valid:
-                feature_dict[snap.symbol] = np.array(vals, dtype=np.float64)
+                vals.append(float(v) if v is not None else 0.0)
+            feature_dict[snap.symbol] = np.array(vals, dtype=np.float64)
 
         symbols = list(feature_dict.keys())
         return feature_dict, symbols

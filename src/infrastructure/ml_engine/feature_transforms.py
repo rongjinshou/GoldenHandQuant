@@ -95,11 +95,11 @@ def compute_derived_features(rows: list[dict[str, float | None]]) -> list[dict[s
         # 波动变化率 (5d vs 20d)
         row["vol_ratio_5_20"] = None  # 需要 5d 波动率，当前数据不可用时留空
 
-        # 异常换手率 z-score
+        # 异常换手率相对偏差
         if turnover_rate is not None and avg_turnover_20d is not None and avg_turnover_20d > 0:
-            row["turnover_zscore"] = (turnover_rate - avg_turnover_20d) / avg_turnover_20d
+            row["turnover_relative_deviation"] = (turnover_rate - avg_turnover_20d) / avg_turnover_20d
         else:
-            row["turnover_zscore"] = None
+            row["turnover_relative_deviation"] = None
 
     return rows
 

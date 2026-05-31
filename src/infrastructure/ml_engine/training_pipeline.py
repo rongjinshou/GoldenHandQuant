@@ -150,12 +150,8 @@ class TrainingPipeline:
         # 构建特征矩阵
         features = df[feature_cols].copy()
 
-        # NaN 处理：中位数填充
-        features = features.fillna(features.median())
-        # 丢弃仍有 NaN 的行
-        mask = features.notna().all(axis=1)
-        features = features[mask]
-        labels = labels[mask]
+        # 注意：不在这里做 fillna，避免测试集数据参与训练集的中位数计算。
+        # NaN 处理由调用方（walk_forward_train）基于训练集统计量完成。
 
         # 添加日期-标的多索引（用于 walk-forward 切分）
         dates = df.loc[features.index, "date"]
@@ -296,6 +292,17 @@ class TrainingPipeline:
                 start_idx += step_days
                 continue
 
+            # Issue #1 (NEW-H5): fillna 只用训练集的中位数，避免测试集信息泄露
+            train_medians = feat_train.median()
+            feat_train = feat_train.fillna(train_medians)
+            feat_val = feat_val.fillna(train_medians)
+            feat_test = feat_test.fillna(train_medians)
+
+            # 丢弃训练集中仍有 NaN 的行
+            train_mask = feat_train.notna().all(axis=1)
+            feat_train = feat_train[train_mask]
+            label_train = label_train[train_mask]
+
             # 训练
             model = self.train(feat_train, label_train, feat_val, label_val)
 
@@ -316,8 +323,11 @@ class TrainingPipeline:
                 for fname, imp in zip(feat_train.columns, model.feature_importances_):
                     importance[fname] = float(imp)
 
-            # 保存模型（joblib 格式，与 trainer.py 统一）
-            model_path = f"{model_dir}/lgbm_wf_{window_idx:03d}.joblib"
+            # 保存模型（joblib 格式，路径与 model_loader.py 的 load_lightgbm 一致：models/{name}/model.joblib）
+            model_name = f"lgbm_wf_{window_idx:03d}"
+            fold_model_dir = Path(model_dir) / model_name
+            fold_model_dir.mkdir(parents=True, exist_ok=True)
+            model_path = str(fold_model_dir / "model.joblib")
             joblib.dump(model, model_path)
 
             # 保存 metadata（含 feature_columns）
@@ -333,7 +343,7 @@ class TrainingPipeline:
                 "test_ic": test_ic,
                 "embargo_days": embargo_days,
             }
-            metadata_path = f"{model_dir}/lgbm_wf_{window_idx:03d}_metadata.json"
+            metadata_path = str(fold_model_dir / "metadata.json")
             Path(metadata_path).write_text(json.dumps(metadata, indent=2, default=str))
 
             results.append(WalkForwardResult(

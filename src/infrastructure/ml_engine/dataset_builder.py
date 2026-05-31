@@ -89,6 +89,11 @@ class DatasetBuilder:
         # 丢弃 label 为 NaN 的行
         df = df.dropna(subset=["label"]).reset_index(drop=True)
 
+        # Issue #2 (NEW-H7): 对特征列做中位数填充，避免返回含 NaN 的特征。
+        # 注意：这是初始填充；调用方在 train/test 分割后应使用训练集统计量重新填充。
+        feature_fill = df[feature_cols].median()
+        df[feature_cols] = df[feature_cols].fillna(feature_fill)
+
         return df
 
     @staticmethod

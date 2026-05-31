@@ -106,20 +106,38 @@ class LightGBMTrainer:
         }
 
         # 用最优参数在每折上训练，记录 CV 指标
+        # Issue #5 (NEW-M10): 将每折的 test 部分再分为 val（early stopping）+ test（最终评估）
         cv_metrics: list[dict] = []
         fold_ics: list[float] = []
         for train_idx, test_idx in folds:
             x_train = dataset.loc[train_idx, feature_cols]
             y_train = dataset.loc[train_idx, label_col]
-            x_test = dataset.loc[test_idx, feature_cols]
-            y_test = dataset.loc[test_idx, label_col]
+
+            # 将 test_idx 分为 val（前半）和 test（后半）
+            n_test = len(test_idx)
+            val_size = max(n_test // 2, 1)
+            val_idx = test_idx[:val_size]
+            pure_test_idx = test_idx[val_size:]
+
+            x_val = dataset.loc[val_idx, feature_cols]
+            y_val = dataset.loc[val_idx, label_col]
 
             model = lgb.LGBMRegressor(**full_params)
             model.fit(
                 x_train, y_train,
-                eval_set=[(x_test, y_test)],
+                eval_set=[(x_val, y_val)],
                 callbacks=[lgb.early_stopping(config.early_stopping_rounds, verbose=False)],
             )
+
+            # 用独立的 test 子集评估（不参与 early stopping）
+            if len(pure_test_idx) > 0:
+                x_test = dataset.loc[pure_test_idx, feature_cols]
+                y_test = dataset.loc[pure_test_idx, label_col]
+            else:
+                # fallback: 若 test_idx 太短，用 val 做评估
+                x_test = x_val
+                y_test = y_val
+
             preds = model.predict(x_test)
             ic, _ = spearmanr(preds, y_test)
             if np.isnan(ic):
@@ -131,11 +149,25 @@ class LightGBMTrainer:
         ic_std = float(np.std(fold_ics))
         ic_ir = mean_ic / ic_std if ic_std > 0 else 0.0
 
-        # 用全部数据重新训练最终模型
-        x_all = dataset[feature_cols]
-        y_all = dataset[label_col]
+        # Issue #3 (NEW-H8): 保留最后 20% 数据作为 holdout，用 holdout 评估最终模型
+        n_total = len(dataset)
+        holdout_size = max(int(n_total * 0.2), 1)
+        train_size = n_total - holdout_size
+        train_final_idx = dataset.index[:train_size]
+        holdout_idx = dataset.index[train_size:]
+
+        x_train_final = dataset.loc[train_final_idx, feature_cols]
+        y_train_final = dataset.loc[train_final_idx, label_col]
+        x_holdout = dataset.loc[holdout_idx, feature_cols]
+        y_holdout = dataset.loc[holdout_idx, label_col]
+
         final_model = lgb.LGBMRegressor(**full_params)
-        final_model.fit(x_all, y_all)
+        final_model.fit(x_train_final, y_train_final)
+
+        # 在 holdout 上评估最终模型
+        holdout_preds = final_model.predict(x_holdout)
+        holdout_ic, _ = spearmanr(holdout_preds, y_holdout)
+        holdout_ic = float(holdout_ic) if not np.isnan(holdout_ic) else 0.0
 
         # 特征重要性（gain）
         importances = dict(zip(feature_cols, final_model.feature_importances_.tolist()))
@@ -156,6 +188,8 @@ class LightGBMTrainer:
             "train_samples": len(dataset),
             "best_params": best_params,
             "cv_metrics": {"mean_ic": mean_ic, "ic_ir": ic_ir},
+            "holdout_ic": holdout_ic,
+            "holdout_samples": len(holdout_idx),
             "feature_columns": feature_cols,
         }
         (model_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, default=str))
@@ -206,8 +240,15 @@ class LightGBMTrainer:
         for train_idx, test_idx in folds:
             x_train = dataset.loc[train_idx, feature_cols]
             y_train = dataset.loc[train_idx, label_col]
-            x_test = dataset.loc[test_idx, feature_cols]
-            y_test = dataset.loc[test_idx, label_col]
+
+            # Issue #5 (NEW-M10): test_idx 分为 val（early stopping）+ test（评估）
+            n_test = len(test_idx)
+            val_size = max(n_test // 2, 1)
+            val_idx = test_idx[:val_size]
+            pure_test_idx = test_idx[val_size:]
+
+            x_val = dataset.loc[val_idx, feature_cols]
+            y_val = dataset.loc[val_idx, label_col]
 
             model = lgb.LGBMRegressor(
                 objective="regression",
@@ -219,9 +260,17 @@ class LightGBMTrainer:
             )
             model.fit(
                 x_train, y_train,
-                eval_set=[(x_test, y_test)],
+                eval_set=[(x_val, y_val)],
                 callbacks=[lgb.early_stopping(config.early_stopping_rounds, verbose=False)],
             )
+
+            if len(pure_test_idx) > 0:
+                x_test = dataset.loc[pure_test_idx, feature_cols]
+                y_test = dataset.loc[pure_test_idx, label_col]
+            else:
+                x_test = x_val
+                y_test = y_val
+
             preds = model.predict(x_test)
             ic, _ = spearmanr(preds, y_test)
             if np.isnan(ic):

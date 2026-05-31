@@ -83,13 +83,13 @@ class TestComputeDerivedFeatures:
         assert abs(result[0]["high_low_range"] - 0.4) < 1e-6  # (12-8)/10
         assert abs(result[0]["close_position"] - 0.5) < 1e-6  # (10-8)/(12-8)
 
-    def test_turnover_zscore(self) -> None:
+    def test_turnover_relative_deviation(self) -> None:
         row = {"close": None, "ma_5": None, "ma_20": None, "ma_60": None,
                "high_20d": None, "low_20d": None, "macd": None, "macd_signal": None,
                "pb_ratio": None, "market_cap": None, "volatility_20d": None,
                "turnover_rate": 2.0, "avg_turnover_20d": 1.0}
         result = compute_derived_features([row])
-        assert abs(result[0]["turnover_zscore"] - 1.0) < 1e-6
+        assert abs(result[0]["turnover_relative_deviation"] - 1.0) < 1e-6
 
 
 class TestCrossSectionStandardize:
