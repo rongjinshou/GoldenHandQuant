@@ -1,6 +1,6 @@
-from src.domain.account.interfaces.account_repository import AccountRepository
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
+from src.domain.account.interfaces.account_repository import AccountRepository
 from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
 from src.domain.backtest.value_objects.trade_record import TradeRecord
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway

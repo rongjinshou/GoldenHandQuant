@@ -9,8 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-import numpy as np
-
 from src.domain.account.entities.position import Position
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.services.cross_sectional_strategy import CrossSectionalStrategy
@@ -24,7 +22,7 @@ class _InferenceEngine(Protocol):
     """推理引擎协议（Domain 层不直接依赖 infrastructure）。"""
 
     def predict_batch(
-        self, model_name: str, feature_dict: dict[str, np.ndarray]
+        self, model_name: str, feature_dict: dict[str, list[float]]
     ) -> dict[str, float]: ...
 
 
@@ -202,7 +200,7 @@ class MLReturnPredictionStrategy(CrossSectionalStrategy):
 
     def _extract_features(
         self, universe: list[StockSnapshot]
-    ) -> tuple[dict[str, np.ndarray], list[str]]:
+    ) -> tuple[dict[str, list[float]], list[str]]:
         """从 StockSnapshot 提取特征矩阵。
 
         优先从模型 metadata 加载 feature_columns，确保训练/推理特征一致。
@@ -214,7 +212,7 @@ class MLReturnPredictionStrategy(CrossSectionalStrategy):
             feature_columns = _load_feature_columns_from_metadata(self._model_dir, self._model_name)
         fields = feature_columns or _SNAPSHOT_FIELDS
 
-        feature_dict: dict[str, np.ndarray] = {}
+        feature_dict: dict[str, list[float]] = {}
         for snap in universe:
             # 获取基础属性值
             base_vals: dict[str, float | None] = {}
@@ -226,13 +224,13 @@ class MLReturnPredictionStrategy(CrossSectionalStrategy):
             all_vals = {**base_vals, **derived}
 
             # 按 fields 顺序提取特征
-            # Issue #2 (NEW-H7): 用 0 填充缺失特征，与训练时的 NaN 处理保持一致，
+            # 用 0 填充缺失特征，与训练时的 NaN 处理保持一致，
             # 而非直接跳过整只股票（跳过会导致推理时丢弃有效标的）。
             vals: list[float] = []
             for f in fields:
                 v = all_vals.get(f)
                 vals.append(float(v) if v is not None else 0.0)
-            feature_dict[snap.symbol] = np.array(vals, dtype=np.float64)
+            feature_dict[snap.symbol] = vals
 
         symbols = list(feature_dict.keys())
         return feature_dict, symbols

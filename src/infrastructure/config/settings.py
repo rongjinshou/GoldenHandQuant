@@ -49,11 +49,20 @@ class PositionSizingSettings:
 
 
 @dataclass(slots=True, kw_only=True)
+class QmtAccountConfig:
+    """单个 QMT 账户配置。"""
+    account_id: str = ""
+    account_type: str = "STOCK"
+    initial_capital: float = 1_000_000.0
+
+
+@dataclass(slots=True, kw_only=True)
 class QmtSettings:
     userdata_path: str = ""
     session_id: int = 0
     account_id: str = ""
     account_type: str = "STOCK"
+    accounts: list[QmtAccountConfig] = field(default_factory=list)
 
 
 @dataclass(slots=True, kw_only=True)
@@ -195,6 +204,17 @@ class MonitorSettings:
 
 
 @dataclass(slots=True, kw_only=True)
+class MultiAccountSettings:
+    """多账户配置。"""
+    enabled: bool = False
+    group_id: str = "default_group"
+    group_name: str = "默认账户组"
+    max_total_exposure: float = 0.0
+    max_single_concentration: float = 0.30
+    max_account_count: int = 10
+
+
+@dataclass(slots=True, kw_only=True)
 class AppSettings:
     backtest: BacktestSettings = field(default_factory=BacktestSettings)
     strategy: StrategySettings = field(default_factory=StrategySettings)
@@ -210,6 +230,7 @@ class AppSettings:
     auto_notification: AutoNotificationSettings = field(
         default_factory=AutoNotificationSettings,
     )
+    multi_account: MultiAccountSettings = field(default_factory=MultiAccountSettings)
 
 
 def load_backtest_config(path: str = "resources/backtest.yaml") -> AppSettings:
@@ -267,7 +288,9 @@ def load_trading_config(path: str = "resources/trading.yaml") -> AppSettings:
     live_trade = LiveTradeSettings(**live_trade_data)
 
     qmt_data = data.get("qmt", {})
-    qmt = QmtSettings(**qmt_data)
+    accounts_data = qmt_data.pop("accounts", [])
+    accounts = [QmtAccountConfig(**acc) for acc in accounts_data]
+    qmt = QmtSettings(accounts=accounts, **qmt_data)
 
     monitor_data = data.get("monitor", {})
     alerts_data = monitor_data.pop("alerts", {})
@@ -292,6 +315,10 @@ def load_trading_config(path: str = "resources/trading.yaml") -> AppSettings:
         **auto_notif_data,
     )
 
+    # 解析 multi_account 配置
+    multi_account_data = data.get("multi_account", {})
+    multi_account = MultiAccountSettings(**multi_account_data)
+
     return AppSettings(
         qmt=qmt,
         live_trade=live_trade,
@@ -299,4 +326,5 @@ def load_trading_config(path: str = "resources/trading.yaml") -> AppSettings:
         auto_trade=auto_trade,
         anomaly=anomaly,
         auto_notification=auto_notification,
+        multi_account=multi_account,
     )

@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 
-from src.interfaces.api.routes import account_routes, backtest_routes
+from src.interfaces.api.routes import account_routes, backtest_routes, dashboard
 
 app = FastAPI(title="GoldenHandQuant API", version="0.1.0")
 app.include_router(backtest_routes.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(account_routes.router, prefix="/api/account", tags=["account"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 
 
 @app.get("/health")
