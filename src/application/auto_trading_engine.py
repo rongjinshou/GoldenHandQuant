@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, time
 
 from src.application.anomaly_detector import AnomalyDetector
+from src.application.auto_pause_manager import AutoPauseManager
 from src.application.notification_hub import NotificationHub
 from src.application.order_executor import OrderExecutor
 from src.application.signal_pipeline import SignalPipeline
@@ -56,6 +57,7 @@ class AutoTradingEngine:
         anomaly_detector: AnomalyDetector,
         notification_hub: NotificationHub | None = None,
         config: AutoTradingConfig | None = None,
+        pause_manager: AutoPauseManager | None = None,
     ) -> None:
         self._strategy_runners = strategy_runners
         self._signal_pipeline = signal_pipeline
@@ -64,6 +66,7 @@ class AutoTradingEngine:
         self._anomaly_detector = anomaly_detector
         self._notification_hub = notification_hub
         self._config = config or AutoTradingConfig()
+        self._pause_manager = pause_manager
 
         self._running = False
         self._thread: threading.Thread | None = None
@@ -100,6 +103,15 @@ class AutoTradingEngine:
         all_signals: list[Signal] = []
         prices: dict[str, float] = {}
         for runner in self._strategy_runners:
+            strategy_obj = getattr(runner, "strategy", None)
+            strategy_name = (
+                getattr(runner, "strategy_name", None)
+                or getattr(strategy_obj, "name", None)
+            )
+            if self._pause_manager and strategy_name and self._pause_manager.is_strategy_paused(strategy_name):
+                logger.info("策略 %s 已暂停，跳过", strategy_name)
+                continue
+
             context = DayContext(
                 current_time=now,
                 symbols=self._config.symbols,
@@ -120,7 +132,19 @@ class AutoTradingEngine:
             except Exception as e:
                 logger.error("策略执行失败: %s", e, exc_info=True)
 
-        # 3. 信号管线处理
+        # 3. 全局熔断检查
+        if self._pause_manager and self._pause_manager.is_all_paused:
+            logger.warning("全局暂停中，跳过本周期下单")
+            return CycleResult(
+                cycle_time=now,
+                signals_generated=len(all_signals),
+                orders_placed=0,
+                orders_rejected=0,
+                orders_failed=0,
+                anomaly_events=len(anomaly_events),
+            )
+
+        # 4. 信号管线处理
         targets = self._signal_pipeline.process(all_signals, prices)
 
         # 限制单次循环最大下单数
@@ -131,10 +155,10 @@ class AutoTradingEngine:
             )
             targets = targets[:self._config.max_orders_per_cycle]
 
-        # 4. 自动下单
+        # 5. 自动下单
         records = self._order_executor.execute(targets)
 
-        # 5. 记录执行结果
+        # 6. 记录执行结果
         for record in records:
             self._execution_monitor.record(record)
 
@@ -153,7 +177,7 @@ class AutoTradingEngine:
         )
         self._cycle_results.append(result)
 
-        # 6. 推送通知
+        # 7. 推送通知
         if self._notification_hub and records:
             for record in records:
                 self._notification_hub.notify_trade_executed(record)

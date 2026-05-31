@@ -52,7 +52,7 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
         except Exception as e:
             logger.error(f"Failed to initialize QmtTradeGateway: {e}", exc_info=True)
 
-    def get_asset(self) -> Asset | None:
+    def get_asset(self, account_id: str | None = None) -> Asset | None:
         """获取账户资金信息。"""
         try:
             xt_asset = self.xt_trader.query_stock_asset(self.account)
@@ -70,7 +70,7 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
             logger.error(f"Error querying asset: {e}", exc_info=True)
             return None
 
-    def get_positions(self) -> list[Position]:
+    def get_positions(self, account_id: str | None = None) -> list[Position]:
         """获取账户持仓列表。"""
         try:
             xt_positions = self.xt_trader.query_stock_positions(self.account)

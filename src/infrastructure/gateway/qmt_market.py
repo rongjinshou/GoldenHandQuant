@@ -5,6 +5,7 @@ import numpy as np
 
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.market.value_objects.timeframe import Timeframe
 
 from .xtquant_client import xtdata
@@ -101,5 +102,13 @@ class QmtMarketGateway(IMarketGateway):
         except Exception as e:
             logger.error(f"Failed to get market data for {symbol}: {e}", exc_info=True)
             return []
+
+    def get_stock_snapshots(self, symbols: list[str]) -> list[StockSnapshot]:
+        """获取标的日频快照。
+
+        QMT xtdata 暂无直接快照接口，返回空列表，
+        由上游 FeaturePipeline 从 bar 历史计算填充。
+        """
+        return []
 
 

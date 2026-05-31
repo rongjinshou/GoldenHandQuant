@@ -4,7 +4,6 @@ from src.domain.portfolio.entities.strategy_allocation import AllocationResult, 
 from src.domain.portfolio.entities.strategy_performance import StrategyPerformance
 from src.domain.portfolio.interfaces.allocation_algorithm import IAllocationAlgorithm
 from src.domain.portfolio.interfaces.rebalance_trigger import IRebalanceTrigger
-from src.domain.portfolio.services.allocation_algorithms.equal_weight import EqualWeightAlgorithm
 
 
 class CapitalAllocationEngine:
@@ -23,6 +22,7 @@ class CapitalAllocationEngine:
         self,
         algorithm: IAllocationAlgorithm,
         trigger: IRebalanceTrigger,
+        fallback_algorithm: IAllocationAlgorithm | None = None,
         max_single_weight: float = 0.40,
         min_single_weight: float = 0.05,
         max_weight_change: float = 0.10,
@@ -30,11 +30,11 @@ class CapitalAllocationEngine:
     ) -> None:
         self._algorithm = algorithm
         self._trigger = trigger
+        self._fallback_algorithm = fallback_algorithm
         self._max_single_weight = max_single_weight
         self._min_single_weight = min_single_weight
         self._max_weight_change = max_weight_change
         self._min_lookback_days = min_lookback_days
-        self._equal_weight = EqualWeightAlgorithm()
 
     @property
     def trigger(self) -> IRebalanceTrigger:
@@ -70,7 +70,8 @@ class CapitalAllocationEngine:
             for name in strategy_names
         ]
 
-        allocations = self._equal_weight.calculate(total_capital, performances)
+        fallback = self._fallback_algorithm or self._algorithm
+        allocations = fallback.calculate(total_capital, performances)
         allocations = self._apply_constraints(allocations)
 
         return AllocationResult(
@@ -105,7 +106,7 @@ class CapitalAllocationEngine:
         # 绩效数据不足时回退等权
         insufficient = any(p.lookback_days < self._min_lookback_days for p in performances)
         if insufficient or not performances:
-            algorithm = self._equal_weight
+            algorithm = self._fallback_algorithm or self._algorithm
             algo_name = "equal_weight_fallback"
         else:
             algorithm = self._algorithm

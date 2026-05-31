@@ -4,6 +4,7 @@ import pytest
 
 from src.domain.portfolio.entities.strategy_allocation import StrategyAllocation
 from src.domain.portfolio.entities.strategy_performance import StrategyPerformance
+from src.domain.portfolio.services.allocation_algorithms.equal_weight import EqualWeightAlgorithm
 from src.domain.portfolio.services.allocation_algorithms.sharpe_weight import SharpeWeightAlgorithm
 from src.domain.portfolio.services.capital_allocation_engine import CapitalAllocationEngine
 from src.domain.portfolio.services.rebalance_triggers.daily_trigger import DailyRebalanceTrigger
@@ -86,6 +87,7 @@ class TestRebalance:
         engine = CapitalAllocationEngine(
             algorithm=SharpeWeightAlgorithm(),
             trigger=DailyRebalanceTrigger(),
+            fallback_algorithm=EqualWeightAlgorithm(),
             min_lookback_days=20,
         )
         current = [_alloc("A", 0.5), _alloc("B", 0.5)]
