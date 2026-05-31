@@ -1,3 +1,4 @@
+import copy
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -13,6 +14,12 @@ class StrategyConfig:
     strategy_type: str  # "bar" | "cross_section"
     description: str
     default_params: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        for field_name in self.__dataclass_fields__:
+            val = getattr(self, field_name)
+            if isinstance(val, (list, dict, set)):
+                object.__setattr__(self, field_name, copy.deepcopy(val))
 
 
 _REGISTRY: dict[str, StrategyConfig] = {}

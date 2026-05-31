@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
@@ -25,7 +28,7 @@ class _InferenceEngine(Protocol):
     ) -> dict[str, float]: ...
 
 
-# StockSnapshot 基础特征字段列表
+# StockSnapshot 基础特征字段列表（仅直接属性）
 _SNAPSHOT_FIELDS: list[str] = [
     "return_5d", "return_20d", "return_60d",
     "volatility_20d", "volatility_60d",
@@ -36,6 +39,89 @@ _SNAPSHOT_FIELDS: list[str] = [
     "atr_14", "skewness_20d", "illiquidity_20d", "obv_slope_20d",
     "pe_ratio", "pb_ratio", "roe_ttm", "market_cap",
 ]
+
+
+def _load_feature_columns_from_metadata(model_dir: str, model_name: str) -> list[str] | None:
+    """从模型元数据文件中加载 feature_columns。"""
+    meta_path = Path(model_dir) / model_name / "metadata.json"
+    if not meta_path.exists():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text())
+        return meta.get("feature_columns")
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _compute_derived_features(snap: StockSnapshot) -> dict[str, float | None]:
+    """从 StockSnapshot 计算衍生特征，与 feature_transforms.compute_derived_features 逻辑一致。"""
+    close = snap.close
+    ma_5 = snap.ma_5
+    ma_20 = snap.ma_20
+    ma_60 = snap.ma_60
+    high_20d = snap.high_20d
+    low_20d = snap.low_20d
+    macd = snap.macd
+    macd_signal = snap.macd_signal
+    pb_ratio = snap.pb_ratio
+    market_cap = snap.market_cap
+    turnover_rate = snap.turnover_rate
+    avg_turnover_20d = snap.avg_turnover_20d
+
+    def _ratio(a: float | None, b: float | None) -> float | None:
+        if a is not None and b is not None and b > 0:
+            return a / b - 1.0
+        return None
+
+    derived: dict[str, float | None] = {}
+    derived["close"] = close
+
+    # 均线偏离度
+    derived["close_to_ma5"] = _ratio(close, ma_5)
+    derived["close_to_ma20"] = _ratio(close, ma_20)
+    derived["close_to_ma60"] = _ratio(close, ma_60)
+
+    # 均线交叉
+    derived["ma5_to_ma20"] = _ratio(ma_5, ma_20)
+    derived["ma20_to_ma60"] = _ratio(ma_20, ma_60)
+
+    # 价格区间
+    if high_20d is not None and low_20d is not None and close and close > 0:
+        derived["high_low_range"] = (high_20d - low_20d) / close
+        denom = high_20d - low_20d
+        derived["close_position"] = (close - low_20d) / denom if denom > 0 else None
+    else:
+        derived["high_low_range"] = None
+        derived["close_position"] = None
+
+    # MACD 柱
+    if macd is not None and macd_signal is not None:
+        derived["macd_hist"] = macd - macd_signal
+    else:
+        derived["macd_hist"] = None
+
+    # 对数市值
+    if market_cap is not None and market_cap > 0:
+        derived["log_market_cap"] = math.log(market_cap)
+    else:
+        derived["log_market_cap"] = None
+
+    # 账面市值比
+    if pb_ratio is not None and pb_ratio > 0:
+        derived["bp_ratio"] = 1.0 / pb_ratio
+    else:
+        derived["bp_ratio"] = None
+
+    # 波动变化率
+    derived["vol_ratio_5_20"] = None
+
+    # 异常换手率 z-score
+    if turnover_rate is not None and avg_turnover_20d is not None and avg_turnover_20d > 0:
+        derived["turnover_zscore"] = (turnover_rate - avg_turnover_20d) / avg_turnover_20d
+    else:
+        derived["turnover_zscore"] = None
+
+    return derived
 
 
 class MLReturnPredictionStrategy(CrossSectionalStrategy):
@@ -117,16 +203,33 @@ class MLReturnPredictionStrategy(CrossSectionalStrategy):
     def _extract_features(
         self, universe: list[StockSnapshot]
     ) -> tuple[dict[str, np.ndarray], list[str]]:
-        """从 StockSnapshot 提取特征矩阵。"""
-        # 确定特征列
-        fields = self._feature_columns or _SNAPSHOT_FIELDS
+        """从 StockSnapshot 提取特征矩阵。
+
+        优先从模型 metadata 加载 feature_columns，确保训练/推理特征一致。
+        同时计算衍生特征（与 feature_transforms.compute_derived_features 逻辑一致）。
+        """
+        # 从 metadata 加载 feature_columns
+        feature_columns = self._feature_columns
+        if feature_columns is None:
+            feature_columns = _load_feature_columns_from_metadata(self._model_dir, self._model_name)
+        fields = feature_columns or _SNAPSHOT_FIELDS
 
         feature_dict: dict[str, np.ndarray] = {}
         for snap in universe:
+            # 获取基础属性值
+            base_vals: dict[str, float | None] = {}
+            for f in _SNAPSHOT_FIELDS:
+                base_vals[f] = getattr(snap, f, None)
+
+            # 计算衍生特征
+            derived = _compute_derived_features(snap)
+            all_vals = {**base_vals, **derived}
+
+            # 按 fields 顺序提取特征
             vals: list[float] = []
             valid = True
             for f in fields:
-                v = getattr(snap, f, None)
+                v = all_vals.get(f)
                 if v is None:
                     valid = False
                     break

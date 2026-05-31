@@ -1,3 +1,4 @@
+import copy
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,6 +30,12 @@ class BacktestReport:
     equity_curve: list[float] = field(default_factory=list)
     daily_returns: list[float] = field(default_factory=list)
     strategy_name: str = ""
+
+    def __post_init__(self):
+        for field_name in self.__dataclass_fields__:
+            val = getattr(self, field_name)
+            if isinstance(val, (list, dict, set)):
+                object.__setattr__(self, field_name, copy.deepcopy(val))
 
     @property
     def turnover_rate(self) -> float:

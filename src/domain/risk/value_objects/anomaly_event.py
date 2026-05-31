@@ -24,7 +24,7 @@ class AutoAction(StrEnum):
     PAUSE_ALL = "pause_all"
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class AnomalyEvent:
     """异常事件值对象。"""
 

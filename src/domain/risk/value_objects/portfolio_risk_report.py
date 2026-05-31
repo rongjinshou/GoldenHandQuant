@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -46,3 +47,9 @@ class PortfolioRiskReport:
     ml_alerts: list[MLRiskAlert] = field(default_factory=list)
     overall_risk_level: str = "low"
     recommendations: list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        for field_name in self.__dataclass_fields__:
+            val = getattr(self, field_name)
+            if isinstance(val, (list, dict, set)):
+                object.__setattr__(self, field_name, copy.deepcopy(val))

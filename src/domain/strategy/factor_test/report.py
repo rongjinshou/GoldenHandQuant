@@ -1,5 +1,6 @@
 """因子测试报告值对象。"""
 
+import copy
 from dataclasses import dataclass, field
 
 
@@ -34,3 +35,9 @@ class FactorTestReport:
     score: float = 0.0
     grade: str = "D"
     grade_reasons: list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        for field_name in self.__dataclass_fields__:
+            val = getattr(self, field_name)
+            if isinstance(val, (list, dict, set)):
+                object.__setattr__(self, field_name, copy.deepcopy(val))

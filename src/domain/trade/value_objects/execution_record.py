@@ -5,7 +5,7 @@ from src.domain.trade.value_objects.execution_status import ExecutionStatus
 from src.domain.trade.value_objects.order_direction import OrderDirection
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ExecutionRecord:
     """执行记录值对象。
 
