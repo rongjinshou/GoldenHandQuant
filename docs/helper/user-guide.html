@@ -13,85 +13,94 @@
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif; background: var(--bg); color: var(--fg); line-height: 1.7; }
-.container { max-width: 1100px; margin: 0 auto; padding: 20px 30px; }
-h1 { color: var(--accent); font-size: 2em; border-bottom: 2px solid var(--border); padding-bottom: 12px; margin: 30px 0 20px; }
-h2 { color: var(--green); font-size: 1.5em; margin: 30px 0 12px; padding-left: 12px; border-left: 4px solid var(--green); }
-h3 { color: var(--purple); font-size: 1.15em; margin: 20px 0 8px; }
-h4 { color: var(--yellow); font-size: 1em; margin: 14px 0 6px; }
-p, li { color: var(--fg); margin: 4px 0; }
-ul, ol { padding-left: 24px; }
+
+/* ===== 布局: 每个 section 是独立并列卡片 ===== */
+.page { max-width: 1100px; margin: 0 auto; padding: 0 20px 40px; }
+header { text-align: center; padding: 40px 0 10px; }
+header h1 { color: var(--accent); font-size: 2em; border: none; margin: 0; }
+header p { color: var(--fg2); font-size: 1.05em; margin-top: 6px; }
+
+nav { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 10px 0; z-index: 100; margin-bottom: 24px; }
+nav .page { display: flex; gap: 18px; flex-wrap: wrap; padding-top: 0; padding-bottom: 0; }
+nav a { color: var(--fg2); font-size: 0.88em; text-decoration: none; }
+nav a:hover { color: var(--accent); }
+
+/* 每个章节 = 独立卡片 */
+.section {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px 28px;
+  margin-bottom: 20px;
+}
+.section > h2 {
+  color: var(--green);
+  font-size: 1.4em;
+  margin: -24px -28px 16px;
+  padding: 14px 28px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+}
+.section > h2::before { margin-right: 8px; }
+
+h3 { color: var(--purple); font-size: 1.1em; margin: 18px 0 8px; }
+h4 { color: var(--yellow); font-size: 0.95em; margin: 12px 0 6px; }
+p, li { color: var(--fg); margin: 3px 0; }
+ul, ol { padding-left: 22px; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-code { background: var(--bg3); color: var(--fg); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; font-family: 'Cascadia Code', 'Fira Code', monospace; }
-pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-x: auto; margin: 10px 0; font-size: 0.88em; line-height: 1.5; }
+code { background: var(--bg3); color: var(--fg); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; overflow-x: auto; margin: 8px 0; font-size: 0.85em; line-height: 1.5; }
 pre code { background: none; padding: 0; }
-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.92em; }
-th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9em; }
+th, td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; }
 th { background: var(--bg3); color: var(--accent); font-weight: 600; }
-tr:nth-child(even) { background: var(--bg2); }
-.tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 600; margin: 0 4px; }
+tr:nth-child(even) { background: var(--bg); }
+.tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 0.78em; font-weight: 600; }
 .tag-qmt { background: #1f6feb33; color: #58a6ff; border: 1px solid #1f6feb; }
-.tag-cli { background: #23863633; color: #3fb950; border: 1px solid #238636; }
-.tag-ml { background: #8957e533; color: #bc8cff; border: 1px solid #8957e5; }
-.tag-risk { background: #f8514933; color: #f85149; border: 1px solid #f85149; }
-.note { background: #0d419d22; border-left: 4px solid var(--accent); padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
-.warn { background: #6e4a1a33; border-left: 4px solid var(--yellow); padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
-.output { background: #0b1215; border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 8px 0; font-size: 0.85em; color: var(--green); white-space: pre-wrap; word-break: break-all; }
-.toc { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin: 20px 0; }
-.toc ul { list-style: none; padding-left: 16px; }
-.toc > ul { padding-left: 0; }
-.toc li { margin: 4px 0; }
-.toc a { color: var(--fg); }
-.toc a:hover { color: var(--accent); }
+.note { background: #0d419d22; border-left: 4px solid var(--accent); padding: 10px 14px; margin: 10px 0; border-radius: 0 6px 6px 0; font-size: 0.92em; }
+.warn { background: #6e4a1a33; border-left: 4px solid var(--yellow); padding: 10px 14px; margin: 10px 0; border-radius: 0 6px 6px 0; font-size: 0.92em; }
+.output { background: #0b1215; border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 8px 0; font-size: 0.83em; color: var(--green); white-space: pre-wrap; word-break: break-all; }
 .env { color: var(--yellow); }
 .cmd { color: var(--green); }
-.badge { display: inline-block; font-size: 0.75em; padding: 1px 6px; border-radius: 4px; vertical-align: middle; }
+.badge { display: inline-block; font-size: 0.73em; padding: 1px 5px; border-radius: 4px; vertical-align: middle; }
 .badge-req { background: #f8514933; color: var(--red); }
-.badge-opt { background: #23863633; color: var(--green); }
-header { text-align: center; padding: 40px 0 20px; }
-header p { color: var(--fg2); font-size: 1.1em; }
-nav { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 10px 0; z-index: 100; }
-nav .container { display: flex; gap: 20px; flex-wrap: wrap; }
-nav a { color: var(--fg2); font-size: 0.9em; }
-nav a:hover { color: var(--accent); }
-footer { text-align: center; padding: 40px 0; color: var(--fg2); font-size: 0.85em; border-top: 1px solid var(--border); margin-top: 40px; }
+footer { text-align: center; padding: 30px 0; color: var(--fg2); font-size: 0.82em; }
 </style>
 </head>
 <body>
 
 <header>
-<div class="container">
-<h1 style="border:none; margin:0; padding:0;">📊 GoldenHandQuant 使用说明书</h1>
-<p>A 股量化交易系统 — 回测 · 因子挖掘 · 实盘交易 · ML 预测</p>
-<p style="font-size:0.85em; color:var(--fg2);">版本: 2026-06-01 &nbsp;|&nbsp; 环境: WSL + Windows QMT + xtquant</p>
-</div>
+  <h1>📊 GoldenHandQuant 使用说明书</h1>
+  <p>A 股量化交易系统 — 回测 · 因子挖掘 · 实盘交易 · ML 预测</p>
+  <p style="font-size:0.82em;color:var(--fg2);">版本 2026-06-01 &nbsp;|&nbsp; WSL + Windows QMT + xtquant</p>
 </header>
 
 <nav>
-<div class="container">
-<a href="#quickstart">快速开始</a>
-<a href="#data">数据采集</a>
-<a href="#backtest">策略回测</a>
-<a href="#factor">因子测试</a>
-<a href="#compare">策略对比</a>
-<a href="#ml">ML 训练</a>
-<a href="#live">实盘交易</a>
-<a href="#monitor">监控告警</a>
-<a href="#config">配置参考</a>
-<a href="#faq">常见问题</a>
-</div>
+  <a href="#quickstart">快速开始</a>
+  <a href="#data">数据采集</a>
+  <a href="#backtest">策略回测</a>
+  <a href="#factor">因子测试</a>
+  <a href="#compare">策略对比</a>
+  <a href="#ml">ML 训练</a>
+  <a href="#live">实盘交易</a>
+  <a href="#monitor">监控告警</a>
+  <a href="#config">配置参考</a>
+  <a href="#faq">常见问题</a>
 </nav>
 
-<div class="container">
+<div class="page">
 
 <!-- ==================== 快速开始 ==================== -->
-<h2 id="quickstart">🚀 快速开始</h2>
+<div class="section" id="quickstart">
+<h2>🚀 快速开始</h2>
 
 <h3>环境要求</h3>
 <ul>
-<li>Python 3.13+ (WSL conda 环境: <code>goldenhandquant</code>)</li>
-<li>QMT 客户端 (MiniQMT) 已启动，路径: <code>C:\QMT\userdata_mini</code></li>
-<li>Windows Python 用于 QMT/xtquant 交互: <code>/mnt/c/Users/11492/.conda/envs/goldenhandquant/python.exe</code></li>
+<li>Python 3.13+ (WSL conda: <code>goldenhandquant</code>)</li>
+<li>QMT 客户端 (MiniQMT) 已启动，路径 <code>C:\QMT\userdata_mini</code></li>
+<li>Windows Python: <code>/mnt/c/Users/11492/.conda/envs/goldenhandquant/python.exe</code></li>
 </ul>
 
 <h3>安装</h3>
@@ -100,22 +109,18 @@ conda activate goldenhandquant
 pip install -e ".[dev,api,ml]"</code></pre>
 
 <h3>环境变量</h3>
-<pre><code><span class="env">export QMT_ACCOUNT_ID="50570555"</span>   # QMT 账户 ID</code></pre>
+<pre><code><span class="env">export QMT_ACCOUNT_ID="50570555"</span></code></pre>
 
-<h3>验证 QMT 连接</h3>
+<h3>验证连接</h3>
 <pre><code><span class="cmd">python scripts/test_qmt_connection.py</span></code></pre>
 <div class="output">Step 1: xtdata 连接 — ✅ 成功
-Step 2: 获取实时行情 — ✅ 000001.SZ 最新价: 10.93
-Step 3: 获取历史K线 — ✅ 获取到 86 根日K线
-Step 4: XtQuantTrader 登录 — ✅ 总资产: 146174.03, 持仓 6 只</div>
+Step 2: 实时行情 — ✅ 000001.SZ 最新价: 10.93
+Step 3: 历史K线 — ✅ 获取到 86 根日K线
+Step 4: 账户登录 — ✅ 总资产: 146174.03, 持仓 6 只</div>
 
-<h3>统一 CLI 入口</h3>
+<h3>统一入口</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.quant</span> --help</code></pre>
-<div class="output">usage: quant [-h] {research,backtest,live,compare,factor-test,list,auto-trade,ml-train,ml-evaluate,monitor} ...
-
-GoldenHandQuant 统一投研 CLI
-
-子命令:
+<div class="output">子命令:
   research        自然语言投研: 选股->回测->报告
   backtest        直接回测
   live            半自动交易
@@ -126,69 +131,57 @@ GoldenHandQuant 统一投研 CLI
   ml-train        ML 模型训练
   ml-evaluate     ML 模型评估
   monitor         系统监控</code></pre>
+</div>
 
 <!-- ==================== 数据采集 ==================== -->
-<h2 id="data">📡 数据采集</h2>
-<p>所有数据命令需要 QMT 客户端已启动。输出格式为统一 JSON 信封: <code>{success, data, error, timestamp}</code></p>
+<div class="section" id="data">
+<h2>📡 数据采集</h2>
+<p>需 QMT 已启动。输出统一 JSON 信封: <code>{success, data, error, timestamp}</code></p>
 
-<h3>1. 实时行情 <span class="tag tag-qmt">QMT</span></h3>
+<h3>实时行情 <span class="tag tag-qmt">QMT</span></h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.fetch_quote</span> -s 600519.SH</code></pre>
 <div class="output">{
   "success": true,
   "data": {
-    "symbol": "600519.SH",
-    "name": "贵州茅台",
-    "price": 1326.0,
-    "change_pct": 3.92,
-    "pe_ratio": 60.94,
-    "pb_ratio": 6.13,
-    "market_cap": 1665718282800.0,
-    "vol_ratio": 1.42
+    "symbol": "600519.SH", "name": "贵州茅台",
+    "price": 1326.0, "change_pct": 3.92,
+    "pe_ratio": 60.94, "pb_ratio": 6.13,
+    "market_cap": 1665718282800.0
   }
 }</code></pre>
 
-<h3>2. 财务数据 <span class="tag tag-qmt">QMT</span></h3>
+<h3>财务数据 <span class="tag tag-qmt">QMT</span></h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.fetch_financial</span> -s 600519.SH -q 4</code></pre>
 <div class="output">{
-  "success": true,
   "data": {
-    "symbol": "600519.SH",
     "name": "贵州茅台",
     "latest_report": {
       "report_date": "2026-04-25",
-      "roe": 10.57,
-      "eps": 21.76,
-      "bps": 216.32,
-      "gross_profit": 89.76,
-      "net_profit_growth": 1.47
+      "roe": 10.57, "eps": 21.76, "bps": 216.32,
+      "revenue_growth": 6.34, "net_profit_growth": 1.47
     }
   }
 }</code></pre>
 
-<h3>3. 技术指标 <span class="tag tag-qmt">QMT</span></h3>
-<pre><code><span class="cmd">python -m src.interfaces.cli.fetch_indicators</span> -s 600519.SH -p 1d -b 120</code></pre>
+<h3>技术指标 <span class="tag tag-qmt">QMT</span></h3>
+<pre><code><span class="cmd">python -m src.interfaces.cli.fetch_indicators</span> -s 600519.SH -p 1d</code></pre>
 <div class="output">{
-  "success": true,
   "data": {
     "indicators": {
       "ma5": 1292.85, "ma20": 1333.39, "ma60": 1397.84,
       "rsi_6": 55.2, "rsi_14": 41.04,
-      "macd": -30.82, "macd_signal": -30.77,
-      "boll_upper": 1406.06, "boll_lower": 1260.73,
-      "kdj_k": 47.62, "kdj_d": 29.93, "kdj_j": 83.01,
-      "atr_14": 27.11, "vol_ratio": 1.42
+      "macd": -30.82, "boll_upper": 1406.06, "boll_lower": 1260.73,
+      "kdj_k": 47.62, "kdj_d": 29.93, "atr_14": 27.11
     }
   }
 }</code></pre>
 
-<h3>4. 账户信息 <span class="tag tag-qmt">QMT</span></h3>
+<h3>账户信息 <span class="tag tag-qmt">QMT</span></h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.fetch_account</span> --json</code></pre>
 <div class="output">{
-  "success": true,
   "data": {
     "account_id": "50570555",
-    "total_asset": 146174.03,
-    "available_cash": 433.03,
+    "total_asset": 146174.03, "available_cash": 433.03,
     "positions": [
       {"stock_code": "600096.SH", "volume": 400},
       {"stock_code": "605589.SH", "volume": 700}
@@ -196,41 +189,39 @@ GoldenHandQuant 统一投研 CLI
   }
 }</code></pre>
 
-<h3>5. 北向资金 / 龙虎榜 <span class="tag tag-qmt">QMT</span></h3>
+<h3>其他数据命令</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.fetch_northbound</span> --date 2026-05-30 --top 10
-<span class="cmd">python -m src.interfaces.cli.fetch_dragon_tiger</span> --date 2026-05-30 --top 20</code></pre>
-<div class="note">💡 xtdata 未提供北向资金和龙虎榜专用接口，这些命令会优雅降级返回提示信息。建议使用东方财富/同花顺等第三方数据源。</div>
-
-<h3>6. 批量下载 <span class="tag tag-qmt">QMT</span></h3>
-<pre><code><span class="cmd">python -m src.interfaces.cli.batch_download</span></code></pre>
-<p>全市场日线行情 + 财务数据批量下载，日志写入 <code>data/batch_download.log</code>，可后台运行。</p>
+<span class="cmd">python -m src.interfaces.cli.fetch_dragon_tiger</span> --date 2026-05-30 --top 20
+<span class="cmd">python -m src.interfaces.cli.batch_download</span>  # 全市场批量下载</code></pre>
+<div class="note">💡 北向资金/龙虎榜: xtdata 无专用接口，命令会优雅降级。行业板块同理。</div>
 
 <h3>参数速查</h3>
 <table>
-<tr><th>命令</th><th>必选参数</th><th>可选参数</th></tr>
-<tr><td><code>fetch_quote</code></td><td><code>-s</code> 标的代码</td><td><code>-c</code> 配置文件</td></tr>
-<tr><td><code>fetch_financial</code></td><td><code>-s</code> 标的代码</td><td><code>-q</code> 季度数 (默认4)</td></tr>
-<tr><td><code>fetch_indicators</code></td><td><code>-s</code> 标的代码</td><td><code>-p</code> 周期 (1d/1w/1m), <code>-b</code> K线数 (默认120)</td></tr>
-<tr><td><code>fetch_account</code></td><td>无</td><td><code>--json</code>, <code>-o</code> 输出文件</td></tr>
+<tr><th>命令</th><th>必选</th><th>可选</th></tr>
+<tr><td><code>fetch_quote</code></td><td><code>-s</code> 标的</td><td><code>-c</code> 配置</td></tr>
+<tr><td><code>fetch_financial</code></td><td><code>-s</code> 标的</td><td><code>-q</code> 季度数(4)</td></tr>
+<tr><td><code>fetch_indicators</code></td><td><code>-s</code> 标的</td><td><code>-p</code> 周期, <code>-b</code> K线数(120)</td></tr>
+<tr><td><code>fetch_account</code></td><td>无</td><td><code>--json</code>, <code>-o</code> 文件</td></tr>
 <tr><td><code>fetch_northbound</code></td><td>无</td><td><code>-d</code> 日期, <code>-t</code> Top N</td></tr>
 <tr><td><code>fetch_dragon_tiger</code></td><td>无</td><td><code>-d</code> 日期, <code>-t</code> Top N</td></tr>
 </table>
+</div>
 
 <!-- ==================== 策略回测 ==================== -->
-<h2 id="backtest">📈 策略回测</h2>
+<div class="section" id="backtest">
+<h2>📈 策略回测</h2>
 
 <h3>已注册策略</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.quant list</span></code></pre>
-<div class="output">  multi_factor         [cross_section] 多因子选股策略 (30 因子: 价值+质量+动量+波动+技术+流动性)
-  dual_ma              [bar] DualMa 双均线策略 (MA5/MA10 金叉死叉)
+<div class="output">  multi_factor         [cross_section] 多因子选股策略 (30 因子)
+  dual_ma              [bar] DualMa 双均线策略 (MA5/MA10)
   micro_value          [cross_section] 微盘价值质量增强策略
-  ml_return_prediction [cross_section] ML 收益预测选股策略 (LightGBM)</code></pre>
+  ml_return_prediction [cross_section] ML 收益预测 (LightGBM)</code></pre>
 
 <h3>直接回测</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.quant backtest</span> \
   --strategy micro_value \
-  --start-date 2020-01-01 \
-  --end-date 2025-01-01</code></pre>
+  --start-date 2020-01-01 --end-date 2025-01-01</code></pre>
 <div class="output">========================================
        BACKTEST PERFORMANCE REPORT
 ========================================
@@ -241,58 +232,41 @@ Total Return:      84.76%
 Annualized Return: 13.52%
 Max Drawdown:      18.23%
 Sharpe Ratio:      1.45
-Win Rate:          58.3%
-Total Trades:      1,247</code></pre>
+Win Rate:          58.3% | Trades: 1,247</code></pre>
 
 <h3>自然语言投研</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.quant research</span> --idea "微盘价值" --period 2020-2025</code></pre>
-<p>系统自动匹配关键词到策略: "微盘价值" → <code>micro_value</code>，然后执行回测。</p>
-
 <table>
 <tr><th>关键词</th><th>匹配策略</th></tr>
 <tr><td>微盘 / 小盘 / 小市值 / 壳价值</td><td><code>micro_value</code></td></tr>
 <tr><td>多因子 / 因子 / 基本面 / 综合选股</td><td><code>multi_factor</code></td></tr>
-<tr><td>双均线 / 均线 / 金叉 / 死叉 / 趋势跟踪</td><td><code>dual_ma</code></td></tr>
+<tr><td>双均线 / 均线 / 金叉 / 死叉 / 趋势</td><td><code>dual_ma</code></td></tr>
 </table>
-
-<h3>使用自定义配置</h3>
-<pre><code><span class="cmd">python -m src.interfaces.cli.quant backtest</span> \
-  -s multi_factor \
-  --config resources/backtest_multi_factor.yaml</code></pre>
 
 <h3>参数速查</h3>
 <table>
-<tr><th>参数</th><th>类型</th><th>默认值</th><th>说明</th></tr>
+<tr><th>参数</th><th>类型</th><th>默认</th><th>说明</th></tr>
 <tr><td><code>--strategy</code> / <code>-s</code></td><td>str</td><td><span class="badge badge-req">必选</span></td><td>策略名称</td></tr>
-<tr><td><code>--start-date</code></td><td>str</td><td>配置文件</td><td>开始日期 YYYY-MM-DD</td></tr>
-<tr><td><code>--end-date</code></td><td>str</td><td>配置文件</td><td>结束日期 YYYY-MM-DD</td></tr>
-<tr><td><code>--config</code></td><td>str</td><td>resources/backtest.yaml</td><td>配置文件路径</td></tr>
-<tr><td><code>--plot</code></td><td>flag</td><td>False</td><td>显示 matplotlib 图表</td></tr>
+<tr><td><code>--start-date</code></td><td>str</td><td>配置文件</td><td>开始日期</td></tr>
+<tr><td><code>--end-date</code></td><td>str</td><td>配置文件</td><td>结束日期</td></tr>
+<tr><td><code>--config</code></td><td>str</td><td>backtest.yaml</td><td>配置路径</td></tr>
+<tr><td><code>--plot</code></td><td>flag</td><td>False</td><td>显示图表</td></tr>
 </table>
+</div>
 
 <!-- ==================== 因子测试 ==================== -->
-<h2 id="factor">🧪 因子测试</h2>
+<div class="section" id="factor">
+<h2>🧪 因子测试</h2>
 
 <h3>简单因子</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.factor_test</span> "pe_ratio" \
   --start 2024-01-01 --end 2024-06-01</code></pre>
 <div class="output">=== 因子测试报告 ===
-表达式:   pe_ratio
-测试区间: 2024-01-01 ~ 2024-06-01
-截面均值: 477 只股票
+表达式: pe_ratio | 截面均值: 477 只
 
---- IC/IR ---
-IC 均值:         -0.0421
-IR:              -0.218
-IC > 0 占比:     45.8%
-
---- 分层收益 ---
-第 1 组 (最低):  年化 34.6%
-第 5 组 (最高):  年化 -36.8%
-多空收益:        年化 -71.4%
-
-=== 综合评分: 45 / 100 (C) ===
-建议: 弱因子，仅供参考</code></pre>
+IC 均值: -0.0421 | IR: -0.218 | IC>0: 45.8%
+分层收益: 第1组 +34.6% → 第5组 -36.8% | 多空 -71.4%
+综合评分: 45/100 (C) — 弱因子</code></pre>
 
 <h3>复合因子</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.factor_test</span> "earnings_growth / pe_ratio" \
@@ -302,11 +276,11 @@ IC > 0 占比:     45.8%
 <h3>函数因子</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.factor_test</span> "rank(roe_ttm)" \
   --start 2024-01-01 --end 2024-06-01</code></pre>
-<div class="output">IC 均值: 0.0340 | 单调性: 1.00 | 多空收益: 年化 65.1% | 综合评分: 67/100 (B)
+<div class="output">IC 均值: 0.0340 | 单调性: 1.00 | 多空: 年化 65.1% | 综合评分: 67/100 (B)
 建议: 中等因子，建议组合使用</code></pre>
 
 <h3>批量测试</h3>
-<pre><code># factors.txt (每行一个表达式)
+<pre><code># factors.txt
 pe_ratio
 pb_ratio
 earnings_growth / pe_ratio
@@ -318,16 +292,16 @@ rank(roe_ttm)
 <h3>评分维度</h3>
 <table>
 <tr><th>维度</th><th>权重</th><th>说明</th></tr>
-<tr><td>IC 均值</td><td>30%</td><td>因子与收益的 Spearman 相关系数</td></tr>
-<tr><td>IR (IC/IC_std)</td><td>25%</td><td>IC 的稳定性</td></tr>
-<tr><td>多空收益</td><td>20%</td><td>第1组 vs 第5组的年化收益差</td></tr>
-<tr><td>单调性</td><td>15%</td><td>分层收益的单调递增程度</td></tr>
+<tr><td>IC 均值</td><td>30%</td><td>Spearman 相关系数</td></tr>
+<tr><td>IR</td><td>25%</td><td>IC 稳定性 (IC/IC_std)</td></tr>
+<tr><td>多空收益</td><td>20%</td><td>第1组 vs 第5组年化差</td></tr>
+<tr><td>单调性</td><td>15%</td><td>分层收益单调程度</td></tr>
 <tr><td>衰减</td><td>10%</td><td>20日IC保留率</td></tr>
 </table>
 
 <h3>参数速查</h3>
 <table>
-<tr><th>参数</th><th>类型</th><th>默认值</th><th>说明</th></tr>
+<tr><th>参数</th><th>类型</th><th>默认</th><th>说明</th></tr>
 <tr><td><code>expression</code></td><td>位置参数</td><td><span class="badge badge-req">必选</span></td><td>因子表达式</td></tr>
 <tr><td><code>--start</code></td><td>str</td><td><span class="badge badge-req">必选</span></td><td>起始日期</td></tr>
 <tr><td><code>--end</code></td><td>str</td><td><span class="badge badge-req">必选</span></td><td>结束日期</td></tr>
@@ -335,179 +309,138 @@ rank(roe_ttm)
 <tr><td><code>--output</code></td><td>str</td><td>无</td><td>JSON 输出路径</td></tr>
 <tr><td><code>--batch</code></td><td>str</td><td>无</td><td>批量表达式文件</td></tr>
 </table>
+</div>
 
 <!-- ==================== 策略对比 ==================== -->
-<h2 id="compare">⚖️ 策略对比</h2>
+<div class="section" id="compare">
+<h2>⚖️ 策略对比</h2>
 
 <h3>双策略对比</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.compare_strategies</span> \
   --strategies dual_ma,micro_value \
   --start-date 2024-01-01 --end-date 2024-06-01</code></pre>
-<div class="output">                              Performance Metrics
-┌────────────────────┬────────────────┬────────────────────┐
+<div class="output">┌────────────────────┬────────────────┬────────────────────┐
 │ Metric             │ DualMaStrategy │ MicroValueStrategy │
 ├────────────────────┼────────────────┼────────────────────┤
 │ Total Return       │        -15.77% │              7.88% │
 │ Sharpe Ratio       │          -1.87 │               1.32 │
 │ Max Drawdown       │         20.07% │              4.58% │
-│ Win Rate           │         31.09% │             30.71% │
 │ Trade Count        │            545 │                561 │
 └────────────────────┴────────────────┴────────────────────┘
 
-                     Correlation Matrix
-┌────────────────────┬────────────────┬────────────────────┐
-│ DualMaStrategy     │           1.00 │               0.29 │
-│ MicroValueStrategy │           0.29 │               1.00 │
-└────────────────────┴────────────────┴────────────────────┘
-
-Recommended Combo: [DualMaStrategy, MicroValueStrategy] (低相关性 0.29)</code></pre>
+Correlation: 0.29 (低相关)
+Recommended Combo: [DualMa, MicroValue]</code></pre>
 
 <h3>带参数覆盖</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.compare_strategies</span> \
   --strategies multi_factor,dual_ma \
-  --params "multi_factor.top_n=5" \
-  --plot</code></pre>
+  --params "multi_factor.top_n=5" --plot</code></pre>
+</div>
 
 <!-- ==================== ML 训练 ==================== -->
-<h2 id="ml">🤖 ML 训练</h2>
+<div class="section" id="ml">
+<h2>🤖 ML 训练</h2>
 
 <h3>端到端训练</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.quant ml-train</span> \
   --symbols 600519.SH \
-  --start-date 2024-01-01 \
-  --end-date 2024-12-31 \
-  --model-name test_model \
-  --n-trials 3 --n-cv-splits 2</code></pre>
-<div class="output">[ML Train] 模型: test_model
-[ML Train] 标的: ['600519.SH']
-[ML Train] 区间: 2024-01-01 ~ 2024-12-31
-
-[Step 1/4] 构建训练数据集...
+  --start-date 2024-01-01 --end-date 2024-12-31 \
+  --model-name test_model --n-trials 3 --n-cv-splits 2</code></pre>
+<div class="output">[Step 1/4] 构建训练数据集...
   自动从 QMT 数据构建数据集...
-  获取 1 只股票数据...
-  [1/3] 获取历史 K 线数据...
-  [2/3] 获取基本面数据...
-  [3/3] 构建数据集...
   数据集已保存: data/datasets/test_model_2024-01-01_2024-12-31.parquet (73 行)
 
 [Step 2/4] 训练 LightGBM 模型...
-  训练完成:
-    样本数: 73 | 特征数: 35
-    平均 IC: 0.6969
-    最优参数: {'n_estimators': 1446, 'learning_rate': 0.0107, ...}
-    模型路径: models/test_model/model.joblib
+  样本数: 73 | 特征数: 35 | 平均 IC: 0.6969
+  模型路径: models/test_model/model.joblib
 
-[Step 3/4] 模型评估...
-[Step 4/4] 注册模型...
-  模型已注册: test_model
+[Step 4/4] 模型已注册: test_model</code></pre>
 
-[完成] ML 训练流程结束。</code></pre>
-
-<div class="note">💡 数据集自动构建: 如果 <code>data/datasets/</code> 下不存在对应 parquet 文件，系统会自动从 QMT 获取数据并构建。指数代码 (如 000300.SH) 会自动展开为成分股。</div>
+<div class="note">💡 数据集不存在时自动从 QMT 构建。指数代码 (如 000300.SH) 自动展开为成分股。</div>
 
 <h3>模型评估</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.quant ml-evaluate</span> \
   --model-name test_model \
-  --eval-start 2024-06-01 \
-  --eval-end 2024-12-31 \
-  --plot</code></pre>
+  --eval-start 2024-06-01 --eval-end 2024-12-31 --plot</code></pre>
 
 <h3>ML 因子挖掘</h3>
-<pre><code><span class="cmd">python -m src.interfaces.cli.factor_mining</span> mine \
-  --start 2020-01-01 --end 2024-12-31 --target 20
-
+<pre><code><span class="cmd">python -m src.interfaces.cli.factor_mining</span> mine --start 2020-01-01 --end 2024-12-31 --target 20
 <span class="cmd">python -m src.interfaces.cli.factor_mining</span> list --status active --min-ir 0.5
-
-<span class="cmd">python -m src.interfaces.cli.factor_mining</span> train \
-  --start 2020-01-01 --end 2024-12-31 --optimize</code></pre>
+<span class="cmd">python -m src.interfaces.cli.factor_mining</span> train --start 2020-01-01 --end 2024-12-31 --optimize</code></pre>
 
 <h3>参数速查</h3>
 <table>
-<tr><th>参数</th><th>类型</th><th>默认值</th><th>说明</th></tr>
-<tr><td><code>--symbols</code></td><td>str</td><td>000300.SH</td><td>股票列表，逗号分隔</td></tr>
-<tr><td><code>--start-date</code></td><td>str</td><td><span class="badge badge-req">必选</span></td><td>训练开始日期</td></tr>
-<tr><td><code>--end-date</code></td><td>str</td><td><span class="badge badge-req">必选</span></td><td>训练结束日期</td></tr>
+<tr><th>参数</th><th>类型</th><th>默认</th><th>说明</th></tr>
+<tr><td><code>--symbols</code></td><td>str</td><td>000300.SH</td><td>股票列表(逗号分隔)</td></tr>
+<tr><td><code>--start-date</code></td><td>str</td><td><span class="badge badge-req">必选</span></td><td>开始日期</td></tr>
+<tr><td><code>--end-date</code></td><td>str</td><td><span class="badge badge-req">必选</span></td><td>结束日期</td></tr>
 <tr><td><code>--model-name</code></td><td>str</td><td>lgbm_return_5d</td><td>模型名称</td></tr>
 <tr><td><code>--n-trials</code></td><td>int</td><td>50</td><td>Optuna 搜索次数</td></tr>
-<tr><td><code>--n-cv-splits</code></td><td>int</td><td>5</td><td>交叉验证折数</td></tr>
+<tr><td><code>--n-cv-splits</code></td><td>int</td><td>5</td><td>CV 折数</td></tr>
 <tr><td><code>--label-horizon</code></td><td>int</td><td>5</td><td>前瞻天数</td></tr>
-<tr><td><code>--top-n</code></td><td>int</td><td>10</td><td>选股 Top N</td></tr>
 </table>
+</div>
 
 <!-- ==================== 实盘交易 ==================== -->
-<h2 id="live">💰 实盘交易</h2>
+<div class="section" id="live">
+<h2>💰 实盘交易</h2>
 
-<h3>半自动交易 (信号扫描 + 人工确认)</h3>
+<h3>半自动交易</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.quant live</span> --strategy dual_ma</code></pre>
 <div class="output">================================================================================
   GoldenHandQuant 半自动交易信号                                    2026-05-31
 ================================================================================
 加载策略: DualMa 双均线策略 (MA5/MA10 金叉死叉)
 标的列表: 600096.SH, 605589.SH, 000021.SZ, 002284.SZ, 002648.SZ
-策略类型: bar
-
-连接 QMT...
 正在扫描信号...
-
 当前无交易信号。</code></pre>
 
-<h3>Rich 交互审核模式</h3>
+<h3>Rich 交互审核</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.live_trade</span> --strategy dual_ma --review-mode rich</code></pre>
-<p>Rich 模式提供交互式表格界面，支持键盘操作审核信号。Legacy 模式为纯文本。</p>
+<p>Rich 模式: 交互式表格界面，键盘操作审核信号。Legacy: 纯文本模式。</p>
 
 <h3>自动交易引擎</h3>
-<pre><code># 单次执行模式 (测试用)
+<pre><code># 测试模式 (单次)
 <span class="cmd">python -m src.interfaces.cli.quant auto-trade</span> --once
 
 # 守护模式 (实盘)
 <span class="cmd">python -m src.interfaces.cli.quant auto-trade</span> --enable</code></pre>
 
-<div class="warn">⚠️ 自动交易会直接下单，请确保:
-<ol>
-<li>配置文件 <code>resources/trading.yaml</code> 中的账户信息正确</li>
-<li>风控策略已配置</li>
-<li>先用 <code>--once</code> 模式测试</li>
-</ol>
-</div>
+<div class="warn">⚠️ 自动交易会直接下单。确保: 1) 账户配置正确 2) 风控已配置 3) 先用 --once 测试</div>
 
 <h3>参数速查</h3>
 <table>
 <tr><th>命令</th><th>参数</th><th>说明</th></tr>
 <tr><td rowspan="3"><code>live</code></td><td><code>--strategy</code> / <code>-s</code></td><td>策略名称</td></tr>
-<tr><td><code>--symbols</code></td><td>标的列表 (逗号分隔)</td></tr>
-<tr><td><code>--config</code></td><td>配置文件路径</td></tr>
-<tr><td rowspan="3"><code>auto-trade</code></td><td><code>--config</code></td><td>配置文件路径</td></tr>
-<tr><td><code>--once</code></td><td>仅执行一次</td></tr>
-<tr><td><code>--enable</code></td><td>显式启用</td></tr>
+<tr><td><code>--symbols</code></td><td>标的列表</td></tr>
+<tr><td><code>--review-mode</code></td><td>rich / legacy</td></tr>
+<tr><td rowspan="2"><code>auto-trade</code></td><td><code>--once</code></td><td>单次执行</td></tr>
+<tr><td><code>--enable</code></td><td>启用守护模式</td></tr>
 </table>
+</div>
 
 <!-- ==================== 监控告警 ==================== -->
-<h2 id="monitor">📊 监控告警</h2>
+<div class="section" id="monitor">
+<h2>📊 监控告警</h2>
 
 <h3>实时监控面板</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.live_monitor</span></code></pre>
 <div class="output">=== GoldenHandQuant 实盘监控快照 ===
 
 [账户概览]
-  总资产:     146,174.03
-  可用资金:     433.03
-  持仓市值:   145,741.00
-  今日盈亏:     +1,234.56  (+0.85%)
+  总资产: 146,174.03 | 可用资金: 433.03 | 持仓市值: 145,741.00
+  今日盈亏: +1,234.56 (+0.85%)
 
 [持仓明细]
-  600096.SH  云天化    400股   25.30   +2.1%
-  605589.SH  圣泉集团  700股   18.45   -0.5%
+  600096.SH  云天化    400股  25.30  +2.1%
+  605589.SH  圣泉集团  700股  18.45  -0.5%
 
 [风险指标]
-  总仓位:     99.7%
-  最大集中度: 35.2% (600096.SH)
-  持仓数量:   6
+  总仓位: 99.7% | 最大集中度: 35.2% (600096.SH) | 持仓: 6
 
 [告警]
   [WARNING] 总仓位 99.7% 超过上限 80.0%
-  [WARNING] 600096.SH 集中度 35.2% 超过上限 30.0%
-
-时间: 2026-06-01 09:30:00</code></pre>
+  [WARNING] 600096.SH 集中度 35.2% 超过上限 30.0%</code></pre>
 
 <h3>系统监控命令</h3>
 <pre><code><span class="cmd">python -m src.interfaces.cli.quant monitor</span> status
@@ -515,90 +448,88 @@ Recommended Combo: [DualMaStrategy, MicroValueStrategy] (低相关性 0.29)</cod
 <span class="cmd">python -m src.interfaces.cli.quant monitor</span> pause --strategy dual_ma
 <span class="cmd">python -m src.interfaces.cli.quant monitor</span> resume --strategy dual_ma</code></pre>
 
-<h3>告警阈值配置 (trading.yaml)</h3>
+<h3>告警阈值 (trading.yaml)</h3>
 <table>
-<tr><th>配置项</th><th>默认值</th><th>说明</th></tr>
-<tr><td><code>daily_loss_threshold</code></td><td>0.03</td><td>日亏损告警 3%</td></tr>
-<tr><td><code>stock_loss_threshold</code></td><td>0.05</td><td>单只亏损告警 5%</td></tr>
+<tr><th>配置项</th><th>默认</th><th>说明</th></tr>
+<tr><td><code>daily_loss_threshold</code></td><td>0.03</td><td>日亏损 3%</td></tr>
+<tr><td><code>stock_loss_threshold</code></td><td>0.05</td><td>单只亏损 5%</td></tr>
 <tr><td><code>position_ratio_max</code></td><td>0.80</td><td>最大仓位 80%</td></tr>
 <tr><td><code>position_ratio_min</code></td><td>0.10</td><td>最小仓位 10%</td></tr>
 <tr><td><code>concentration_max</code></td><td>0.30</td><td>最大集中度 30%</td></tr>
 </table>
+</div>
 
 <!-- ==================== 配置参考 ==================== -->
-<h2 id="config">⚙️ 配置参考</h2>
+<div class="section" id="config">
+<h2>⚙️ 配置参考</h2>
 
-<h3>backtest.yaml 关键字段</h3>
+<h3>backtest.yaml</h3>
 <pre><code>backtest:
-  symbols: ["000852.SH"]        # 回测标的
+  symbols: ["000852.SH"]
   start_date: "2015-01-01"
   end_date: "2025-01-01"
-  initial_capital: 1000000.0    # 初始资金
-  benchmark: "000852.SH"        # 基准指数
+  initial_capital: 1000000.0
+  benchmark: "000852.SH"
 
 strategy:
   name: "MicroValueStrategy"
-  top_n: 9                      # 选股数量
+  top_n: 9
 
 costs:
-  commission_rate: 0.0002       # 佣金 万2
-  tax_rate: 0.001               # 印花税 千1 (仅卖出)
-  min_commission: 5.0           # 最低佣金 5元
-  slippage: 0.003               # 滑点 0.3%
+  commission_rate: 0.0002    # 佣金 万2
+  tax_rate: 0.001            # 印花税 千1 (仅卖出)
+  min_commission: 5.0
+  slippage: 0.003            # 滑点 0.3%
 
 data:
-  history_fetcher: "QmtHistoryDataFetcher"  # QMT 数据源</code></pre>
+  history_fetcher: "QmtHistoryDataFetcher"</code></pre>
 
-<h3>trading.yaml 关键字段</h3>
+<h3>trading.yaml</h3>
 <pre><code>qmt:
   userdata_path: "C:\\QMT\\userdata_mini"
-  account_id: "${QMT_ACCOUNT_ID}"   # 环境变量
+  account_id: "${QMT_ACCOUNT_ID}"
   account_type: "STOCK"
 
 live_trade:
   strategy: "dual_ma"
   symbols: ["600096.SH", "605589.SH", "000021.SZ"]
-  position_ratio: 0.1               # 单只仓位 10%
+  position_ratio: 0.1
 
 monitor:
-  refresh_interval: 3               # 刷新间隔 3秒</code></pre>
+  refresh_interval: 3</code></pre>
+</div>
 
 <!-- ==================== 常见问题 ==================== -->
-<h2 id="faq">❓ 常见问题</h2>
+<div class="section" id="faq">
+<h2>❓ 常见问题</h2>
 
-<h3>Q: QMT 连接失败怎么办？</h3>
-<p>确保 MiniQMT 客户端已启动，运行连接测试:</p>
-<pre><code>python scripts/test_qmt_connection.py</code></pre>
-<p>xtdata 会自动连接本地服务 (127.0.0.1:58610)，无需手动指定地址。</p>
+<h3>QMT 连接失败？</h3>
+<p>确保 MiniQMT 已启动，运行 <code>python scripts/test_qmt_connection.py</code>。xtdata 自动连接 127.0.0.1:58610。</p>
 
-<h3>Q: WSL 中如何使用 xtquant？</h3>
-<p>xtquant 是 Windows 特定的包，必须使用 Windows Python:</p>
+<h3>WSL 中如何用 xtquant？</h3>
+<p>必须用 Windows Python:</p>
 <pre><code>/mnt/c/Users/11492/.conda/envs/goldenhandquant/python.exe -m src.interfaces.cli.fetch_quote -s 600519.SH</code></pre>
 
-<h3>Q: <code>quant ml-train</code> 报 "unrecognized arguments" 错误？</h3>
-<p>已修复。现在可以直接使用:</p>
-<pre><code>python -m src.interfaces.cli.quant ml-train --symbols 600519.SH --start-date 2024-01-01 --end-date 2024-12-31</code></pre>
+<h3>quant ml-train 报 "unrecognized arguments"？</h3>
+<p>已修复。直接用: <code>python -m src.interfaces.cli.quant ml-train --symbols 600519.SH --start-date 2024-01-01 --end-date 2024-12-31</code></p>
 
-<h3>Q: 北向资金/龙虎榜数据不可用？</h3>
-<p>xtdata 未提供这些专用接口，命令会优雅降级返回提示。建议使用第三方数据源。</p>
+<h3>北向资金/龙虎榜/行业板块不可用？</h3>
+<p>xtdata 无这些专用接口，命令会优雅降级。建议用第三方数据源。</p>
 
-<h3>Q: 行业板块查询失败？</h3>
-<p>xtdata 的 <code>get_sector_list()</code> 只返回市场分类 (沪深A股等)，不支持行业板块 (半导体/新能源等)。</p>
+<h3>ML 数据集如何构建？</h3>
+<p>直接运行 <code>ml-train</code>，数据集不存在时自动从 QMT 构建。</p>
 
-<h3>Q: ML 训练数据集如何构建？</h3>
-<p>自动构建: 直接运行 <code>ml-train</code>，如果数据集不存在会自动从 QMT 获取数据并构建 parquet 文件。</p>
-
-<h3>Q: 所有命令的输出格式？</h3>
-<p>数据采集命令输出统一 JSON 信封:</p>
+<h3>输出格式？</h3>
 <pre><code>{
-  "success": true,      // 或 false
-  "data": { ... },      // 成功时的数据
-  "error": null,        // 失败时的错误信息
-  "timestamp": "..."    // ISO 8601 时间戳
+  "success": true,
+  "data": { ... },
+  "error": null,
+  "timestamp": "2026-06-01T01:06:54+08:00"
 }</code></pre>
+</div>
 
 <footer>
-<p>GoldenHandQuant — A 股量化交易系统 &nbsp;|&nbsp; 本文档由集成测试验证 &nbsp;|&nbsp; 2026-06-01</p>
+GoldenHandQuant — A 股量化交易系统 &nbsp;|&nbsp; 本文档由集成测试验证 &nbsp;|&nbsp; 2026-06-01
 </footer>
 
 </div>
