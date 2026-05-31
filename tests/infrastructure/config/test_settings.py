@@ -1,12 +1,12 @@
-import tempfile
 import os
+import tempfile
+
 from src.infrastructure.config.settings import (
+    BacktestSettings,
+    LiveTradeSettings,
+    QmtSettings,
     load_backtest_config,
     load_trading_config,
-    AppSettings,
-    BacktestSettings,
-    QmtSettings,
-    LiveTradeSettings,
 )
 
 
@@ -71,7 +71,7 @@ def test_backtest_settings_defaults():
 def test_qmt_settings_defaults():
     settings = QmtSettings()
     assert settings.account_type == "STOCK"
-    assert settings.session_id == 123456
+    assert settings.session_id == 0
 
 
 def test_live_trade_settings_defaults():

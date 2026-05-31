@@ -1,6 +1,7 @@
 import json
 import logging
 from urllib import error, request
+from urllib.parse import urlparse
 
 from src.domain.notification.value_objects.notification_message import (
     NotificationLevel,
@@ -8,6 +9,21 @@ from src.domain.notification.value_objects.notification_message import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_webhook_url(url: str) -> None:
+    """校验 Webhook URL 安全性。
+
+    要求必须以 https:// 开头，拒绝 http:// 和非标准端口。
+
+    Raises:
+        ValueError: URL 不符合安全要求。
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(f"Webhook URL 必须使用 HTTPS，当前: {parsed.scheme or '(无协议)'}")
+    if parsed.port and parsed.port != 443:
+        raise ValueError(f"Webhook URL 不允许使用非标准端口: {parsed.port}")
 
 _LEVEL_EMOJI = {
     NotificationLevel.INFO: "[INFO]",
@@ -21,6 +37,7 @@ class WeChatNotificationGateway:
     """企业微信机器人 Webhook 通知网关。"""
 
     def __init__(self, webhook_url: str) -> None:
+        _validate_webhook_url(webhook_url)
         self._webhook_url = webhook_url
 
     def send(self, message: NotificationMessage) -> bool:

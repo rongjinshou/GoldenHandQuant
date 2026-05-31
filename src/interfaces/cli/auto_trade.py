@@ -8,6 +8,7 @@ import argparse
 import logging
 import signal
 import sys
+import time
 
 from src.infrastructure.config.settings import load_trading_config
 
@@ -74,7 +75,6 @@ def main() -> None:
         try:
             while True:
                 signal.pause() if hasattr(signal, 'pause') else None
-                import time
                 time.sleep(1)
         except KeyboardInterrupt:
             logger.info("用户中断，正在关闭...")

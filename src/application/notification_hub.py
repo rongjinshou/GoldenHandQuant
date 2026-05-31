@@ -13,6 +13,21 @@ from src.domain.trade.value_objects.execution_status import ExecutionStatus
 logger = logging.getLogger(__name__)
 
 
+def _volume_level(volume: int) -> str:
+    """将精确数量转换为模糊级别（如 1000 -> '1K 级'）。"""
+    if volume < 100:
+        return "<100"
+    if volume < 1000:
+        return "100 级"
+    if volume < 5000:
+        return "1K 级"
+    if volume < 10000:
+        return "5K 级"
+    if volume < 50000:
+        return "1W 级"
+    return ">5W"
+
+
 class RateLimiter:
     """频率限制器。"""
 
@@ -66,19 +81,33 @@ class NotificationHub:
             except Exception as e:
                 logger.error("通知发送失败: %s - %s", message.title, e)
 
-    def notify_trade_executed(self, record: ExecutionRecord) -> None:
-        """交易执行通知。"""
+    def notify_trade_executed(
+        self, record: ExecutionRecord, *, sanitize: bool = True,
+    ) -> None:
+        """交易执行通知。
+
+        Args:
+            record: 执行记录。
+            sanitize: 是否对敏感信息脱敏（价格只保留整数，数量显示级别）。
+        """
         status_text = "成功" if record.status == ExecutionStatus.FILLED else record.status.value
         level = NotificationLevel.INFO
         if record.status in (ExecutionStatus.FAILED, ExecutionStatus.REJECTED):
             level = NotificationLevel.WARNING
 
+        if sanitize:
+            price_text = f"价格: {int(record.target_price)}\n"
+            volume_text = f"数量: {_volume_level(record.target_volume)}\n"
+        else:
+            price_text = f"价格: {record.target_price:.2f}\n"
+            volume_text = f"数量: {record.target_volume}\n"
+
         self.notify(NotificationMessage(
             title=f"交易执行: {record.symbol}",
             body=(
                 f"方向: {record.direction.value}\n"
-                f"价格: {record.target_price:.2f}\n"
-                f"数量: {record.target_volume}\n"
+                f"{price_text}"
+                f"{volume_text}"
                 f"状态: {status_text}"
             ),
             level=level,

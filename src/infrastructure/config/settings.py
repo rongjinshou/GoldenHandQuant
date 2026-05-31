@@ -51,7 +51,7 @@ class PositionSizingSettings:
 @dataclass(slots=True, kw_only=True)
 class QmtSettings:
     userdata_path: str = ""
-    session_id: int = 123456
+    session_id: int = 0
     account_id: str = ""
     account_type: str = "STOCK"
 

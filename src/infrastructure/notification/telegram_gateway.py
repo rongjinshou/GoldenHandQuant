@@ -1,6 +1,7 @@
 import json
 import logging
 from urllib import error, request
+from urllib.parse import urlparse
 
 from src.domain.notification.value_objects.notification_message import (
     NotificationLevel,
@@ -8,6 +9,21 @@ from src.domain.notification.value_objects.notification_message import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_api_url(url: str) -> None:
+    """校验 API URL 安全性。
+
+    要求必须以 https:// 开头，拒绝 http:// 和非标准端口。
+
+    Raises:
+        ValueError: URL 不符合安全要求。
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(f"API URL 必须使用 HTTPS，当前: {parsed.scheme or '(无协议)'}")
+    if parsed.port and parsed.port != 443:
+        raise ValueError(f"API URL 不允许使用非标准端口: {parsed.port}")
 
 _LEVEL_TAG = {
     NotificationLevel.INFO: "INFO",
@@ -24,6 +40,7 @@ class TelegramNotificationGateway:
         self._bot_token = bot_token
         self._chat_id = chat_id
         self._base_url = f"https://api.telegram.org/bot{bot_token}"
+        _validate_api_url(self._base_url)
 
     def send(self, message: NotificationMessage) -> bool:
         """通过 Telegram Bot API 发送消息。"""
