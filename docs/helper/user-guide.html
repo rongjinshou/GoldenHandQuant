@@ -176,6 +176,9 @@ tr:nth-child(even) td{background:rgba(255,255,255,.015)}
     <a href="#ml"><span class="icon">🤖</span>ML 训练</a>
     <a href="#live"><span class="icon">💰</span>实盘交易</a>
     <a href="#monitor"><span class="icon">📊</span>监控告警</a>
+    <a href="#algo"><span class="icon">🔄</span>算法交易</a>
+    <a href="#portfolio"><span class="icon">📋</span>组合优化</a>
+    <a href="#dashboard"><span class="icon">📺</span>实时看板</a>
     <a href="#config"><span class="icon">⚙️</span>配置参考</a>
     <a href="#faq"><span class="icon">❓</span>常见问题</a>
   </nav>
@@ -697,6 +700,152 @@ python -m src.interfaces.cli.quant monitor resume --strategy dual_ma</code></pre
 
 <span class="fl">monitor:</span>
   <span class="fn">refresh_interval:</span> <span class="num">3</span></code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 算法交易 ===== -->
+<div class="card" id="algo">
+  <div class="card-head"><span class="icon">🔄</span><h2>算法交易</h2></div>
+  <div class="card-body">
+    <p>大额订单自动拆分，减少市场冲击。支持三种算法策略：</p>
+
+    <h3>TWAP — 时间加权平均价格</h3>
+    <p>将大额订单按时间均匀拆分执行：</p>
+    <div class="code-wrap">
+      <div class="bar"><span><span class="dot">●</span>python</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+      <pre><code><span class="kw">from</span> src.domain.trade.services.algo_strategies.twap_strategy <span class="kw">import</span> TWAPStrategy
+
+strategy = TWAPStrategy(
+    total_volume=<span class="num">10000</span>,
+    num_slices=<span class="num">10</span>,
+    interval_seconds=<span class="num">60</span>,
+)
+slices = strategy.generate_slices()</code></pre>
+    </div>
+
+    <h3>VWAP — 成交量加权平均价格</h3>
+    <p>根据历史成交量分布拆单，高峰时段多拆：</p>
+    <div class="code-wrap">
+      <div class="bar"><span><span class="dot">●</span>python</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+      <pre><code><span class="kw">from</span> src.domain.trade.services.algo_strategies.vwap_strategy <span class="kw">import</span> VWAPStrategy
+
+strategy = VWAPStrategy(
+    total_volume=<span class="num">10000</span>,
+    volume_profile=historical_volumes,
+)
+slices = strategy.generate_slices()</code></pre>
+    </div>
+
+    <h3>冰山单 — 隐藏真实意图</h3>
+    <p>只显示部分数量，成交后自动补充挂单：</p>
+    <div class="code-wrap">
+      <div class="bar"><span><span class="dot">●</span>python</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+      <pre><code><span class="kw">from</span> src.domain.trade.services.algo_strategies.iceberg_strategy <span class="kw">import</span> IcebergStrategy
+
+strategy = IcebergStrategy(
+    total_volume=<span class="num">50000</span>,
+    visible_volume=<span class="num">1000</span>,
+    price=<span class="num">100.0</span>,
+)</code></pre>
+    </div>
+
+    <div class="callout callout-info">
+      <span class="ci">💡</span>
+      <div>算法交易通过 <code>IAlgoTrader</code> 接口定义，具体实现在 infrastructure 层。可与实盘交易引擎集成。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 组合优化 ===== -->
+<div class="card" id="portfolio">
+  <div class="card-head"><span class="icon">📋</span><h2>组合优化</h2></div>
+  <div class="card-body">
+    <p>科学化的资金分配，提升风险调整后收益。支持三种优化模型：</p>
+
+    <h3>均值-方差优化</h3>
+    <p>经典 Markowitz 模型，最大化夏普比率：</p>
+    <div class="code-wrap">
+      <div class="bar"><span><span class="dot">●</span>python</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+      <pre><code><span class="kw">from</span> src.domain.portfolio.services.optimization.mean_variance_optimizer <span class="kw">import</span> MeanVarianceOptimizer
+
+optimizer = MeanVarianceOptimizer()
+result = optimizer.optimize(
+    expected_returns=returns,
+    covariance_matrix=cov_matrix,
+    risk_free_rate=<span class="num">0.03</span>,
+)
+<span class="cm"># result.weights — 最优权重</span>
+<span class="cm"># result.sharpe_ratio — 夏普比率</span></code></pre>
+    </div>
+
+    <h3>Black-Litterman 模型</h3>
+    <p>市场均衡收益 + 主观观点 = 后验收益估计：</p>
+    <div class="code-wrap">
+      <div class="bar"><span><span class="dot">●</span>python</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+      <pre><code><span class="kw">from</span> src.domain.portfolio.services.optimization.black_litterman_optimizer <span class="kw">import</span> BlackLittermanOptimizer
+
+optimizer = BlackLittermanOptimizer()
+result = optimizer.optimize(
+    market_caps=market_caps,
+    views=[(<span class="str">"600519.SH"</span>, <span class="num">0.15</span>, <span class="num">0.8</span>)],
+)</code></pre>
+    </div>
+
+    <h3>风险预算</h3>
+    <p>按风险贡献分配权重，实现风险平价：</p>
+    <div class="code-wrap">
+      <div class="bar"><span><span class="dot">●</span>python</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+      <pre><code><span class="kw">from</span> src.domain.portfolio.services.optimization.risk_budget_optimizer <span class="kw">import</span> RiskBudgetOptimizer
+
+optimizer = RiskBudgetOptimizer()
+result = optimizer.optimize(
+    covariance_matrix=cov_matrix,
+    risk_budgets=[<span class="num">0.25</span>, <span class="num">0.25</span>, <span class="num">0.25</span>, <span class="num">0.25</span>],
+)</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 实时看板 ===== -->
+<div class="card" id="dashboard">
+  <div class="card-head"><span class="icon">📺</span><h2>实时看板</h2></div>
+  <div class="card-body">
+    <p>WebSocket 实时推送持仓、盈亏、风控状态。</p>
+
+    <h3>启动 Dashboard</h3>
+    <div class="code-wrap">
+      <div class="bar"><span><span class="dot">●</span>bash</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+      <pre><code>python -m src.interfaces.cli.quant live --dashboard</code></pre>
+    </div>
+
+    <h3>WebSocket 连接</h3>
+    <p>浏览器或客户端连接 <code>ws://localhost:8000/ws/dashboard</code>：</p>
+    <div class="code-wrap">
+      <div class="bar"><span><span class="dot">●</span>javascript</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+      <pre><code><span class="kw">const</span> ws = <span class="kw">new</span> WebSocket(<span class="str">"ws://localhost:8000/ws/dashboard"</span>);
+ws.onmessage = (event) => {
+  <span class="kw">const</span> data = JSON.parse(event.data);
+  <span class="cm">// data.total_asset — 总资产</span>
+  <span class="cm">// data.daily_pnl — 当日盈亏</span>
+  <span class="cm">// data.positions — 持仓列表</span>
+  <span class="cm">// data.risk_status — 风控状态</span>
+};</code></pre>
+    </div>
+
+    <h3>REST API</h3>
+    <div class="code-wrap">
+      <div class="bar"><span><span class="dot">●</span>bash</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+      <pre><code><span class="cm"># 获取当前快照</span>
+curl http://localhost:8000/api/dashboard/snapshot
+
+<span class="cm"># 获取历史收益</span>
+curl http://localhost:8000/api/dashboard/history?days=30</code></pre>
+    </div>
+
+    <div class="callout callout-info">
+      <span class="ci">💡</span>
+      <div>Dashboard 支持移动端适配，自动调整数据推送频率以节省带宽。</div>
     </div>
   </div>
 </div>
