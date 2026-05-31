@@ -156,7 +156,7 @@ class LightGBMTrainer:
             "train_samples": len(dataset),
             "best_params": best_params,
             "cv_metrics": {"mean_ic": mean_ic, "ic_ir": ic_ir},
-            "features": feature_cols,
+            "feature_columns": feature_cols,
         }
         (model_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, default=str))
 

@@ -89,6 +89,6 @@ class ModelRegistry:
             train_samples=data.get("train_samples", 0),
             best_params=data.get("best_params", {}),
             cv_metrics=data.get("cv_metrics", {}),
-            features=data.get("features", []),
+            features=data.get("feature_columns", data.get("features", [])),
             model_path=data.get("model_path", ""),
         )

@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
-import pickle
+import json
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
-from src.infrastructure.ml_engine.feature_combiner import AutoFeatureCombiner
+from src.infrastructure.ml_engine.feature_transforms import (
+    compute_derived_features,
+    cross_section_standardize,
+    extract_base_features,
+)
+from src.infrastructure.ml_engine.label_generator import LabelConfig, generate_labels
 
 
 @dataclass(slots=True, kw_only=True)
@@ -67,7 +73,6 @@ class TrainingPipeline:
 
     def __init__(self, config: LGBMConfig | None = None) -> None:
         self._config = config or LGBMConfig()
-        self._combiner = AutoFeatureCombiner()
 
     def prepare_dataset(
         self,
@@ -87,56 +92,63 @@ class TrainingPipeline:
         if len(sorted_dates) <= forward_days:
             return pd.DataFrame(), pd.Series(dtype=float)
 
-        # 分割日期：特征日期 vs 标签日期
-        feature_dates = sorted_dates[:-forward_days]
-        label_dates = sorted_dates[forward_days:]
+        # 构建特征矩阵（使用 extract_base_features + compute_derived_features）
+        # 同时构建 price_series 供 label_generator 使用
+        price_series: dict[str, dict[date, float]] = {}
+        all_rows: list[dict[str, float | None]] = []
 
-        # 构建特征矩阵
-        all_features: list[pd.DataFrame] = []
-        all_labels: list[pd.Series] = []
-
-        for feat_date, label_date in zip(feature_dates, label_dates):
-            feat_snapshots = snapshots_by_date[feat_date]
-            label_snapshots = snapshots_by_date[label_date]
-
-            if not feat_snapshots or not label_snapshots:
+        for d in sorted_dates:
+            snapshots = snapshots_by_date[d]
+            if not snapshots:
                 continue
 
-            # 特征
-            feat_dt = self._combiner.generate_combinations(feat_snapshots)
+            rows = [extract_base_features(s) for s in snapshots]
+            for row, snap in zip(rows, snapshots):
+                row["close"] = snap.close
+                # 收集价格序列
+                if snap.symbol not in price_series:
+                    price_series[snap.symbol] = {}
+                price_series[snap.symbol][d] = snap.close
 
-            # 标签：用 label_date 的 return_5d 作为前瞻收益代理
-            label_map: dict[str, float] = {}
-            for s in label_snapshots:
-                if s.return_5d is not None:
-                    label_map[s.symbol] = s.return_5d
+            compute_derived_features(rows)
+            all_rows.extend(rows)
 
-            # 取交集
-            common = feat_dt.index.intersection(pd.Index(label_map.keys()))
-            if len(common) < 30:
-                continue
-
-            feat_dt = feat_dt.loc[common]
-            label_dt = pd.Series(
-                {sym: 1.0 if label_map[sym] > 0 else 0.0 for sym in common},
-                index=common,
-            )
-
-            # 添加日期作为多索引的第二级（用于 walk-forward 切分）
-            feat_dt.index = pd.MultiIndex.from_arrays(
-                [[feat_date] * len(common), feat_dt.index],
-                names=["date", "symbol"],
-            )
-            label_dt.index = feat_dt.index
-
-            all_features.append(feat_dt)
-            all_labels.append(label_dt)
-
-        if not all_features:
+        if not all_rows:
             return pd.DataFrame(), pd.Series(dtype=float)
 
-        features = pd.concat(all_features)
-        labels = pd.concat(all_labels)
+        df = pd.DataFrame(all_rows)
+
+        # 确定特征列（排除非特征列）
+        exclude_cols = {"date", "symbol", "label", "close"}
+        feature_cols = [
+            c for c in df.columns
+            if c not in exclude_cols and df[c].dtype in ("float64", "float32", "int64")
+        ]
+
+        # 截面标准化
+        cross_section_standardize(df, feature_cols)
+
+        # 使用 label_generator 生成前瞻收益标签
+        price_series_pd: dict[str, pd.Series] = {
+            sym: pd.Series(prices) for sym, prices in price_series.items()
+        }
+        label_config = LabelConfig(
+            horizon=forward_days,
+            label_type="fwd_return",
+            winsorize_quantile=0.01,
+        )
+        df["label"] = generate_labels(df, price_series_pd, label_config)
+
+        # 丢弃 label 为 NaN 的行
+        df = df.dropna(subset=["label"]).reset_index(drop=True)
+        if df.empty:
+            return pd.DataFrame(), pd.Series(dtype=float)
+
+        # 二分类标签：1=涨, 0=跌
+        labels = (df["label"] > 0).astype(float)
+
+        # 构建特征矩阵
+        features = df[feature_cols].copy()
 
         # NaN 处理：中位数填充
         features = features.fillna(features.median())
@@ -144,6 +156,16 @@ class TrainingPipeline:
         mask = features.notna().all(axis=1)
         features = features[mask]
         labels = labels[mask]
+
+        # 添加日期-标的多索引（用于 walk-forward 切分）
+        dates = df.loc[features.index, "date"]
+        symbols = df.loc[features.index, "symbol"]
+        multi_idx = pd.MultiIndex.from_arrays(
+            [dates.values, symbols.values],
+            names=["date", "symbol"],
+        )
+        features.index = multi_idx
+        labels.index = multi_idx
 
         return features, labels
 
@@ -214,8 +236,13 @@ class TrainingPipeline:
         test_months: int = 6,
         step_months: int = 6,
         model_dir: str = "data/factors/models",
+        forward_days: int = 20,
     ) -> list[WalkForwardResult]:
-        """Walk-Forward 滚动训练。"""
+        """Walk-Forward 滚动训练。
+
+        Args:
+            forward_days: 前瞻期天数，同时用作 train/val、val/test 之间的 embargo 窗口。
+        """
         sorted_dates = sorted(snapshots_by_date.keys())
         if not sorted_dates:
             return []
@@ -227,8 +254,9 @@ class TrainingPipeline:
         val_days = val_months * 21
         test_days = test_months * 21
         step_days = step_months * 21
+        embargo_days = forward_days  # embargo 窗口 = 前瞻期天数
 
-        total_needed = train_days + val_days + test_days
+        total_needed = train_days + embargo_days + val_days + embargo_days + test_days
         if len(sorted_dates) < total_needed:
             return []
 
@@ -239,24 +267,30 @@ class TrainingPipeline:
         while start_idx + total_needed <= len(sorted_dates):
             train_start = sorted_dates[start_idx]
             train_end = sorted_dates[start_idx + train_days - 1]
-            val_start = sorted_dates[start_idx + train_days]
-            val_end = sorted_dates[start_idx + train_days + val_days - 1]
-            test_start = sorted_dates[start_idx + train_days + val_days]
+
+            # embargo gap between train and val
+            val_start_idx = start_idx + train_days + embargo_days
+            val_start = sorted_dates[val_start_idx]
+            val_end = sorted_dates[val_start_idx + val_days - 1]
+
+            # embargo gap between val and test
+            test_start_idx = val_start_idx + val_days + embargo_days
+            test_start = sorted_dates[test_start_idx]
             test_end_idx = min(start_idx + total_needed - 1, len(sorted_dates) - 1)
             test_end = sorted_dates[test_end_idx]
 
             # 准备各窗口数据
             train_dates_range = sorted_dates[start_idx:start_idx + train_days]
-            val_dates_range = sorted_dates[start_idx + train_days:start_idx + train_days + val_days]
-            test_dates_range = sorted_dates[start_idx + train_days + val_days:start_idx + total_needed]
+            val_dates_range = sorted_dates[val_start_idx:val_start_idx + val_days]
+            test_dates_range = sorted_dates[test_start_idx:start_idx + total_needed]
 
             train_snaps = {d: snapshots_by_date[d] for d in train_dates_range if d in snapshots_by_date}
             val_snaps = {d: snapshots_by_date[d] for d in val_dates_range if d in snapshots_by_date}
             test_snaps = {d: snapshots_by_date[d] for d in test_dates_range if d in snapshots_by_date}
 
-            feat_train, label_train = self.prepare_dataset(train_snaps)
-            feat_val, label_val = self.prepare_dataset(val_snaps)
-            feat_test, label_test = self.prepare_dataset(test_snaps)
+            feat_train, label_train = self.prepare_dataset(train_snaps, forward_days=forward_days)
+            feat_val, label_val = self.prepare_dataset(val_snaps, forward_days=forward_days)
+            feat_test, label_test = self.prepare_dataset(test_snaps, forward_days=forward_days)
 
             if feat_train.empty or feat_val.empty:
                 start_idx += step_days
@@ -282,10 +316,25 @@ class TrainingPipeline:
                 for fname, imp in zip(feat_train.columns, model.feature_importances_):
                     importance[fname] = float(imp)
 
-            # 保存模型
-            model_path = f"{model_dir}/lgbm_wf_{window_idx:03d}.pkl"
-            with open(model_path, "wb") as f:
-                pickle.dump(model, f)
+            # 保存模型（joblib 格式，与 trainer.py 统一）
+            model_path = f"{model_dir}/lgbm_wf_{window_idx:03d}.joblib"
+            joblib.dump(model, model_path)
+
+            # 保存 metadata（含 feature_columns）
+            metadata = {
+                "model_name": f"lgbm_wf_{window_idx:03d}",
+                "model_type": "lightgbm",
+                "feature_columns": list(feat_train.columns),
+                "feature_count": len(feat_train.columns),
+                "train_period": (train_start.isoformat(), train_end.isoformat()),
+                "val_period": (val_start.isoformat(), val_end.isoformat()),
+                "test_period": (test_start.isoformat(), test_end.isoformat()),
+                "val_ic": val_ic,
+                "test_ic": test_ic,
+                "embargo_days": embargo_days,
+            }
+            metadata_path = f"{model_dir}/lgbm_wf_{window_idx:03d}_metadata.json"
+            Path(metadata_path).write_text(json.dumps(metadata, indent=2, default=str))
 
             results.append(WalkForwardResult(
                 train_period=(train_start, train_end),
