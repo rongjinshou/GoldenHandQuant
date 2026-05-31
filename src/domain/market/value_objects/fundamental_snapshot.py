@@ -24,3 +24,5 @@ class FundamentalSnapshot:
     ocf_ttm: float | None = None
     pe_ratio: float | None = None  # 市盈率 (TTM)
     pb_ratio: float | None = None  # 市净率
+    earnings_growth: float | None = None  # 净利润增长率 (inc_net_profit_rate)
+    revenue_growth: float | None = None  # 营收增长率 (inc_revenue_rate)

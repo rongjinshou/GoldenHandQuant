@@ -76,7 +76,8 @@ def _parse_financial_data(symbol: str, quarters: int) -> tuple[dict | None, list
     """
     try:
         from src.infrastructure.gateway.xtquant_client import xtdata
-        xtdata.download_financial_data(stock_list=[symbol])
+        # 注意: download_financial_data 同步版会卡死，已跳过
+        # get_financial_data 在本地有数据时可直接返回
         fin = xtdata.get_financial_data(
             stock_list=[symbol],
             table_list=['PershareIndex'],

@@ -21,21 +21,27 @@ def _setup_logging() -> None:
     )
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="GoldenHandQuant 自动交易引擎")
-    parser.add_argument(
-        "--config", default="resources/trading.yaml",
-        help="交易配置文件路径",
-    )
-    parser.add_argument(
-        "--once", action="store_true",
-        help="仅执行一次交易循环 (不启动守护线程)",
-    )
-    parser.add_argument(
-        "--enable", action="store_true",
-        help="显式启用自动交易 (覆盖配置文件中的 enabled=false)",
-    )
-    args = parser.parse_args()
+def main(args: argparse.Namespace | None = None) -> None:
+    """自动交易引擎入口。
+
+    Args:
+        args: 预解析的参数（quant 子命令调用时传入）。为 None 时从 sys.argv 解析。
+    """
+    if args is None:
+        parser = argparse.ArgumentParser(description="GoldenHandQuant 自动交易引擎")
+        parser.add_argument(
+            "--config", default="resources/trading.yaml",
+            help="交易配置文件路径",
+        )
+        parser.add_argument(
+            "--once", action="store_true",
+            help="仅执行一次交易循环 (不启动守护线程)",
+        )
+        parser.add_argument(
+            "--enable", action="store_true",
+            help="显式启用自动交易 (覆盖配置文件中的 enabled=false)",
+        )
+        args = parser.parse_args()
 
     _setup_logging()
     logger = logging.getLogger(__name__)

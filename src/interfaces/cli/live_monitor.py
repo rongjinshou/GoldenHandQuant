@@ -201,6 +201,53 @@ def _load_yesterday_asset(args, snapshot_store: SnapshotStore) -> float:
     return 0.0
 
 
+def _print_plain_snapshot(snapshot: MonitorSnapshot) -> None:
+    """非交互模式：纯文本输出一次性快照。"""
+    print("=== GoldenHandQuant 实盘监控快照 ===")
+    print()
+
+    print("[账户概览]")
+    print(f"  总资产:     {snapshot.asset.total_asset:,.0f}")
+    print(f"  可用资金:   {snapshot.asset.available_cash:,.0f}")
+    print(f"  持仓市值:   {snapshot.total_market_value:,.0f}")
+    pnl_sign = "+" if snapshot.today_pnl > 0 else ""
+    print(f"  今日盈亏:   {pnl_sign}{snapshot.today_pnl:,.0f}  ({pnl_sign}{snapshot.today_pnl_ratio:.2%})")
+    print()
+
+    print("[持仓明细]")
+    if not snapshot.positions:
+        print("  无持仓")
+    else:
+        print(f"  {'标的':<12} {'数量':>8} {'可用':>8} {'成本价':>8} {'现价':>8} {'市值':>10} {'浮盈%':>8}")
+        print(f"  {'-'*10} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*10} {'-'*8}")
+        for pos in snapshot.positions:
+            print(
+                f"  {pos.ticker:<12} {pos.total_volume:>8,} {pos.available_volume:>8,} "
+                f"{pos.average_cost:>8.2f} {pos.current_price:>8.2f} "
+                f"{pos.market_value:>10,.0f} {pos.pnl_ratio:>+8.2%}"
+            )
+    print()
+
+    rm = snapshot.risk_metrics
+    print("[风险指标]")
+    print(f"  总仓位:     {rm.total_position_ratio:.1%}")
+    print(f"  最大集中度: {rm.max_concentration:.1%}")
+    print(f"  持仓数量:   {rm.position_count}")
+    if snapshot.yesterday_asset > 0:
+        print(f"  当日回撤:   {snapshot.today_pnl_ratio:.2%}")
+    print()
+
+    if snapshot.alerts:
+        print("[告警]")
+        for alert in snapshot.alerts:
+            print(f"  [{alert.level}] {alert.message}")
+    else:
+        print("[告警] 无")
+
+    print()
+    print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+
 def main() -> None:
     args = parse_args()
 
@@ -278,6 +325,11 @@ def main() -> None:
 
     # 首次快照
     snapshot = service.take_snapshot()
+
+    # 非交互模式（管道/后台进程）：输出一次性快照后退出
+    if not sys.stdout.isatty():
+        _print_plain_snapshot(snapshot)
+        return
 
     console = Console()
     with Live(build_dashboard(snapshot, interval), console=console, refresh_per_second=1) as live:

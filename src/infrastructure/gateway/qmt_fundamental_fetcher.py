@@ -204,6 +204,8 @@ class QmtFundamentalFetcher(IFundamentalFetcher, IIndexDataFetcher):
                     ocf_ttm=metrics.get('s_fa_ocfps'),
                     pe_ratio=pe_ratio,
                     pb_ratio=pb_ratio,
+                    earnings_growth=metrics.get('inc_net_profit_rate'),
+                    revenue_growth=metrics.get('inc_revenue_rate'),
                 ))
 
         print(f"[QmtFundamentalFetcher] Generated {len(snapshots)} snapshots.")

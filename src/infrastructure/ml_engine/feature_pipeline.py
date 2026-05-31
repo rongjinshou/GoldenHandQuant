@@ -213,7 +213,8 @@ class FeaturePipeline:
         """从 FundamentalSnapshot 传递基本面指标。"""
         kw["pe_ratio"] = fund.pe_ratio
         kw["pb_ratio"] = fund.pb_ratio
-        # 其他基本面指标后续从 FundamentalSnapshot 扩展字段获取
+        kw["earnings_growth"] = fund.earnings_growth
+        kw["revenue_growth"] = fund.revenue_growth
 
 
 def _std(values: list[float]) -> float:
