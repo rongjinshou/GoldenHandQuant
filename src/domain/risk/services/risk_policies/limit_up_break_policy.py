@@ -1,6 +1,6 @@
 from src.domain.account.entities.position import Position
 from src.domain.market.value_objects.bar import Bar
-from src.domain.market.value_objects.price_limit import calculate_price_limits
+from src.domain.market.value_objects.price_limit import calculate_price_limits, get_price_limit_ratio
 from src.domain.risk.services.base_risk_signal_policy import BaseRiskSignalPolicy
 from src.domain.strategy.value_objects.signal import Signal
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
@@ -21,7 +21,8 @@ class LimitUpBreakPolicy(BaseRiskSignalPolicy):
             bar = bars.get(pos.ticker)
             if bar is None or bar.volume <= 0 or bar.prev_close <= 0:
                 continue
-            price_limit = calculate_price_limits(bar.prev_close)
+            ratio = get_price_limit_ratio(pos.ticker)
+            price_limit = calculate_price_limits(bar.prev_close, ratio)
             if bar.high >= price_limit.limit_up and bar.close < price_limit.limit_up:
                 signals.append(Signal(
                     symbol=pos.ticker, direction=SignalDirection.SELL,

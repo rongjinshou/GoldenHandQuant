@@ -28,8 +28,8 @@ def calculate_price_limits(prev_close: float, board_multiplier: float = 0.10) ->
     """根据前收盘价计算涨跌停价格。
 
     Args:
-        prev_close: 前一日收盘价（不复权）。
-        board_multiplier: 涨跌停幅度，主板 0.10，科创/创业 0.20。
+        prev_close: 前一日收盘价(前复权或不复权均可,比例判断不受复权影响)。
+        board_multiplier: 涨跌停幅度,可配合 get_price_limit_ratio 按板块获取。
 
     Returns:
         PriceLimit 对象，涨停价和跌停价均四舍五入到分。
