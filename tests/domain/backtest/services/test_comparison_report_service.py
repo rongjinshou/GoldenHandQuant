@@ -174,17 +174,19 @@ class TestComparisonReportService:
         # 完全正相关，无低相关对
         assert report.recommended_combo == ["A"]
 
-    def test_insufficient_data_warning(self, capsys):
-        """公共日期 < 30 时应打印警告。"""
+    def test_insufficient_data_warning(self, caplog):
+        """公共日期 < 30 时应记录警告日志。"""
+        import logging
+
         svc = ComparisonReportService()
         dates = _make_dates(20)
         r1 = _make_report("A", dates, [100_000] * 20, [0.001] * 20)
         r2 = _make_report("B", dates, [100_000] * 20, [0.001] * 20)
 
-        svc.build_comparison([r1, r2])
+        with caplog.at_level(logging.WARNING):
+            svc.build_comparison([r1, r2])
 
-        captured = capsys.readouterr()
-        assert "unreliable" in captured.out
+        assert "unreliable" in caplog.text  # 因 Spec 1 正确性修复更新预期
 
     def test_single_strategy_no_correlation(self):
         """只有一个策略，corr_matrix 为 [[1.0]]，combo 为该策略。"""
