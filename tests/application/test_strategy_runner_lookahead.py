@@ -54,3 +54,35 @@ def test_cross_sectional_runner_feeds_only_past_bars_to_factor(monkeypatch):
     assert captured["snapshot_bar"].close == 10.0
     assert captured["history"][-1].close == 10.0
     assert all(b.timestamp < t for b in captured["history"])
+
+
+def test_single_runner_feeds_only_past_bars_to_strategy():
+    from src.application.strategy_runner import SingleStrategyRunner
+    from src.domain.strategy.services.base_strategy import BaseStrategy
+    from src.domain.portfolio.services.sizers.fixed_ratio_sizer import FixedRatioSizer
+
+    sym = "000001.SZ"
+    t_minus_1 = datetime(2024, 6, 3)
+    t = datetime(2024, 6, 4)
+    market = MockMarketGateway()
+    market.add_bars(sym, [_bar(sym, t_minus_1, 10.0), _bar(sym, t, 99.0)])
+    market.set_current_time(t)
+
+    captured = {}
+
+    class _CaptureStrategy(BaseStrategy):
+        @property
+        def name(self): return "Capture"
+        def generate_signals(self, market_data, current_positions):
+            captured["data"] = market_data
+            return []
+
+    runner = SingleStrategyRunner(
+        strategy=_CaptureStrategy(), sizer=FixedRatioSizer(ratio=0.2),
+        market_gateway=market, trade_gateway=MockTradeGateway(market, initial_capital=1_000_000),
+    )
+    runner.evaluate(DayContext(current_time=t, symbols=[sym], base_timeframe=Timeframe.DAY_1))
+
+    # 策略只应看到 T-1(close=10),不含 T 日(close=99)
+    assert captured["data"][sym][-1].close == 10.0
+    assert all(b.timestamp < t for b in captured["data"][sym])

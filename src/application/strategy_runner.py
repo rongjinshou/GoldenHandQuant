@@ -70,14 +70,13 @@ class SingleStrategyRunner(StrategyRunner):
         current_prices: dict[str, float] = {}
 
         for symbol in context.symbols:
-            all_bars = self.market_gateway.get_recent_bars(symbol, context.base_timeframe, self.LOOKBACK_WINDOW)
-            if not all_bars:
+            recent = self.market_gateway.get_recent_bars(symbol, context.base_timeframe, self.LOOKBACK_WINDOW)
+            window = make_bar_window(recent)
+            if window is None:
                 continue
-            if len(all_bars) >= 2:
-                strategy_market_data[symbol] = all_bars[:-1]
-            current_bar = all_bars[-1]
-            execution_prices[symbol] = current_bar.open
-            current_prices[symbol] = current_bar.close
+            strategy_market_data[symbol] = window.info_bars   # 截至 T-1
+            execution_prices[symbol] = window.exec_price       # T 日开盘
+            current_prices[symbol] = window.mark_price          # T 日收盘
 
         current_positions = self.trade_gateway.get_positions()
         signals = self.strategy.generate_signals(strategy_market_data, current_positions)
