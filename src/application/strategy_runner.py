@@ -20,6 +20,7 @@ from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.infrastructure.config.settings import RiskSettings
 from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
+from src.domain.backtest.value_objects.bar_window import make_bar_window
 
 
 @dataclass(slots=True, kw_only=True)
@@ -153,11 +154,15 @@ class CrossSectionalStrategyRunner(StrategyRunner):
 
         bars: dict[str, Bar] = {}
         bar_history: dict[str, list[Bar]] = {}
+        exec_bars: dict[str, Bar] = {}
         for sym in context.symbols:
             recent = self.market_gateway.get_recent_bars(sym, context.base_timeframe, 120)
-            if recent:
-                bars[sym] = recent[-1]
-                bar_history[sym] = recent
+            window = make_bar_window(recent)
+            if window is None:
+                continue
+            bars[sym] = window.info_bars[-1]      # factor snapshot: T-1 (no lookahead)
+            bar_history[sym] = window.info_bars   # factor history: up to T-1
+            exec_bars[sym] = window.exec_bar      # execution/valuation: T day
 
         universe = []
         if self.fundamental_registry:
@@ -181,7 +186,7 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         if self.circuit_breaker and self.circuit_breaker.state.allows_sell_only:
             all_signals = [s for s in all_signals if s.direction != SignalDirection.BUY]
 
-        prices = {sym: bar.open for sym, bar in bars.items()}
+        prices = {sym: bar.open for sym, bar in exec_bars.items()}   # execution price = T-day open (forward-adjusted)
         asset = self.trade_gateway.get_asset()
         if asset is None:
             raise ValueError("Asset not available from trade gateway.")
@@ -192,5 +197,5 @@ class CrossSectionalStrategyRunner(StrategyRunner):
 
         targets.sort(key=lambda t: 0 if t.direction == OrderDirection.SELL else 1)
 
-        current_prices = {sym: bar.close for sym, bar in bars.items()}
+        current_prices = {sym: bar.close for sym, bar in exec_bars.items()}  # valuation = T-day close (forward-adjusted)
         return targets, current_prices
