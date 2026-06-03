@@ -4,7 +4,7 @@ from src.domain.account.interfaces.account_repository import AccountRepository
 from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
 from src.domain.backtest.value_objects.trade_record import TradeRecord
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
-from src.domain.market.value_objects.price_limit import calculate_price_limits
+from src.domain.market.value_objects.price_limit import calculate_price_limits, get_price_limit_ratio
 from src.domain.trade.entities.order import Order
 from src.domain.trade.exceptions import OrderSubmitError
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
@@ -164,7 +164,8 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         if len(prev_bars) >= 2:
             prev_close = prev_bars[-2].close  # 前复权: 涨跌停比例判断不受复权影响
             if prev_close > 0:
-                limits = calculate_price_limits(prev_close)
+                ratio = get_price_limit_ratio(order.ticker)
+                limits = calculate_price_limits(prev_close, ratio)
                 if order.direction == OrderDirection.BUY and not limits.can_buy(exec_price):
                     order.status = OrderStatus.REJECTED
                     raise OrderSubmitError(
@@ -297,7 +298,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
 
         realized_pnl = 0.0
         if order.direction == OrderDirection.BUY:
-            position.on_buy_filled(volume, price)
+            position.on_buy_filled(volume, price, fee=commission + transfer_fee)  # 买入无印花税
         elif order.direction == OrderDirection.SELL:
             # 计算平仓盈亏 (仅价差，不含费? 或者含费? 通常 Realized PnL 含费)
             # 成本价

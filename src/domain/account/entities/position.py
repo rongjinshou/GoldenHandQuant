@@ -27,12 +27,13 @@ class Position:
     average_cost: float = 0.0
     updated_at: datetime = field(default_factory=datetime.now)
 
-    def on_buy_filled(self, volume: int, price: float) -> None:
+    def on_buy_filled(self, volume: int, price: float, fee: float = 0.0) -> None:
         """买入成交: 增加 total_volume, available_volume 不变 (T+1)。
 
         Args:
             volume: 成交数量。
             price: 成交价格。
+            fee: 买入费用(佣金+过户费),计入持仓成本。默认 0.0 向后兼容。
 
         Raises:
             ValueError: 如果数量 <= 0 或价格 < 0。
@@ -42,9 +43,9 @@ class Position:
         if price < 0:
             raise ValueError("Price cannot be negative")
 
-        # 计算新成本: (旧总持仓 * 旧成本 + 新量 * 新价) / 新总持仓
+        # 计算新成本: (旧总持仓 * 旧成本 + 新量 * 新价 + 买入费) / 新总持仓
         current_total_cost = self.total_volume * self.average_cost
-        new_cost_basis = volume * price
+        new_cost_basis = volume * price + fee      # 成本含买入费用
 
         self.total_volume += volume
         # available_volume 不变 (T+1)
