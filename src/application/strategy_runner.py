@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 
+from src.domain.backtest.value_objects.bar_window import make_bar_window
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.suspension import StockStatusRegistry
@@ -20,7 +21,6 @@ from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.infrastructure.config.settings import RiskSettings
 from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
-from src.domain.backtest.value_objects.bar_window import make_bar_window
 
 
 @dataclass(slots=True, kw_only=True)
@@ -196,5 +196,5 @@ class CrossSectionalStrategyRunner(StrategyRunner):
 
         targets.sort(key=lambda t: 0 if t.direction == OrderDirection.SELL else 1)
 
-        current_prices = {sym: bar.close for sym, bar in exec_bars.items()}  # valuation = T-day close (forward-adjusted)
+        current_prices = {sym: bar.close for sym, bar in exec_bars.items()}  # 估值 = T 日收盘(前复权)
         return targets, current_prices
