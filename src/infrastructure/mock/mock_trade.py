@@ -137,11 +137,11 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
                         f"SELL limit price {order.price:.2f} is above daily high {bar.high:.2f}"
                     )
 
-        # 4. 计算成交价格 (基于不复权价进行账本结算)
-        if bar.unadjusted_close > 0:
-            ref_price = bar.unadjusted_close
-        else:
-            ref_price = bar.close  # 向后兼容：若无不复权数据则回退
+        # 4. 计算成交价格 (前复权坐标系,使用 runner 传入的 order.price)
+        if order.price <= 0:
+            order.status = OrderStatus.REJECTED
+            raise OrderSubmitError(f"Invalid order price {order.price}")
+        ref_price = order.price
 
         if order.direction == OrderDirection.BUY:
             exec_price = ref_price * (1 + self.SLIPPAGE_BUY)
@@ -162,7 +162,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         # 涨跌停校验
         prev_bars = self.market_gateway.get_recent_bars(order.ticker, "1d", 2)
         if len(prev_bars) >= 2:
-            prev_close = prev_bars[-2].unadjusted_close or prev_bars[-2].close
+            prev_close = prev_bars[-2].close  # 前复权: 涨跌停比例判断不受复权影响
             if prev_close > 0:
                 limits = calculate_price_limits(prev_close)
                 if order.direction == OrderDirection.BUY and not limits.can_buy(exec_price):
