@@ -26,3 +26,21 @@ def test_exec_price_follows_order_price_not_unadjusted_close():
     pos = gateway.get_position("000001.SZ")
     # 成交价应约 = order.price * 1.001 = 10.01 (前复权), 而非 unadjusted_close 20 * 1.001 = 20.02
     assert pos.average_cost < 11.0, f"成交价疑似用了不复权价: average_cost={pos.average_cost}"
+
+
+def test_chinext_allows_15pct_move():
+    market = MockMarketGateway()
+    # 创业板,前一日收盘 10,当日买入价 11.5(涨 15%)。主板 10% 会拒,创业板 20% 应放行。
+    market.add_bars("300750.SZ", [
+        Bar(symbol="300750.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2024, 1, 2),
+            open=10.0, high=10.0, low=10.0, close=10.0, volume=1_000_000),
+        Bar(symbol="300750.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2024, 1, 3),
+            open=11.5, high=12.0, low=11.0, close=11.5, volume=1_000_000),
+    ])
+    market.set_current_time(datetime(2024, 1, 3))
+    gateway = MockTradeGateway(market, initial_capital=1_000_000.0)
+
+    order = Order(order_id="B2", account_id=MockTradeGateway.DEFAULT_ACCOUNT_ID, ticker="300750.SZ",
+                  direction=OrderDirection.BUY, price=11.5, volume=100, type=OrderType.LIMIT)
+    gateway.place_order(order)  # 不应抛出涨停拒单
+    assert gateway.get_position("300750.SZ").total_volume == 100
