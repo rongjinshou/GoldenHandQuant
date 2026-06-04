@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from src.application.strategy_runner import (
     CrossSectionalStrategyRunner,
@@ -29,7 +32,9 @@ from src.domain.trade.exceptions import OrderSubmitError, TradeError
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_status import OrderStatus
 from src.domain.trade.value_objects.order_type import OrderType
-from src.infrastructure.config.settings import RiskSettings
+
+if TYPE_CHECKING:
+    from src.infrastructure.config.settings import RiskSettings
 
 
 class BacktestAppService:

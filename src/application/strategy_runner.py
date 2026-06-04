@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from src.domain.backtest.value_objects.bar_window import make_bar_window
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
@@ -20,7 +23,9 @@ from src.domain.strategy.services.cross_sectional_strategy import CrossSectional
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.trade.value_objects.order_direction import OrderDirection
-from src.infrastructure.config.settings import RiskSettings
+
+if TYPE_CHECKING:
+    from src.infrastructure.config.settings import RiskSettings
 
 
 @dataclass(slots=True, kw_only=True)
