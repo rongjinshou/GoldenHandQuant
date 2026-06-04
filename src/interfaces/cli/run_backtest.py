@@ -151,7 +151,7 @@ def main():
     # 使用 stock_universe (有基本面数据的股票) + 指数 + 风控指数作为数据准备范围
     index_symbols: list[str] = []
     if 'settings' in locals() and hasattr(settings, 'risk') and settings.risk:
-        idx = settings.risk.system_gate.get("index_symbol")
+        idx = settings.risk.system_gate.index_symbol
         if idx:
             index_symbols.append(idx)
             print(f"Index symbol for SystemRiskGate: {idx}")
