@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 
+from src.domain.backtest.value_objects.bar_window import make_bar_window
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.suspension import StockStatusRegistry
@@ -69,14 +70,13 @@ class SingleStrategyRunner(StrategyRunner):
         current_prices: dict[str, float] = {}
 
         for symbol in context.symbols:
-            all_bars = self.market_gateway.get_recent_bars(symbol, context.base_timeframe, self.LOOKBACK_WINDOW)
-            if not all_bars:
+            recent = self.market_gateway.get_recent_bars(symbol, context.base_timeframe, self.LOOKBACK_WINDOW)
+            window = make_bar_window(recent)
+            if window is None:
                 continue
-            if len(all_bars) >= 2:
-                strategy_market_data[symbol] = all_bars[:-1]
-            current_bar = all_bars[-1]
-            execution_prices[symbol] = current_bar.open
-            current_prices[symbol] = current_bar.close
+            strategy_market_data[symbol] = window.info_bars   # 截至 T-1
+            execution_prices[symbol] = window.exec_price       # T 日开盘
+            current_prices[symbol] = window.mark_price          # T 日收盘
 
         current_positions = self.trade_gateway.get_positions()
         signals = self.strategy.generate_signals(strategy_market_data, current_positions)
@@ -153,11 +153,15 @@ class CrossSectionalStrategyRunner(StrategyRunner):
 
         bars: dict[str, Bar] = {}
         bar_history: dict[str, list[Bar]] = {}
+        exec_bars: dict[str, Bar] = {}
         for sym in context.symbols:
             recent = self.market_gateway.get_recent_bars(sym, context.base_timeframe, 120)
-            if recent:
-                bars[sym] = recent[-1]
-                bar_history[sym] = recent
+            window = make_bar_window(recent)
+            if window is None:
+                continue
+            bars[sym] = window.info_bars[-1]      # factor snapshot: T-1 (no lookahead)
+            bar_history[sym] = window.info_bars   # factor history: up to T-1
+            exec_bars[sym] = window.exec_bar      # execution/valuation: T day
 
         universe = []
         if self.fundamental_registry:
@@ -181,7 +185,7 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         if self.circuit_breaker and self.circuit_breaker.state.allows_sell_only:
             all_signals = [s for s in all_signals if s.direction != SignalDirection.BUY]
 
-        prices = {sym: bar.open for sym, bar in bars.items()}
+        prices = {sym: bar.open for sym, bar in exec_bars.items()}   # execution price = T-day open (forward-adjusted)
         asset = self.trade_gateway.get_asset()
         if asset is None:
             raise ValueError("Asset not available from trade gateway.")
@@ -192,5 +196,5 @@ class CrossSectionalStrategyRunner(StrategyRunner):
 
         targets.sort(key=lambda t: 0 if t.direction == OrderDirection.SELL else 1)
 
-        current_prices = {sym: bar.close for sym, bar in bars.items()}
+        current_prices = {sym: bar.close for sym, bar in exec_bars.items()}  # 估值 = T 日收盘(前复权)
         return targets, current_prices

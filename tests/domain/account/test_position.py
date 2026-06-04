@@ -101,3 +101,10 @@ class TestPosition:
         assert pos.total_volume == 0
         assert pos.available_volume == 0
         assert pos.average_cost == 0.0
+
+    def test_on_buy_filled_includes_fee_in_average_cost(self):
+        from src.domain.account.entities.position import Position
+        pos = Position(account_id="A", ticker="000001.SZ")
+        pos.on_buy_filled(100, 10.0, fee=5.0)
+        # average_cost = (100*10 + 5) / 100 = 10.05
+        assert pos.average_cost == 10.05

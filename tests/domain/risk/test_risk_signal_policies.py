@@ -70,6 +70,19 @@ class TestLimitUpBreakPolicy:
         signals = policy.evaluate_positions([pos], {"000001.SZ": bar})
         assert len(signals) == 0
 
+    def test_chinext_uses_20pct_limit_up(self):
+        """创业板按 20% 幅度判断破板;若误用主板 10% 则因 close 已超 11.00 而不触发。"""
+        policy = LimitUpBreakPolicy()
+        pos = Position(account_id="A", ticker="300750.SZ", total_volume=1000,
+                       available_volume=1000, average_cost=10.0)
+        # prev_close=10.0 → 创业板 limit_up=12.00; high 触及 12.00、close 11.50 < 12.00 → 破板
+        # (若误用主板 10% → limit_up=11.00, close 11.50 >= 11.00 → 不触发)
+        bar = Bar(symbol="300750.SZ", timeframe=Timeframe.DAY_1, timestamp=datetime(2026, 1, 1),
+                  open=11.0, high=12.00, low=11.0, close=11.50, volume=1e6, prev_close=10.0)
+        signals = policy.evaluate_positions([pos], {"300750.SZ": bar})
+        assert len(signals) == 1
+        assert signals[0].direction == SignalDirection.SELL
+
 class TestHardStopLossPolicy:
     def test_triggers_sell_when_loss_exceeds_threshold(self):
         policy = HardStopLossPolicy(max_loss_ratio=0.03)

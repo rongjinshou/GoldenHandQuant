@@ -54,8 +54,6 @@ class BacktestReport:
         if len(self.daily_returns) < 2:
             return 0.0
         mean_return = sum(self.daily_returns) / len(self.daily_returns)
-        if mean_return == 0:
-            return 0.0
         variance = sum((r - mean_return) ** 2 for r in self.daily_returns) / (len(self.daily_returns) - 1)
         std = math.sqrt(variance) if variance > 0 else 0.0
         if std == 0:
@@ -64,19 +62,16 @@ class BacktestReport:
 
     @property
     def sortino_ratio(self) -> float:
-        """索提诺比率（仅用下行标准差）。"""
+        """索提诺比率(年化):标准下行偏差,目标收益 MAR=0,分母用全样本 N。"""
         if len(self.daily_returns) < 2:
             return 0.0
-        downside = [min(r, 0) for r in self.daily_returns]
-        if not downside:
-            return 0.0
-        mean_downside = sum(downside) / len(downside)
-        variance = sum((r - mean_downside) ** 2 for r in downside) / (len(downside) - 1)
-        std = math.sqrt(variance) if variance > 0 else 0.0
-        if std == 0:
-            return 0.0
         mean_return = sum(self.daily_returns) / len(self.daily_returns)
-        return (mean_return / std) * math.sqrt(252)
+        downside_dev = math.sqrt(
+            sum(min(r, 0) ** 2 for r in self.daily_returns) / len(self.daily_returns)
+        )
+        if downside_dev == 0:
+            return 0.0
+        return (mean_return / downside_dev) * math.sqrt(252)
 
     @property
     def calmar_ratio(self) -> float:

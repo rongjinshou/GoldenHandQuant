@@ -17,7 +17,7 @@ class Bar:
         low: 最低价 (前复权)。
         close: 收盘价 (前复权)。
         volume: 成交量。
-        unadjusted_close: 不复权收盘价，用于真实账本结算。
+        unadjusted_close: 不复权收盘价。回测路径已不使用(前复权口径);保留供将来实盘账本对账。
     """
     symbol: str
     timeframe: Timeframe
@@ -27,5 +27,6 @@ class Bar:
     low: float
     close: float
     volume: float
+    # 回测路径已不使用(前复权口径);保留供将来实盘账本对账
     unadjusted_close: float = 0.0
     prev_close: float = 0.0  # 前一日收盘价（用于涨停价计算）

@@ -48,10 +48,13 @@ def test_normal_breaker_allows_signals():
     from src.domain.market.value_objects.timeframe import Timeframe
     from datetime import datetime
 
-    bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1,
-              timestamp=datetime(2024, 1, 3),
-              open=10.0, high=10.5, low=9.5, close=10.0, volume=10000)
-    market.get_recent_bars.return_value = [bar]
+    bar_t1 = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1,
+                 timestamp=datetime(2024, 1, 2),
+                 open=9.5, high=10.0, low=9.0, close=9.5, volume=10000)
+    bar_t = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1,
+                timestamp=datetime(2024, 1, 3),
+                open=10.0, high=10.5, low=9.5, close=10.0, volume=10000)
+    market.get_recent_bars.return_value = [bar_t1, bar_t]
 
     signal = MagicMock()
     signal.symbol = "000001.SZ"
@@ -79,10 +82,13 @@ def test_no_breaker_allows_signals():
     from src.domain.market.value_objects.timeframe import Timeframe
     from datetime import datetime
 
-    bar = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1,
-              timestamp=datetime(2024, 1, 3),
-              open=10.0, high=10.5, low=9.5, close=10.0, volume=10000)
-    market.get_recent_bars.return_value = [bar]
+    bar_t1 = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1,
+                 timestamp=datetime(2024, 1, 2),
+                 open=9.5, high=10.0, low=9.0, close=9.5, volume=10000)
+    bar_t = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1,
+                timestamp=datetime(2024, 1, 3),
+                open=10.0, high=10.5, low=9.5, close=10.0, volume=10000)
+    market.get_recent_bars.return_value = [bar_t1, bar_t]
 
     signal = MagicMock()
     signal.symbol = "000001.SZ"
