@@ -145,7 +145,7 @@ def main():
 def _load_data(start_date: str, end_date: str):
     """加载历史数据，构建截面快照和收益率。"""
     from src.domain.market.services.fundamental_registry import FundamentalRegistry
-    from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
+    from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
 
     history_fetcher_type, tushare_token = _load_fetcher_config()
     fetcher, fund_fetcher = _create_fetchers(history_fetcher_type, tushare_token)
@@ -160,7 +160,7 @@ def _load_data(start_date: str, end_date: str):
     bars_by_symbol = fetcher.fetch(symbols=symbols, start_date=start_date, end_date=end_date)
 
     snapshots_by_date, prices_by_date = _build_cross_sections(
-        bars_by_symbol, registry, FeaturePipeline,
+        bars_by_symbol, registry, CrossSectionBuilder,
     )
     returns_by_date = _compute_returns(prices_by_date)
 

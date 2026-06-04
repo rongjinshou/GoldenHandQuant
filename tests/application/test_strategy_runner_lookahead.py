@@ -8,7 +8,7 @@ from src.domain.portfolio.services.equal_weight_sizer import EqualWeightSizer
 from src.domain.strategy.services.cross_sectional_strategy import CrossSectionalStrategy
 from src.infrastructure.mock.mock_market import MockMarketGateway
 from src.infrastructure.mock.mock_trade import MockTradeGateway
-from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
+from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
 
 
 class _EmptyCS(CrossSectionalStrategy):
@@ -40,7 +40,7 @@ def test_cross_sectional_runner_feeds_only_past_bars_to_factor(monkeypatch):
         captured["history"] = bar_history[sym]
         return []
 
-    monkeypatch.setattr(FeaturePipeline, "build_cross_section",
+    monkeypatch.setattr(CrossSectionBuilder, "build_cross_section",
                         staticmethod(fake_build_cross_section))
 
     runner = CrossSectionalStrategyRunner(

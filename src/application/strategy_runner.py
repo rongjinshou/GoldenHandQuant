@@ -15,12 +15,12 @@ from src.domain.risk.services.risk_policies.limit_up_break_policy import LimitUp
 from src.domain.risk.services.risk_signal_generator import RiskSignalGenerator
 from src.domain.risk.services.system_risk_gate import SystemRiskGate
 from src.domain.strategy.services.base_strategy import BaseStrategy
+from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
 from src.domain.strategy.services.cross_sectional_strategy import CrossSectionalStrategy
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.infrastructure.config.settings import RiskSettings
-from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
 
 
 @dataclass(slots=True, kw_only=True)
@@ -165,7 +165,7 @@ class CrossSectionalStrategyRunner(StrategyRunner):
 
         universe = []
         if self.fundamental_registry:
-            universe = FeaturePipeline.build_cross_section(
+            universe = CrossSectionBuilder.build_cross_section(
                 context.current_time, bars, self.fundamental_registry, bar_history
             )
 
