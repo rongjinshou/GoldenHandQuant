@@ -167,7 +167,7 @@ def _build_dataset_from_qmt(
 
     # 构建截面数据
     print("  [3/3] 构建数据集...")
-    from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
+    from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
 
     registry = FundamentalRegistry()
     registry.load_snapshots(fund_snapshots)
@@ -202,7 +202,7 @@ def _build_dataset_from_qmt(
                         break
 
         if bars_on_date:
-            cross = FeaturePipeline.build_cross_section(
+            cross = CrossSectionBuilder.build_cross_section(
                 date=d, bars=bars_on_date, registry=registry, bar_history=bar_history,
             )
             if cross:

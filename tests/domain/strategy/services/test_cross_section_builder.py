@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
+from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
@@ -31,7 +31,7 @@ class TestBuildCrossSection:
             "000002.SZ": _bar("000002.SZ", date, 8.0),
         }
 
-        result = FeaturePipeline.build_cross_section(date, bars, registry)
+        result = CrossSectionBuilder.build_cross_section(date, bars, registry)
         assert len(result) == 2
         snap_a = next(s for s in result if s.symbol == "000001.SZ")
         snap_b = next(s for s in result if s.symbol == "000002.SZ")
@@ -45,7 +45,7 @@ class TestBuildCrossSection:
         date = datetime(2024, 6, 15)
         registry = FundamentalRegistry()
         bars = {"000001.SZ": _bar("000001.SZ", date, 10.0)}
-        result = FeaturePipeline.build_cross_section(date, bars, registry)
+        result = CrossSectionBuilder.build_cross_section(date, bars, registry)
         assert result == []
 
     def test_skips_symbols_without_bar_data(self):
@@ -56,5 +56,5 @@ class TestBuildCrossSection:
             list_date=datetime(2000, 1, 1), market_cap=1e10,
         ))
         bars: dict[str, Bar] = {}
-        result = FeaturePipeline.build_cross_section(date, bars, registry)
+        result = CrossSectionBuilder.build_cross_section(date, bars, registry)
         assert result == []

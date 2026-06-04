@@ -1,9 +1,8 @@
 import asyncio
 import logging
 
+from src.domain.backtest.interfaces.dashboard_ports import IDashboardDataProvider, IWebSocketManager
 from src.domain.backtest.value_objects.dashboard_snapshot import DashboardSnapshot
-from src.infrastructure.web.dashboard_data_provider import DashboardDataProvider
-from src.infrastructure.web.websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +15,8 @@ class DashboardAppService:
 
     def __init__(
         self,
-        data_provider: DashboardDataProvider,
-        ws_manager: WebSocketManager,
+        data_provider: IDashboardDataProvider,
+        ws_manager: IWebSocketManager,
         push_interval: float = 5.0,
     ) -> None:
         self._data_provider = data_provider

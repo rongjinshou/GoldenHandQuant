@@ -254,7 +254,7 @@ def run(start_date: str = "2024-01-01", end_date: str = "2024-04-30",
         token: str | None = None) -> tuple[list[str], list, dict]:
     """执行完整的数据加载流程。"""
     from src.domain.market.services.fundamental_registry import FundamentalRegistry
-    from src.infrastructure.ml_engine.feature_pipeline import FeaturePipeline
+    from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
 
     fetcher = DataFetcher(token=token)
 
@@ -323,7 +323,7 @@ def run(start_date: str = "2024-01-01", end_date: str = "2024-04-30",
                         volume=b["volume"], prev_close=b.get("prev_close", 0.0),
                     )
                     break
-    cross = FeaturePipeline.build_cross_section(mid_date, test_bars, registry)
+    cross = CrossSectionBuilder.build_cross_section(mid_date, test_bars, registry)
     print(f"  日期 {trading_dates[mid_idx]}: 截面 {len(cross)} 只 (测试样本 {len(test_bars)} 只)")
     reg_date = registry.get_all_at_date(mid_date)
     print(f"  Registry 该日快照: {len(reg_date)} 条")

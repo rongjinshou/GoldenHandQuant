@@ -5,10 +5,7 @@ from src.infrastructure.event_bus.events import (
     OrderFilledEvent,
     SignalGeneratedEvent,
 )
-from src.infrastructure.event_bus.handlers import (
-    handle_order_logging,
-    handle_strategy_execution,
-)
+from src.infrastructure.event_bus.handlers import handle_order_logging
 
 __all__ = [
     "MarketTickEvent",
@@ -17,6 +14,5 @@ __all__ = [
     "DailySettlementEvent",
     "EventBus",
     "EventHandler",
-    "handle_strategy_execution",
     "handle_order_logging",
 ]

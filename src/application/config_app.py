@@ -3,14 +3,17 @@
 集成配置文件监听和热更新，可注册到 AutoTradingEngine 等上层组件。
 """
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.domain.common.value_objects.config_change_log import ConfigChangeLog
-from src.infrastructure.config.config_hot_reload import ConfigHotReloadService
-from src.infrastructure.config.config_watcher import ConfigWatcher
+
+if TYPE_CHECKING:
+    from src.infrastructure.config.config_watcher import ConfigWatcher
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,8 @@ class ConfigAppService:
         settings: Any,
         on_change: Callable[[list[ConfigChangeLog]], None] | None = None,
     ) -> None:
+        from src.infrastructure.config.config_hot_reload import ConfigHotReloadService
+
         self._config_path = config_path
         self._hot_reload = ConfigHotReloadService(
             config_path=config_path,
@@ -55,6 +60,8 @@ class ConfigAppService:
         """启动配置文件监听。"""
         if self.is_watching:
             return
+        from src.infrastructure.config.config_watcher import ConfigWatcher
+
         watch_dir = Path(self._config_path).parent
         self._watcher = ConfigWatcher(
             watch_dir=watch_dir,
