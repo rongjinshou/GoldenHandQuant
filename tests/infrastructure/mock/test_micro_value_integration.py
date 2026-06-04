@@ -19,8 +19,7 @@ def _make_bar(symbol, dt, close, volume=1e6, prev_close=None):
     )
 
 class TestMicroValueIntegration:
-    @pytest.mark.parametrize("use_event_bus", [False, True])
-    def test_basic_backtest_run_with_mock_data(self, use_event_bus):
+    def test_basic_backtest_run_with_mock_data(self):
         # Arrange: 10 stocks, 30 trading days
         symbols = [f"00000{i}.SZ" for i in range(1, 10)]
         start = datetime(2024, 6, 1)
@@ -57,7 +56,7 @@ class TestMicroValueIntegration:
         # Act
         reports = app.run_backtest(
             symbols=symbols, start_date=dates[0], end_date=dates[-1],
-            base_timeframe=Timeframe.DAY_1, plot=False, use_event_bus=use_event_bus
+            base_timeframe=Timeframe.DAY_1, plot=False
         )
 
         # Assert

@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime
 
 from src.application.strategy_runner import (
@@ -96,7 +95,6 @@ class BacktestAppService:
         base_timeframe: Timeframe = Timeframe.DAY_1,
         plot: bool = False,
         strategies: list[BaseStrategy] | None = None,
-        use_event_bus: bool = False,
     ) -> list[BacktestReport]:
         """执行回测，支持多策略并行评估。
 
@@ -107,17 +105,10 @@ class BacktestAppService:
             base_timeframe: 回测基准周期。
             plot: 是否绘制回测结果图表（多策略时仅绘制最后一个）。
             strategies: 策略列表，None 时使用构造时注入的默认策略。
-            use_event_bus: 是否使用事件总线驱动回测循环（异步 pub/sub 模式）。
 
         Returns:
             list[BacktestReport]: 每个策略对应一份回测报告。
         """
-        if use_event_bus:
-            return asyncio.run(self._run_with_event_bus(
-                symbols, start_date, end_date, base_timeframe,
-                strategies, plot,
-            ))
-
         if strategies is None:
             strategies = [self.strategy]
 
@@ -273,116 +264,6 @@ class BacktestAppService:
                 print(f"Error plotting: {e}")
 
         return report
-
-    async def _run_with_event_bus(
-        self,
-        symbols: list[str],
-        start_date: datetime,
-        end_date: datetime,
-        base_timeframe: Timeframe,
-        strategies: list[BaseStrategy] | None,
-        plot: bool,
-    ) -> list[BacktestReport]:
-        """使用 EventBus 异步驱动回测循环。"""
-        from src.infrastructure.event_bus import DailySettlementEvent, EventBus, MarketTickEvent
-        from src.infrastructure.logging.backtest_logger import BacktestProgress
-
-        if strategies is None:
-            strategies = [self.strategy]
-
-        initial_asset = self.trade_gateway.get_asset()
-        if initial_asset is None:
-            raise ValueError("Asset not available from trade gateway.")
-        initial_capital = initial_asset.total_asset
-
-        reports: list[BacktestReport] = []
-        for i, strategy in enumerate(strategies):
-            sub_account_id = f"BT_{strategy.name}_{start_date.strftime('%Y%m%d')}"
-            self.trade_gateway.create_sub_account(sub_account_id, initial_capital)
-            self.trade_gateway.activate_account(sub_account_id)
-            self.snapshots: list[DailySnapshot] = []
-
-            all_timestamps = self.market_gateway.get_all_timestamps(base_timeframe)
-            valid_timestamps = [ts for ts in all_timestamps if start_date <= ts <= end_date]
-
-            if not valid_timestamps:
-                reports.append(self.evaluator.evaluate(
-                    start_date=start_date, end_date=end_date,
-                    initial_capital=initial_capital, snapshots=[], trades=[],
-                    strategy_name=strategy.name,
-                ))
-                continue
-
-            bus = EventBus()
-            progress = BacktestProgress(len(valid_timestamps))
-            runner = self._build_runner(strategy)
-
-            # 初始化熔断器
-            if self.circuit_breaker:
-                self.circuit_breaker.set_initial_capital(initial_capital)
-
-            for current_time in valid_timestamps:
-                progress.update(current_time)
-                self.market_gateway.set_current_time(current_time)
-
-                # 盘前重置熔断器
-                if self.circuit_breaker:
-                    asset = self.trade_gateway.get_asset()
-                    day_open_asset = asset.total_asset if asset else initial_capital
-                    self.circuit_breaker.reset_daily(current_time, day_open_asset)
-
-                context = DayContext(
-                    current_time=current_time,
-                    symbols=symbols,
-                    base_timeframe=base_timeframe
-                )
-
-                bars_for_event = {}
-                for sym in symbols:
-                    recent = self.market_gateway.get_recent_bars(sym, base_timeframe, 1)
-                    if recent:
-                        bars_for_event[sym] = recent[-1]
-
-                await bus.publish(MarketTickEvent(
-                    timestamp=current_time,
-                    bars=bars_for_event,
-                ))
-
-                targets, close_prices = runner.evaluate(context)
-                self._execute_targets(targets, current_time, sub_account_id)
-                self._settle_and_snapshot(current_time, close_prices)
-
-                # 盘后评估熔断器 + 分发事件
-                if self.circuit_breaker:
-                    asset = self.trade_gateway.get_asset()
-                    if asset:
-                        self.circuit_breaker.evaluate(asset, self.snapshots)
-                    if self.event_dispatcher and self.circuit_breaker.events:
-                        self.event_dispatcher.dispatch_all(self.circuit_breaker.events)
-
-                await bus.publish(DailySettlementEvent(
-                    timestamp=current_time,
-                    date=current_time,
-                ))
-
-            is_last = (i == len(strategies) - 1)
-            report = self.evaluator.evaluate(
-                start_date=start_date, end_date=end_date,
-                initial_capital=initial_capital,
-                snapshots=self.snapshots,
-                trades=self.trade_gateway.list_trade_records(),
-                strategy_name=strategy.name,
-            )
-
-            if plot and is_last:
-                try:
-                    from src.infrastructure.visualization.plotter import BacktestPlotter
-                    BacktestPlotter().plot(report)
-                except Exception as e:
-                    print(f"Error plotting: {e}")
-            reports.append(report)
-
-        return reports
 
     def _record_snapshot(self, date: datetime, current_prices: dict[str, float]) -> None:
         """记录每日资产快照。"""
