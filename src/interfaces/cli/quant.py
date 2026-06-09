@@ -53,10 +53,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_cmp.add_argument("--plot", action="store_true")
 
     # --- factor-test ---
-    p_ft = subparsers.add_parser("factor-test", help="因子测试")
-    p_ft.add_argument("--factors", type=str, required=True, help="逗号分隔的因子列表")
-    p_ft.add_argument("--start-date", type=str, default=None)
-    p_ft.add_argument("--end-date", type=str, default=None)
+    p_ft = subparsers.add_parser("factor-test", help="因子假设测试")
+    p_ft.add_argument("--factors", type=str, required=True,
+                       help="因子标识: F01,F02 / 小市值,短期反转 / P0 / all")
+    p_ft.add_argument("--start-date", type=str, default="2021-01-01", help="测试开始日期")
+    p_ft.add_argument("--end-date", type=str, default="2025-12-31", help="测试结束日期")
+    p_ft.add_argument("--split-date", type=str, default=None,
+                       help="样本内截止日期(如 2023-12-31)，启用样本外验证")
+    p_ft.add_argument("--num-layers", type=int, default=5, help="分层数")
+    p_ft.add_argument("--output", type=str, default=None, help="报告输出路径(JSON)")
+    p_ft.add_argument("--config", type=str, default="resources/backtest.yaml", help="配置文件")
 
     # --- list ---
     subparsers.add_parser("list", help="列出所有可用策略")
