@@ -2,7 +2,6 @@
 
 import argparse
 import json
-from datetime import datetime
 
 
 def run_factor_test(args: argparse.Namespace) -> None:
@@ -24,7 +23,7 @@ def run_factor_test(args: argparse.Namespace) -> None:
         print(f"Error: {e}")
         return
 
-    print(f"=== Factor Hypothesis Test ===")
+    print("=== Factor Hypothesis Test ===")
     print(f"Factors: {', '.join(f'{h.factor_id}({h.name})' for h in hypotheses)}")
     print(f"Period:  {start_date} → {end_date}")
     if split_date:
@@ -47,14 +46,14 @@ def run_factor_test(args: argparse.Namespace) -> None:
 
     # 3. 初始化 fetchers
     if history_fetcher_type == "TushareHistoryDataFetcher":
-        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
         from src.infrastructure.gateway.tushare_fundamental_fetcher import TushareFundamentalFetcher
+        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
 
         history_fetcher = TushareHistoryDataFetcher(token=tushare_token)
         fundamental_fetcher = TushareFundamentalFetcher(token=tushare_token)
     else:
-        from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
         from src.infrastructure.gateway.qmt_fundamental_fetcher import QmtFundamentalFetcher
+        from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
 
         history_fetcher = QmtHistoryDataFetcher()
         fundamental_fetcher = QmtFundamentalFetcher()
@@ -84,7 +83,7 @@ def run_factor_test(args: argparse.Namespace) -> None:
     print(f"  → {len(snapshots_by_date)} trading days, "
           f"avg {sum(len(v) for v in snapshots_by_date.values()) / max(len(snapshots_by_date), 1):.0f} stocks/day")
 
-    print(f"\n[Step 2] Running factor tests...")
+    print("\n[Step 2] Running factor tests...")
     results = service.run_batch(
         hypotheses=hypotheses,
         snapshots_by_date=snapshots_by_date,
