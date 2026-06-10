@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+import pytest
+
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.factor_test.expressions import FactorRefExpr
 from src.infrastructure.factor_test.layer_backtest import LayerBacktester
@@ -92,3 +94,85 @@ class TestLayerBacktester:
         result = bt.run(expr, {}, {}, num_layers=5)
         assert result.layer_count == 5
         assert result.long_short_return == 0.0
+
+
+class TestRebalanceDays:
+    """可配置调仓间隔: 持有期内不重排、不计换手成本。"""
+
+    def test_holding_keeps_membership_between_rebalances(self):
+        """rebalance_days=2 时, 第2日不按新因子值重排, 沿用第1日成员。
+
+        构造: 第2日因子排名翻转。日频模式会换成新顶层吃到 +10%;
+        持有模式仍持第1日的顶层(此时变成 -10%) → 多空收益一正一负。
+        """
+        bt = LayerBacktester()
+        expr = FactorRefExpr(field_name="pe_ratio")
+        snapshots_by_date = {
+            "2024-01-01": [_make_snapshot("A", 1.0), _make_snapshot("B", 2.0),
+                           _make_snapshot("C", 3.0), _make_snapshot("D", 4.0)],
+            "2024-01-02": [_make_snapshot("A", 4.0), _make_snapshot("B", 3.0),
+                           _make_snapshot("C", 2.0), _make_snapshot("D", 1.0)],
+        }
+        returns_by_date = {
+            "2024-01-02": {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0},
+            "2024-01-03": {"A": 0.10, "B": 0.10, "C": -0.10, "D": -0.10},
+        }
+        daily = bt.run(expr, snapshots_by_date, returns_by_date,
+                       num_layers=2, cost_rate=0.0, rebalance_days=1)
+        hold = bt.run(expr, snapshots_by_date, returns_by_date,
+                      num_layers=2, cost_rate=0.0, rebalance_days=2)
+        # 日频: 第2日重排后顶层={A,B} 吃 +10% → 多空为正
+        assert daily.long_short_return > 0
+        # 持有: 顶层仍={C,D} 吃 -10% → 多空为负
+        assert hold.long_short_return < 0
+
+    def test_costs_charged_only_on_rebalance_days(self):
+        """持有期内换手成本为 0, 只在调仓日扣。
+
+        构造: 收益全为 0(隔离成本效应), 因子排名每日翻转(日频高换手)。
+        日频模式每天都付重建成本; 持有模式只付首日建仓成本 → 净值更高。
+        """
+        bt = LayerBacktester()
+        expr = FactorRefExpr(field_name="pe_ratio")
+        snapshots_by_date = {
+            "2024-01-01": [_make_snapshot("A", 1.0), _make_snapshot("B", 2.0),
+                           _make_snapshot("C", 3.0), _make_snapshot("D", 4.0)],
+            "2024-01-02": [_make_snapshot("A", 4.0), _make_snapshot("B", 3.0),
+                           _make_snapshot("C", 2.0), _make_snapshot("D", 1.0)],
+            "2024-01-03": [_make_snapshot("A", 1.0), _make_snapshot("B", 2.0),
+                           _make_snapshot("C", 3.0), _make_snapshot("D", 4.0)],
+        }
+        zero = {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0}
+        returns_by_date = {
+            "2024-01-02": dict(zero),
+            "2024-01-03": dict(zero),
+            "2024-01-04": dict(zero),
+        }
+        daily = bt.run(expr, snapshots_by_date, returns_by_date,
+                       num_layers=2, cost_rate=0.05, rebalance_days=1)
+        hold = bt.run(expr, snapshots_by_date, returns_by_date,
+                      num_layers=2, cost_rate=0.05, rebalance_days=3)
+        # 两者都为负(纯成本), 但持有模式只扣一次建仓成本, 亏得更少
+        assert daily.long_short_return < 0
+        assert hold.long_short_return > daily.long_short_return
+
+    def test_stable_ranks_equivalent_across_rebalance_days(self):
+        """因子排名稳定时, 任何调仓间隔结果一致(成员不变 → 换手为 0)。"""
+        bt = LayerBacktester()
+        expr = FactorRefExpr(field_name="pe_ratio")
+        stable = [_make_snapshot("A", 1.0), _make_snapshot("B", 2.0),
+                  _make_snapshot("C", 3.0), _make_snapshot("D", 4.0)]
+        snapshots_by_date = {
+            "2024-01-01": stable, "2024-01-02": stable, "2024-01-03": stable,
+        }
+        returns_by_date = {
+            "2024-01-02": {"A": -0.01, "B": 0.0, "C": 0.01, "D": 0.02},
+            "2024-01-03": {"A": 0.02, "B": 0.01, "C": 0.0, "D": -0.01},
+            "2024-01-04": {"A": 0.005, "B": 0.005, "C": 0.005, "D": 0.005},
+        }
+        daily = bt.run(expr, snapshots_by_date, returns_by_date,
+                       num_layers=2, cost_rate=0.003, rebalance_days=1)
+        hold = bt.run(expr, snapshots_by_date, returns_by_date,
+                      num_layers=2, cost_rate=0.003, rebalance_days=3)
+        assert hold.long_short_return == pytest.approx(daily.long_short_return)
+        assert hold.layer_returns == pytest.approx(daily.layer_returns)

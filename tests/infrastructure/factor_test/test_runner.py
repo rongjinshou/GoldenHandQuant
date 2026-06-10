@@ -90,6 +90,54 @@ class TestFactorTestRunner:
         assert report.expression == "earnings_growth / pe_ratio"
         assert 0 <= report.score <= 100
 
+    def test_rebalance_days_passed_through_and_recorded(self):
+        """rebalance_days 应传入分层回测并记录在报告中。
+
+        构造: 第2日因子排名翻转 → 日频重排吃到 +10%, 持有2日反向吃 -10%。
+        """
+        runner = FactorTestRunner()
+
+        snapshots_by_date = {
+            "2024-01-01": [_make_snapshot("A", 1.0), _make_snapshot("B", 2.0),
+                           _make_snapshot("C", 3.0), _make_snapshot("D", 4.0)],
+            "2024-01-02": [_make_snapshot("A", 4.0), _make_snapshot("B", 3.0),
+                           _make_snapshot("C", 2.0), _make_snapshot("D", 1.0)],
+        }
+        # 按实现日键入 (引擎 next_date 约定)
+        returns_by_date = {
+            "2024-01-02": {"A": 0.001, "B": 0.002, "C": 0.001, "D": 0.002},
+            "2024-01-03": {"A": 0.10, "B": 0.10, "C": -0.10, "D": -0.10},
+        }
+        prices_by_date = {
+            "2024-01-01": {s: 10.0 for s in "ABCD"},
+            "2024-01-02": {s: 10.0 for s in "ABCD"},
+        }
+
+        daily = runner.run(
+            expression_str="pe_ratio",
+            snapshots_by_date=snapshots_by_date,
+            returns_by_date=returns_by_date,
+            prices_by_date=prices_by_date,
+            test_period=("2024-01-01", "2024-01-02"),
+            num_layers=2,
+        )
+        hold = runner.run(
+            expression_str="pe_ratio",
+            snapshots_by_date=snapshots_by_date,
+            returns_by_date=returns_by_date,
+            prices_by_date=prices_by_date,
+            test_period=("2024-01-01", "2024-01-02"),
+            num_layers=2,
+            rebalance_days=2,
+        )
+
+        assert daily.report.rebalance_days == 1
+        assert hold.report.rebalance_days == 2
+        assert hold.rebalance_days == 2  # ScoredFactorTestReport 代理属性
+        # 行为差异: 日频多空为正, 持有2日多空为负
+        assert daily.report.long_short_return > 0
+        assert hold.report.long_short_return < 0
+
     def test_rank_expression(self):
         runner = FactorTestRunner()
 

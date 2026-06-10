@@ -13,6 +13,7 @@ def run_factor_test(args: argparse.Namespace) -> None:
     end_date: str = args.end_date
     split_date: str | None = args.split_date
     num_layers: int = args.num_layers
+    rebalance_days: int = args.rebalance_days
     output_path: str | None = args.output
     config_path: str = args.config
 
@@ -29,6 +30,7 @@ def run_factor_test(args: argparse.Namespace) -> None:
     if split_date:
         print(f"Split:   IS={start_date}→{split_date} | OOS={split_date}→{end_date}")
     print(f"Layers:  {num_layers}")
+    print(f"Rebalance: 每 {rebalance_days} 个交易日调仓")
     if len(hypotheses) > 1 and not split_date:
         print("⚠️  多重检验提醒: 同时测多个因子且无样本外切分 → 单个'显著'很可能是噪声; "
               "强烈建议加 --split 用样本外定夺。")
@@ -105,6 +107,7 @@ def run_factor_test(args: argparse.Namespace) -> None:
         test_period=(start_date, end_date),
         split_date=split_date,
         num_layers=num_layers,
+        rebalance_days=rebalance_days,
     )
 
     # 6. 输出汇总
@@ -142,6 +145,7 @@ def run_factor_test(args: argparse.Namespace) -> None:
             "test_period": [start_date, end_date],
             "split_date": split_date,
             "num_layers": num_layers,
+            "rebalance_days": rebalance_days,
             "results": [],
         }
         for r in results:

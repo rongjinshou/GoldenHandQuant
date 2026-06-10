@@ -121,6 +121,39 @@ class TestFactorTestAppServiceRunBatch:
         # Runner called twice (IS + OOS)
         assert service._runner.run.call_count == 2
 
+    def test_run_batch_passes_rebalance_days_to_runner(self):
+        """run_batch 应把 rebalance_days 透传给 FactorTestRunner。"""
+        mock_hist = MagicMock()
+        mock_fund = MagicMock()
+        service = FactorTestAppService(
+            history_fetcher=mock_hist,
+            fundamental_fetcher=mock_fund,
+        )
+        mock_r = FactorTestReport(
+            expression="0 - return_20d",
+            test_period=("2023-01-01", "2024-01-01"),
+            universe_count=50,
+            ic_mean=0.03, ic_std=0.015, ir=0.4,
+            ic_positive_rate=0.55, monotonicity_score=0.6,
+            long_short_return=0.05,
+        )
+        mock_scored = ScoredFactorTestReport(
+            report=mock_r, score=60.0, grade="C", grade_reasons=["test"]
+        )
+        service._runner = MagicMock()
+        service._runner.run.return_value = mock_scored
+
+        service.run_batch(
+            hypotheses=P0_FACTORS[:1],
+            snapshots_by_date={"2023-06-01": []},
+            returns_by_date={"2023-06-01": {}},
+            prices_by_date={"2023-06-01": {}},
+            test_period=("2023-01-01", "2024-01-01"),
+            rebalance_days=5,
+        )
+
+        assert service._runner.run.call_args.kwargs["rebalance_days"] == 5
+
     def test_run_batch_without_split(self):
         """Verify batch run creates only IS report when no split_date."""
         mock_hist = MagicMock()

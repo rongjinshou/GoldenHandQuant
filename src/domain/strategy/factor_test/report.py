@@ -20,6 +20,7 @@ class FactorTestReport:
 
     # 分层收益
     layer_count: int = 5
+    rebalance_days: int = 1
     layer_returns: list[float] = field(default_factory=list)
     long_short_return: float = 0.0
     layer_cumulative: list[list[float]] = field(default_factory=list)
@@ -86,6 +87,10 @@ class ScoredFactorTestReport:
     @property
     def layer_count(self) -> int:
         return self.report.layer_count
+
+    @property
+    def rebalance_days(self) -> int:
+        return self.report.rebalance_days
 
     @property
     def layer_returns(self) -> list[float]:

@@ -71,6 +71,14 @@ class TestBuildParser:
             parser.parse_args(["factor-test"])
         assert exc_info.value.code != 0
 
+    def test_factor_test_rebalance_days_flag(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["factor-test", "--factors", "P0", "--rebalance-days", "5"])
+        assert args.rebalance_days == 5
+        # 默认 1 = 每日调仓 (现行为)
+        args_default = parser.parse_args(["factor-test", "--factors", "P0"])
+        assert args_default.rebalance_days == 1
+
     def test_no_command_shows_help(self) -> None:
         parser = build_parser()
         args = parser.parse_args([])

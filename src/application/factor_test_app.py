@@ -148,6 +148,7 @@ class FactorTestAppService:
         prices_by_date: dict[str, dict[str, float]],
         test_period: tuple[str, str],
         num_layers: int = 5,
+        rebalance_days: int = 1,
     ) -> ScoredFactorTestReport:
         """测试单个因子假设。"""
         return self._runner.run(
@@ -157,6 +158,7 @@ class FactorTestAppService:
             prices_by_date=prices_by_date,
             test_period=test_period,
             num_layers=num_layers,
+            rebalance_days=rebalance_days,
         )
 
     def run_batch(
@@ -168,6 +170,7 @@ class FactorTestAppService:
         test_period: tuple[str, str],
         split_date: str | None = None,
         num_layers: int = 5,
+        rebalance_days: int = 1,
     ) -> list[FactorTestResult]:
         """批量测试因子假设，支持样本内外切分。
 
@@ -179,6 +182,7 @@ class FactorTestAppService:
             test_period: (start_date, end_date)。
             split_date: 样本内截止日期 (如 "2023-12-31")，None=不做切分。
             num_layers: 分层数。
+            rebalance_days: 分层回测调仓间隔(交易日), 1=每日。
 
         Returns:
             list[FactorTestResult]: 每个因子的测试结果+判决。
@@ -201,7 +205,8 @@ class FactorTestAppService:
                 is_period = test_period
 
             is_report = self.run_single(
-                hyp, is_snapshots, is_returns, is_prices, is_period, num_layers
+                hyp, is_snapshots, is_returns, is_prices, is_period,
+                num_layers, rebalance_days,
             )
 
             # Out-of-sample (if split)
@@ -213,7 +218,8 @@ class FactorTestAppService:
                 oos_period = (split_date, test_period[1])
                 if oos_snapshots:
                     oos_report = self.run_single(
-                        hyp, oos_snapshots, oos_returns, oos_prices, oos_period, num_layers
+                        hyp, oos_snapshots, oos_returns, oos_prices, oos_period,
+                        num_layers, rebalance_days,
                     )
 
             # 正交化增量门槛(§7.5): 非控制类因子才做中性化

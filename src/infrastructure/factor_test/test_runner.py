@@ -30,6 +30,7 @@ class FactorTestRunner:
         prices_by_date: dict[str, dict[str, float]],
         test_period: tuple[str, str] = ("", ""),
         num_layers: int = 5,
+        rebalance_days: int = 1,
     ) -> ScoredFactorTestReport:
         """执行完整因子测试流程。
 
@@ -40,6 +41,7 @@ class FactorTestRunner:
             prices_by_date: {date_str: {symbol: close_price}}
             test_period: (start_date, end_date)
             num_layers: 分层数
+            rebalance_days: 分层回测调仓间隔(交易日), 1=每日
 
         Returns:
             ScoredFactorTestReport
@@ -58,7 +60,8 @@ class FactorTestRunner:
 
         # 3. 分层回测
         layer_result = self._layer_backtester.run(
-            expression, snapshots_by_date, returns_by_date, num_layers
+            expression, snapshots_by_date, returns_by_date, num_layers,
+            rebalance_days=rebalance_days,
         )
 
         # 4. 因子衰减
@@ -81,6 +84,7 @@ class FactorTestRunner:
             ic_positive_rate=ic_positive_rate,
             ic_series=ic_series,
             layer_count=num_layers,
+            rebalance_days=rebalance_days,
             layer_returns=layer_result.layer_returns,
             long_short_return=layer_result.long_short_return,
             layer_cumulative=layer_result.layer_cumulative,

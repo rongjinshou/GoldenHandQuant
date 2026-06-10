@@ -61,6 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_ft.add_argument("--split-date", type=str, default=None,
                        help="样本内截止日期(如 2023-12-31)，启用样本外验证")
     p_ft.add_argument("--num-layers", type=int, default=5, help="分层数")
+    p_ft.add_argument("--rebalance-days", type=int, default=1,
+                       help="分层回测调仓间隔(交易日): 1=每日, 5=约每周; "
+                            "持有期内不重排、不计换手成本")
     p_ft.add_argument("--output", type=str, default=None, help="报告输出路径(JSON)")
     p_ft.add_argument("--config", type=str, default="resources/backtest.yaml", help="配置文件")
 
