@@ -128,10 +128,11 @@ src/interfaces/api/static/
 
 ## 7. 错误处理
 
-- store 打开失败（文件锁/路径错）→ 500 + `{detail}`，前端顶栏红条提示
-- 全部端点 try/finally 关连接；DuckDB 单写者锁与 factor-test 并跑时：
-  dashboard 只读连接（`read_only=True`）避免锁冲突——**设计点**：
-  `MarketDataStore(db_path, read_only=True)` 新增参数，研究端点用只读模式
+- 全部端点 try/finally 关连接；研究端点用 `MarketDataStore(db_path, read_only=True)`
+- **实施期实测**：写进程（factor-test / data refresh）存活期间，
+  只读连接在本环境可正常打开（实测于 v2 run 进行中）；但 DuckDB 进程级
+  锁在写事务窗口仍可能拒绝连接。处理：连接失败 → 503 + 明确文案
+  "正被写进程占用，稍后刷新"，前端顶栏红条展示；不与空库态（200 + 0 行）混淆
 - 空库/未刷数：overview 正常返回 0 行统计，前端显示"先运行 quant data refresh"
 
 ## 8. 测试策略

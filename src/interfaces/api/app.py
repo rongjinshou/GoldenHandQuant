@@ -18,7 +18,7 @@ app.mount("/ui", StaticFiles(directory=str(_STATIC_DIR), html=True), name="ui")
 
 @app.get("/", include_in_schema=False)
 async def index_redirect():
-    return RedirectResponse(url="/ui/")
+    return RedirectResponse(url="/ui/", status_code=302)
 
 
 @app.get("/health")

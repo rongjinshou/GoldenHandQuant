@@ -77,6 +77,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_data.add_argument("--config", type=str, default="resources/backtest.yaml", help="配置文件")
     p_data.add_argument("--db", type=str, default="data/market.duckdb", help="数据库文件路径")
 
+    # --- dashboard ---
+    p_db = subparsers.add_parser("dashboard", help="投研驾驶舱 (浏览器查看数据/判决/个股)")
+    p_db.add_argument("--port", type=int, default=8501, help="监听端口")
+    p_db.add_argument("--db", type=str, default="data/market.duckdb", help="数据库文件路径")
+
     # --- list ---
     subparsers.add_parser("list", help="列出所有可用策略")
 
@@ -147,6 +152,10 @@ def main() -> None:
             from src.interfaces.cli.commands.data_cmd import run_data
 
             run_data(args)
+        case "dashboard":
+            from src.interfaces.cli.commands.dashboard_cmd import run_dashboard
+
+            run_dashboard(args)
         case "list":
             from src.domain.strategy.registry import list_strategies
 

@@ -31,12 +31,23 @@ def _db_path() -> str:
 
 
 def get_research_store() -> Iterator[MarketDataStore | None]:
-    """每请求一个只读连接；库文件不存在时给 None（端点返回空态）。"""
+    """每请求一个只读连接；库文件不存在时给 None（端点返回空态）。
+
+    DuckDB 进程级并发为"单写者 或 多只读"——factor-test / data refresh
+    持有写连接期间，只读连接会因文件锁失败，此时返回 503 而非误导性空态。
+    """
     path = _db_path()
     if not Path(path).exists():
         yield None
         return
-    store = MarketDataStore(path, read_only=True)
+    try:
+        store = MarketDataStore(path, read_only=True)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail="market.duckdb 正被写进程占用（factor-test / data refresh 运行中），"
+                   f"请稍后刷新。底层错误: {e}",
+        ) from e
     try:
         yield store
     finally:
