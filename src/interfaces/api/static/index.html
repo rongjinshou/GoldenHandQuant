@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoldenHandQuant 投研驾驶舱</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">🜚</span>
+      <h1>GoldenHandQuant <span class="sub">投研驾驶舱</span></h1>
+    </div>
+    <div id="meta" class="meta">加载中…</div>
+  </header>
+
+  <div id="error-banner" class="error-banner hidden"></div>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="overview">数据资产</button>
+    <button class="tab" data-tab="verdicts">因子判决</button>
+    <button class="tab" data-tab="explorer">个股查看</button>
+  </nav>
+
+  <main>
+    <!-- 数据资产 -->
+    <section id="tab-overview" class="panel active">
+      <div id="overview-cards" class="cards"></div>
+      <p id="overview-empty" class="empty hidden">
+        数据库为空 — 先在终端运行 <code>quant data refresh</code> 灌入市场数据。
+      </p>
+    </section>
+
+    <!-- 因子判决 -->
+    <section id="tab-verdicts" class="panel">
+      <div class="toolbar">
+        <label>判决轮次
+          <select id="run-select"></select>
+        </label>
+        <span id="run-params" class="run-params"></span>
+      </div>
+      <table id="verdict-table" class="verdict-table">
+        <thead>
+          <tr>
+            <th>ID</th><th>因子</th><th>表达式</th>
+            <th>IC</th><th>IR</th><th>IC正率</th><th>单调性</th>
+            <th>多空(IS)</th><th>OOS IC</th><th>OOS IR</th><th>多空(OOS)</th>
+            <th>评分</th><th>判决</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="verdicts-empty" class="empty hidden">
+        尚无判决记录 — 运行 <code>quant factor-test --factors P0 …</code> 后自动入库。
+      </p>
+    </section>
+
+    <!-- 个股查看 -->
+    <section id="tab-explorer" class="panel">
+      <div class="toolbar">
+        <label>标的
+          <input id="symbol-input" list="symbol-list" placeholder="代码或名称, 如 000001 / 平安"
+                 autocomplete="off">
+          <datalist id="symbol-list"></datalist>
+        </label>
+        <label>起 <input type="date" id="start-input"></label>
+        <label>止 <input type="date" id="end-input"></label>
+        <button id="load-symbol">加载</button>
+      </div>
+      <div id="kline-chart" class="chart tall"></div>
+      <div class="toolbar feature-picker" id="feature-picker"></div>
+      <div id="feature-chart" class="chart"></div>
+    </section>
+  </main>
+
+  <footer>
+    只读本机数据 · <code id="db-path"></code> · feature v<span id="feature-version">-</span>
+  </footer>
+
+  <script src="vendor/echarts.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

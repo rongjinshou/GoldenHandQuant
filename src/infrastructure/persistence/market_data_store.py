@@ -141,6 +141,16 @@ class MarketDataStore:
         ).fetchall()
         return [r[0] for r in rows]
 
+    def search_instruments(self, query: str, limit: int = 50) -> list[dict]:
+        """按 symbol 前缀或名称模糊搜索（dashboard 选股框用）。"""
+        rows = self._conn.execute(
+            """SELECT DISTINCT symbol, name FROM instruments
+               WHERE symbol LIKE ? OR name LIKE ?
+               ORDER BY symbol LIMIT ?""",
+            [f"{query}%", f"%{query}%", limit],
+        ).fetchall()
+        return [{"symbol": r[0], "name": r[1]} for r in rows]
+
     # ------------------------------------------------------------------ #
     # bars
     # ------------------------------------------------------------------ #
@@ -259,6 +269,24 @@ class MarketDataStore:
         params: list = [source, feature_version, start_date, end_date]
         sql, params = self._with_symbol_filter(sql, params, symbols, "f.symbol")
         df = self._conn.execute(sql + " ORDER BY f.date, f.symbol", params).df()
+        df["date"] = pd.to_datetime(df["date"])
+        return df
+
+    def load_features_df(
+        self,
+        symbols: list[str] | None,
+        start_date: str,
+        end_date: str,
+        feature_version: int,
+    ) -> pd.DataFrame:
+        """纯特征序列（不 join 基本面，dashboard 特征曲线用）。"""
+        sql = f"""SELECT symbol, date, {", ".join(_FEATURE_VALUE_COLS)}
+                  FROM stock_features
+                  WHERE feature_version = ?
+                    AND date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)"""
+        params: list = [feature_version, start_date, end_date]
+        sql, params = self._with_symbol_filter(sql, params, symbols, "symbol")
+        df = self._conn.execute(sql + " ORDER BY symbol, date", params).df()
         df["date"] = pd.to_datetime(df["date"])
         return df
 
