@@ -64,6 +64,28 @@ class TestLayerBacktester:
         score = bt._monotonicity_score([1.0, 3.0, 2.0, 4.0])
         assert 0.5 < score < 1.0
 
+    def test_long_short_is_net_of_costs(self):
+        """多空收益须扣交易成本: 换手越高扣得越多。"""
+        bt = LayerBacktester()
+        expr = FactorRefExpr(field_name="pe_ratio")
+        # 因子排名每日翻转 -> 高换手
+        snapshots_by_date = {
+            "2024-01-01": [_make_snapshot("A", 1.0), _make_snapshot("B", 2.0),
+                           _make_snapshot("C", 3.0), _make_snapshot("D", 4.0)],
+            "2024-01-02": [_make_snapshot("A", 4.0), _make_snapshot("B", 3.0),
+                           _make_snapshot("C", 2.0), _make_snapshot("D", 1.0)],
+            "2024-01-03": [_make_snapshot("A", 4.0), _make_snapshot("B", 3.0),
+                           _make_snapshot("C", 2.0), _make_snapshot("D", 1.0)],
+        }
+        # 按实现日键入: factor@d1 预测 returns@d2; factor@d2 预测 returns@d3
+        returns_by_date = {
+            "2024-01-02": {"A": -0.05, "B": -0.05, "C": 0.05, "D": 0.05},
+            "2024-01-03": {"A": 0.05, "B": 0.05, "C": -0.05, "D": -0.05},
+        }
+        gross = bt.run(expr, snapshots_by_date, returns_by_date, num_layers=2, cost_rate=0.0)
+        net = bt.run(expr, snapshots_by_date, returns_by_date, num_layers=2, cost_rate=0.05)
+        assert gross.long_short_return > net.long_short_return
+
     def test_empty_data(self):
         bt = LayerBacktester()
         expr = FactorRefExpr(field_name="pe_ratio")

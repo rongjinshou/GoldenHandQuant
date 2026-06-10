@@ -2,9 +2,54 @@
 
 from unittest.mock import MagicMock
 
-from src.application.factor_test_app import FactorTestAppService, FactorTestResult
+from src.application.factor_test_app import (
+    FactorTestAppService,
+    FactorTestResult,
+    _compute_forward_returns,
+)
 from src.domain.strategy.factor_test.factor_catalog import P0_FACTORS
 from src.domain.strategy.factor_test.report import FactorTestReport, ScoredFactorTestReport
+
+
+class TestPrepareSnapshotsWarmup:
+    def test_loads_warmup_history_before_start(self):
+        """取数应提前一段(warmup), 让开头日期的 return_60d 等特征可算。"""
+        mock_hist = MagicMock()
+        mock_hist.fetch_history_bars.return_value = []
+        mock_fund = MagicMock()
+        mock_fund.fetch_by_range.return_value = []
+        service = FactorTestAppService(history_fetcher=mock_hist, fundamental_fetcher=mock_fund)
+
+        service.prepare_snapshots(["000001.SZ"], "2024-01-01", "2024-06-30")
+
+        # fetch_history_bars(symbol, tf, start, end) — start 应早于请求的 2024-01-01
+        call_start = mock_hist.fetch_history_bars.call_args[0][2]
+        assert call_start < "2024-01-01"
+
+
+class TestForwardReturnsAlignment:
+    def test_returns_keyed_by_realized_date(self):
+        """收益须按【实现日(end date)】键入，与 ICCalculator 的 next_date 约定对齐。
+
+        防 off-by-one: factor@prev 经引擎 next_date 查到 returns[cur],
+        预测 prev->cur 的收益。若按 start date 键入则错位一天。
+        """
+        prices_by_date = {
+            "2024-01-02": {"A": 10.0, "B": 100.0},
+            "2024-01-03": {"A": 11.0, "B": 90.0},   # A +10%, B -10%
+            "2024-01-04": {"A": 11.0, "B": 99.0},   # A 0%, B +10%
+        }
+
+        rets = _compute_forward_returns(prices_by_date)
+
+        # 键应是实现日 01-03 / 01-04（首日 01-02 无前一日, 不产出收益）
+        assert set(rets.keys()) == {"2024-01-03", "2024-01-04"}
+        # 01-03 实现的收益 = 01-02 -> 01-03
+        assert abs(rets["2024-01-03"]["A"] - 0.10) < 1e-9
+        assert abs(rets["2024-01-03"]["B"] - (-0.10)) < 1e-9
+        # 01-04 实现的收益 = 01-03 -> 01-04
+        assert abs(rets["2024-01-04"]["A"] - 0.0) < 1e-9
+        assert abs(rets["2024-01-04"]["B"] - 0.10) < 1e-9
 
 
 class TestFactorTestAppServiceRunSingle:

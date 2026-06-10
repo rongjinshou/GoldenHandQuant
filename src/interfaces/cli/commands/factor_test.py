@@ -29,6 +29,9 @@ def run_factor_test(args: argparse.Namespace) -> None:
     if split_date:
         print(f"Split:   IS={start_date}→{split_date} | OOS={split_date}→{end_date}")
     print(f"Layers:  {num_layers}")
+    if len(hypotheses) > 1 and not split_date:
+        print("⚠️  多重检验提醒: 同时测多个因子且无样本外切分 → 单个'显著'很可能是噪声; "
+              "强烈建议加 --split 用样本外定夺。")
     print()
 
     # 2. 加载配置 → 获取 symbols 和 fetcher
@@ -58,10 +61,20 @@ def run_factor_test(args: argparse.Namespace) -> None:
         history_fetcher = QmtHistoryDataFetcher()
         fundamental_fetcher = QmtFundamentalFetcher()
 
-    # 4. 如果是截面策略需要全市场，扩大 symbols
+        # 因子测试需全市场截面 → 用 QMT 全 A 股列表覆盖配置里的少量 symbols
+        try:
+            from src.infrastructure.gateway.xtquant_client import xtdata as _xt
+            full = sorted(set(_xt.get_stock_list_in_sector("沪深A股")))
+            if full:
+                symbols = full
+                print(f"Universe: 全 A 股 {len(symbols)} 只 (来自 QMT)")
+        except Exception as e:
+            print(f"Warning: 无法加载全市场列表 ({e}); 使用配置 symbols。")
+
+    # 4. 截面因子测试需要足够宽的股票池
     if len(symbols) <= 5:
-        print(f"Warning: Only {len(symbols)} symbols configured. Factor testing works best with 200+ stocks.")
-        print(f"Consider adding more symbols to {config_path}.")
+        print(f"Warning: Only {len(symbols)} symbols. Factor testing works best with 200+ stocks.")
+        print(f"Consider configuring more symbols in {config_path} or use the QMT data source.")
 
     # 5. 创建服务并执行
     from src.application.factor_test_app import FactorTestAppService

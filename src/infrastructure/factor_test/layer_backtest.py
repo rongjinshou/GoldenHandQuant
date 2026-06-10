@@ -29,6 +29,7 @@ class LayerBacktester:
         snapshots_by_date: dict[str, list[StockSnapshot]],
         returns_by_date: dict[str, dict[str, float]],
         num_layers: int = 5,
+        cost_rate: float = 0.003,
     ) -> LayerBacktestResult:
         """执行分层回测。
 
@@ -41,8 +42,10 @@ class LayerBacktester:
         Returns:
             LayerBacktestResult
         """
-        # 每日各层收益
-        layer_daily_returns: list[list[float]] = [[] for _ in range(num_layers)]
+        # 每日各层: 毛收益 + 换手率 (用于扣成本)
+        layer_daily_gross: list[list[float]] = [[] for _ in range(num_layers)]
+        layer_daily_turnover: list[list[float]] = [[] for _ in range(num_layers)]
+        prev_members: list[set[str]] = [set() for _ in range(num_layers)]
 
         for date_str in sorted(snapshots_by_date.keys()):
             next_date = self._next_date(date_str, returns_by_date)
@@ -66,32 +69,46 @@ class LayerBacktester:
             for layer_idx in range(num_layers):
                 start = layer_idx * group_size
                 end = start + group_size if layer_idx < num_layers - 1 else len(items)
-                group_returns = [item[2] for item in items[start:end]]
-                if group_returns:
-                    avg_ret = sum(group_returns) / len(group_returns)
-                    layer_daily_returns[layer_idx].append(avg_ret)
+                group = items[start:end]
+                if not group:
+                    continue
+                members = {it[0] for it in group}
+                avg_ret = sum(it[2] for it in group) / len(group)
+                # 换手率: 相对上次调仓该层新进成员占比 (首次建仓=1.0)
+                if prev_members[layer_idx]:
+                    turnover = len(members - prev_members[layer_idx]) / len(members)
+                else:
+                    turnover = 1.0
+                layer_daily_gross[layer_idx].append(avg_ret)
+                layer_daily_turnover[layer_idx].append(turnover)
+                prev_members[layer_idx] = members
 
-        # 计算各层累计收益
-        layer_cumulative: list[list[float]] = []
-        for layer_idx in range(num_layers):
-            cum = [1.0]
-            for r in layer_daily_returns[layer_idx]:
-                cum.append(cum[-1] * (1 + r))
-            layer_cumulative.append(cum)
-
-        # 计算年化收益率
+        # 各层净收益 (扣换手成本, 长仓口径) → 累计 → 年化
         trading_days_per_year = 244
+        layer_cumulative: list[list[float]] = []
         layer_annual_returns: list[float] = []
         for layer_idx in range(num_layers):
-            n_days = len(layer_daily_returns[layer_idx])
+            nets = [
+                g - t * cost_rate
+                for g, t in zip(layer_daily_gross[layer_idx], layer_daily_turnover[layer_idx])
+            ]
+            cum = [1.0]
+            for r in nets:
+                cum.append(cum[-1] * (1 + r))
+            layer_cumulative.append(cum)
+            n_days = len(nets)
             if n_days > 0:
-                total_ret = layer_cumulative[layer_idx][-1] / layer_cumulative[layer_idx][0] - 1
+                total_ret = cum[-1] / cum[0] - 1
                 annual = (1 + total_ret) ** (trading_days_per_year / n_days) - 1
             else:
                 annual = 0.0
             layer_annual_returns.append(annual)
 
-        long_short = layer_annual_returns[-1] - layer_annual_returns[0] if layer_annual_returns else 0.0
+        # 多空: 顶层做多 + 底层做空, 两腿均扣换手成本
+        long_short = self._long_short_net(
+            layer_daily_gross, layer_daily_turnover, num_layers,
+            cost_rate, trading_days_per_year,
+        )
         mono = self._monotonicity_score(layer_annual_returns)
 
         return LayerBacktestResult(
@@ -101,6 +118,28 @@ class LayerBacktester:
             layer_cumulative=layer_cumulative,
             monotonicity_score=mono,
         )
+
+    @staticmethod
+    def _long_short_net(
+        layer_daily_gross: list[list[float]],
+        layer_daily_turnover: list[list[float]],
+        num_layers: int,
+        cost_rate: float,
+        trading_days_per_year: int,
+    ) -> float:
+        """多空年化净收益: 顶层做多、底层做空, 两腿均按换手扣成本。"""
+        top, bot = num_layers - 1, 0
+        n = min(len(layer_daily_gross[top]), len(layer_daily_gross[bot]))
+        if n == 0:
+            return 0.0
+        cum = 1.0
+        for t in range(n):
+            spread_gross = layer_daily_gross[top][t] - layer_daily_gross[bot][t]
+            spread_cost = (layer_daily_turnover[top][t] + layer_daily_turnover[bot][t]) * cost_rate
+            cum *= 1 + spread_gross - spread_cost
+        if cum <= 0:
+            return -1.0
+        return cum ** (trading_days_per_year / n) - 1
 
     def _next_date(self, date_str: str, returns_by_date: dict[str, dict[str, float]]) -> str | None:
         sorted_dates = sorted(returns_by_date.keys())

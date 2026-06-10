@@ -23,6 +23,8 @@ class FactorVerdict:
     oos_ic_mean: float = 0.0
     oos_ir: float = 0.0
     oos_long_short_return: float = 0.0
+    # Neutralized (orthogonalized) IC — §7.5
+    neutralized_ic: float = 0.0
     # Verdict
     passed: bool = False
     reasons: list[str] = None     # why passed / failed
@@ -35,7 +37,7 @@ class FactorVerdict:
 # --- Hard thresholds from §7 ---
 IC_MIN = 0.02
 IR_MIN = 0.30
-MONOTONICITY_MIN = 0.4       # moderate; design doc says "高"
+MONOTONICITY_MIN = 0.6       # 5层时即需 ≥3/4 相邻递增, 明显高于随机(~0.5)
 LONG_SHORT_MIN = 0.0         # must be positive after costs
 OOS_IC_SIGN_FLIP = False     # IC sign must not flip OOS
 
@@ -45,6 +47,7 @@ def judge_factor(
     oos_report: ScoredFactorTestReport | None = None,
     factor_id: str = "",
     factor_name: str = "",
+    neutralized_ic: float | None = None,
 ) -> FactorVerdict:
     """Apply §7 hard thresholds to a factor test report.
 
@@ -61,18 +64,19 @@ def judge_factor(
     reasons: list[str] = []
     passed = True
 
-    # 1. IC 有效: |IC均值| >= 0.02, IR >= 0.3
-    if abs(r.ic_mean) < IC_MIN:
+    # 1. IC 有效: 因子已定向(高=预期跑赢), IC 须为正且 >= 0.02, IR >= 0.3
+    #    (用有符号判定, 不用 abs: 负 IC = 方向错, 应判负)
+    if r.ic_mean < IC_MIN:
         passed = False
-        reasons.append(f"|IC|={abs(r.ic_mean):.4f} < {IC_MIN} (IC门槛)")
+        reasons.append(f"IC={r.ic_mean:.4f} < {IC_MIN} (IC门槛/方向)")
     else:
-        reasons.append(f"|IC|={abs(r.ic_mean):.4f} >= {IC_MIN} ✓")
+        reasons.append(f"IC={r.ic_mean:.4f} >= {IC_MIN} ✓")
 
-    if abs(r.ir) < IR_MIN:
+    if r.ir < IR_MIN:
         passed = False
-        reasons.append(f"|IR|={abs(r.ir):.3f} < {IR_MIN} (IR门槛)")
+        reasons.append(f"IR={r.ir:.3f} < {IR_MIN} (IR门槛)")
     else:
-        reasons.append(f"|IR|={abs(r.ir):.3f} >= {IR_MIN} ✓")
+        reasons.append(f"IR={r.ir:.3f} >= {IR_MIN} ✓")
 
     # 2. IC 正率明显偏离 50%
     if r.ic_positive_rate < 0.52:
@@ -119,6 +123,15 @@ def judge_factor(
         else:
             reasons.append(f"样本外多空收益={oos_r.long_short_return:.2%} ✓")
 
+    # 6. 正交化增量(§7.5): 剥离市值/反转后 IC 须仍过门槛
+    # (规模/量价因子本身是控制变量, 由调用方传 None 跳过)
+    if neutralized_ic is not None:
+        if abs(neutralized_ic) < IC_MIN:
+            passed = False
+            reasons.append(f"中性化后|IC|={abs(neutralized_ic):.4f} < {IC_MIN} (疑似市值/反转影子)")
+        else:
+            reasons.append(f"中性化后|IC|={abs(neutralized_ic):.4f} >= {IC_MIN} (有增量) ✓")
+
     return FactorVerdict(
         factor_id=factor_id,
         factor_name=factor_name,
@@ -133,6 +146,7 @@ def judge_factor(
         oos_ic_mean=oos_ic,
         oos_ir=oos_ir,
         oos_long_short_return=oos_ls,
+        neutralized_ic=neutralized_ic if neutralized_ic is not None else 0.0,
         passed=passed,
         reasons=reasons,
     )

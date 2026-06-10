@@ -69,3 +69,31 @@ class TestJudgeFactor:
         oos_report = _make_report(ic_mean=0.03, long_short_return=0.05)
         verdict = judge_factor(is_report, oos_report=oos_report)
         assert verdict.passed is True
+
+    def test_fail_negative_ic_direction(self):
+        """已定向因子 IC 为负(方向错) → 判负 (不再用 abs 放过)。"""
+        report = _make_report(ic_mean=-0.04, ir=-0.5)
+        verdict = judge_factor(report)
+        assert verdict.passed is False
+        assert any("方向" in r for r in verdict.reasons)
+
+    def test_fail_mediocre_monotonicity(self):
+        """单调性 0.5(≈随机) → 判负 (门槛收紧到 0.6)。"""
+        report = _make_report(monotonicity_score=0.5)
+        verdict = judge_factor(report)
+        assert verdict.passed is False
+        assert any("单调性" in r for r in verdict.reasons)
+
+    def test_fail_neutralized_ic_collapse(self):
+        """raw 全过, 但中性化(剥离市值/反转)后 IC 崩塌 → 判负(疑似影子)。"""
+        report = _make_report()
+        verdict = judge_factor(report, neutralized_ic=0.005)
+        assert verdict.passed is False
+        assert any("中性化" in r for r in verdict.reasons)
+
+    def test_pass_with_neutralized_increment(self):
+        """中性化后仍有 IC → 该门槛通过, 且记录 neutralized_ic。"""
+        report = _make_report()
+        verdict = judge_factor(report, neutralized_ic=0.03)
+        assert verdict.passed is True
+        assert verdict.neutralized_ic == 0.03

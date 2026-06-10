@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from src.domain.market.services.fundamental_registry import FundamentalRegistry
@@ -13,12 +13,19 @@ from src.domain.strategy.factor_test.factor_catalog import FactorHypothesis
 from src.domain.strategy.factor_test.report import ScoredFactorTestReport
 from src.domain.strategy.factor_test.verdict import FactorVerdict, judge_factor
 from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
+from src.infrastructure.factor_test.neutralizer import FactorNeutralizer
 from src.infrastructure.factor_test.test_runner import FactorTestRunner
 from src.infrastructure.mock.mock_market import MockMarketGateway
 
 if TYPE_CHECKING:
     from src.domain.market.interfaces.gateways.fundamental_fetcher import IFundamentalFetcher
     from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
+
+# 规模/量价(反转/动量)因子本身就是中性化的控制变量, 不对自己做正交化
+_CONTROL_CATEGORIES = frozenset({"规模", "量价"})
+
+# 取数提前量: 让窗口开头也能算出 return_60d / volatility_20d 等需历史的特征
+_WARMUP_DAYS = 200
 
 
 @dataclass(slots=True, kw_only=True)
@@ -48,6 +55,7 @@ class FactorTestAppService:
         self._history_fetcher = history_fetcher
         self._fundamental_fetcher = fundamental_fetcher
         self._runner = FactorTestRunner()
+        self._neutralizer = FactorNeutralizer()
 
     def prepare_snapshots(
         self,
@@ -69,14 +77,20 @@ class FactorTestAppService:
         market = MockMarketGateway()
         tf = Timeframe.DAY_1
 
-        # 1. 加载行情数据
+        # warmup 提前量: 回测窗口仍是 [start, end], 但取数从更早开始,
+        # 保证开头日期的 return_60d / volatility / 最新财报 都已就绪。
+        warmup_start = (
+            datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=_WARMUP_DAYS)
+        ).strftime("%Y-%m-%d")
+
+        # 1. 加载行情数据 (从 warmup_start 起)
         for symbol in symbols:
-            bars = self._history_fetcher.fetch_history_bars(symbol, tf, start_date, end_date)
+            bars = self._history_fetcher.fetch_history_bars(symbol, tf, warmup_start, end_date)
             market.load_bars(bars)
 
-        # 2. 加载基本面数据
+        # 2. 加载基本面数据 (含 warmup, 保证开头已有最新财报)
         registry = FundamentalRegistry()
-        fund_snapshots = self._fundamental_fetcher.fetch_by_range(start_date, end_date)
+        fund_snapshots = self._fundamental_fetcher.fetch_by_range(warmup_start, end_date)
         registry.load_snapshots(fund_snapshots)
 
         # 3. 按日构建 StockSnapshot
@@ -121,20 +135,8 @@ class FactorTestAppService:
                 snapshots_by_date[date_str] = snapshots
                 prices_by_date[date_str] = close_prices
 
-        # 4. 计算次日收益 (returns_by_date)
-        sorted_dates = sorted(snapshots_by_date.keys())
-        returns_by_date: dict[str, dict[str, float]] = {}
-        for i, date_str in enumerate(sorted_dates):
-            if i + 1 >= len(sorted_dates):
-                break
-            next_date = sorted_dates[i + 1]
-            today_prices = prices_by_date.get(date_str, {})
-            next_prices = prices_by_date.get(next_date, {})
-            day_returns: dict[str, float] = {}
-            for sym in today_prices:
-                if sym in next_prices and today_prices[sym] > 0:
-                    day_returns[sym] = (next_prices[sym] - today_prices[sym]) / today_prices[sym]
-            returns_by_date[date_str] = day_returns
+        # 4. 计算前向收益 (按实现日键入，与引擎 next_date 约定对齐)
+        returns_by_date = _compute_forward_returns(prices_by_date)
 
         return snapshots_by_date, returns_by_date, prices_by_date
 
@@ -214,9 +216,18 @@ class FactorTestAppService:
                         hyp, oos_snapshots, oos_returns, oos_prices, oos_period, num_layers
                     )
 
+            # 正交化增量门槛(§7.5): 非控制类因子才做中性化
+            if hyp.category in _CONTROL_CATEGORIES:
+                neutralized_ic = None
+            else:
+                neutralized_ic = self._neutralizer.mean_neutralized_ic(
+                    hyp.expression, is_snapshots, is_returns,
+                )
+
             verdict = judge_factor(
                 is_report, oos_report=oos_report,
                 factor_id=hyp.factor_id, factor_name=hyp.name,
+                neutralized_ic=neutralized_ic,
             )
 
             results.append(FactorTestResult(
@@ -231,3 +242,28 @@ class FactorTestAppService:
                   f"Score={is_report.score:.0f}({is_report.grade})")
 
         return results
+
+
+def _compute_forward_returns(
+    prices_by_date: dict[str, dict[str, float]],
+) -> dict[str, dict[str, float]]:
+    """计算前向收益，按【实现日(end date)】键入。
+
+    returns[cur][sym] = (price[cur] - price[prev]) / price[prev]
+    与 ICCalculator/LayerBacktester 的 next_date 约定对齐: factor@prev 经引擎
+    next_date 查到 returns[cur], 预测 prev->cur 的收益, 杜绝 off-by-one。
+    """
+    sorted_dates = sorted(prices_by_date.keys())
+    returns_by_date: dict[str, dict[str, float]] = {}
+    for i in range(1, len(sorted_dates)):
+        prev_date = sorted_dates[i - 1]
+        cur_date = sorted_dates[i]
+        prev_prices = prices_by_date.get(prev_date, {})
+        cur_prices = prices_by_date.get(cur_date, {})
+        day_returns: dict[str, float] = {}
+        for sym, p_prev in prev_prices.items():
+            p_cur = cur_prices.get(sym)
+            if p_cur is not None and p_prev > 0:
+                day_returns[sym] = (p_cur - p_prev) / p_prev
+        returns_by_date[cur_date] = day_returns
+    return returns_by_date
