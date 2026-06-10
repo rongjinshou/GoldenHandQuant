@@ -36,54 +36,27 @@ def run_factor_test(args: argparse.Namespace) -> None:
               "强烈建议加 --split 用样本外定夺。")
     print()
 
-    # 2. 加载配置 → 获取 symbols 和 fetcher
-    try:
-        from src.infrastructure.config.settings import load_backtest_config
-        settings = load_backtest_config(config_path)
-        symbols = settings.backtest.symbols
-        history_fetcher_type = settings.data.history_fetcher
-        tushare_token = settings.data.tushare.token
-    except FileNotFoundError:
-        print(f"Config not found ({config_path}), using default symbols.")
-        symbols = ["000021.SZ"]
-        history_fetcher_type = "TushareHistoryDataFetcher"
-        tushare_token = None
+    # 2. 组装数据服务（store + fetchers）与全市场股票池
+    from src.interfaces.cli.commands._data_wiring import build_data_wiring, resolve_universe
 
-    # 3. 初始化 fetchers
-    if history_fetcher_type == "TushareHistoryDataFetcher":
-        from src.infrastructure.gateway.tushare_fundamental_fetcher import TushareFundamentalFetcher
-        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
+    wiring = build_data_wiring(config_path)
+    symbols = resolve_universe(wiring)
 
-        history_fetcher = TushareHistoryDataFetcher(token=tushare_token)
-        fundamental_fetcher = TushareFundamentalFetcher(token=tushare_token)
-    else:
-        from src.infrastructure.gateway.qmt_fundamental_fetcher import QmtFundamentalFetcher
-        from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
-
-        history_fetcher = QmtHistoryDataFetcher()
-        fundamental_fetcher = QmtFundamentalFetcher()
-
-        # 因子测试需全市场截面 → 用 QMT 全 A 股列表覆盖配置里的少量 symbols
-        try:
-            from src.infrastructure.gateway.xtquant_client import xtdata as _xt
-            full = sorted(set(_xt.get_stock_list_in_sector("沪深A股")))
-            if full:
-                symbols = full
-                print(f"Universe: 全 A 股 {len(symbols)} 只 (来自 QMT)")
-        except Exception as e:
-            print(f"Warning: 无法加载全市场列表 ({e}); 使用配置 symbols。")
-
-    # 4. 截面因子测试需要足够宽的股票池
+    # 3. 截面因子测试需要足够宽的股票池
     if len(symbols) <= 5:
         print(f"Warning: Only {len(symbols)} symbols. Factor testing works best with 200+ stocks.")
         print(f"Consider configuring more symbols in {config_path} or use the QMT data source.")
 
-    # 5. 创建服务并执行
+    # 4. 创建服务并执行（默认 DB 快路径; --no-store 回退旧内存路径）
     from src.application.factor_test_app import FactorTestAppService
 
+    use_store = not getattr(args, "no_store", False)
+    if not use_store:
+        print("(--no-store: 使用旧内存管道)")
     service = FactorTestAppService(
-        history_fetcher=history_fetcher,
-        fundamental_fetcher=fundamental_fetcher,
+        history_fetcher=wiring.history_fetcher,
+        fundamental_fetcher=wiring.fundamental_fetcher,
+        market_data=wiring.market_data if use_store else None,
     )
 
     print(f"[Step 1] Preparing data ({len(symbols)} symbols)...")

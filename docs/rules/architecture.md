@@ -18,7 +18,7 @@
 
 作为本项目的 AI 编程助手，你在生成任何代码时，**必须绝对遵守以下红线，不可有任何逾越**：
 
-1. **领域层绝对纯洁 (Domain Purity)**: `src/domain` 目录下的所有代码，**严禁**引入任何第三方库（如 pandas, numpy, xtquant, lightgbm, catboost 等）。只能使用 Python 标准库（如 dataclasses, enum, typing, datetime, math, hashlib, hmac, copy）。
+1. **领域层无副作用 (Domain Purity)**: `src/domain` 目录下的代码**允许**使用纯计算库（numpy / pandas / scipy——无 I/O、无网络、无全局状态），用于向量化数值计算；**严禁**引入带副作用或环境依赖的库：数据源 SDK（xtquant、tushare）、存储引擎（duckdb、sqlite 包装）、Web 框架（fastapi）、可视化（matplotlib）、ML 训练库（lightgbm、catboost）。红线的本质是"领域逻辑无副作用、可独立测试"，而非禁用高性能数值库（变更决定与动机见 `docs/feat/0611-market-data-store/2026-06-11-market-data-store-design.md` §2，2026-06-11）。
 2. **严格的依赖控制**: 依赖关系只能**由外向内**。
    * Infrastructure（基础设施层）可以调用 Application（应用层）和 Domain（领域层）。
    * Application 可以调用 Domain。
@@ -243,7 +243,7 @@ GoldenHandQuant/
 
 ### 5.3 因子表达式检验
 
-`src/domain/strategy/factor_test/` 提供因子表达式的定义和求值能力（纯 domain 层，无第三方依赖）：
+`src/domain/strategy/factor_test/` 提供因子表达式的定义和求值能力（纯 domain 层）：
 
 * **Lexer/Parser**: 将因子表达式字符串解析为 AST（支持算术运算、截面函数 `rank`/`zscore`、一元函数 `abs`/`log`/`sign`）
 * **FactorExpressionEvaluator**: 对 AST 求值，输出每只股票的因子值
@@ -533,7 +533,7 @@ AppSettings
 
 1. **分析**: 确认该任务属于 DDD 的哪一层，并简述设计思路。
 2. **编码**: 按照 `ARCHITECTURE.md` 的要求编写高质量代码。
-3. **自检**: 生成完毕后，自行核对是否违反了上述红线（如：是否在 domain 层 import 了 pandas）。若有违反，立即自行修正。
+3. **自检**: 生成完毕后，自行核对是否违反了上述红线（如：是否在 domain 层 import 了 xtquant/duckdb 等副作用库）。若有违反，立即自行修正。
 
 ## 19. Python 现代编码风格与规范 (Modern Coding Conventions)
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
+from src.domain.market.services.feature_engine import WARMUP_DAYS as _WARMUP_DAYS
 from src.domain.market.services.fundamental_registry import FundamentalRegistry
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.market.value_objects.timeframe import Timeframe
@@ -18,14 +19,12 @@ from src.infrastructure.factor_test.test_runner import FactorTestRunner
 from src.infrastructure.mock.mock_market import MockMarketGateway
 
 if TYPE_CHECKING:
+    from src.application.market_data_app import MarketDataAppService
     from src.domain.market.interfaces.gateways.fundamental_fetcher import IFundamentalFetcher
     from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
 
 # 规模/量价(反转/动量)因子本身就是中性化的控制变量, 不对自己做正交化
 _CONTROL_CATEGORIES = frozenset({"规模", "量价"})
-
-# 取数提前量: 让窗口开头也能算出 return_60d / volatility_20d 等需历史的特征
-_WARMUP_DAYS = 200
 
 
 @dataclass(slots=True, kw_only=True)
@@ -51,9 +50,11 @@ class FactorTestAppService:
         self,
         history_fetcher: IHistoryDataFetcher,
         fundamental_fetcher: IFundamentalFetcher,
+        market_data: MarketDataAppService | None = None,
     ) -> None:
         self._history_fetcher = history_fetcher
         self._fundamental_fetcher = fundamental_fetcher
+        self._market_data = market_data
         self._runner = FactorTestRunner()
         self._neutralizer = FactorNeutralizer()
 
@@ -74,6 +75,10 @@ class FactorTestAppService:
             returns_by_date: {date_str: {symbol: next_day_return}}
             prices_by_date: {date_str: {symbol: close_price}}
         """
+        # DB 快路径: 注入 MarketDataAppService 时走缺口刷新 + 特征库装载
+        if self._market_data is not None:
+            return self._market_data.prepare(symbols, start_date, end_date)
+
         market = MockMarketGateway()
         tf = Timeframe.DAY_1
 

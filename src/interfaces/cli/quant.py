@@ -66,6 +66,16 @@ def build_parser() -> argparse.ArgumentParser:
                             "持有期内不重排、不计换手成本")
     p_ft.add_argument("--output", type=str, default=None, help="报告输出路径(JSON)")
     p_ft.add_argument("--config", type=str, default="resources/backtest.yaml", help="配置文件")
+    p_ft.add_argument("--no-store", action="store_true",
+                       help="不走市场数据库快路径, 回退旧内存管道")
+
+    # --- data ---
+    p_data = subparsers.add_parser("data", help="市场数据库维护 (DuckDB)")
+    p_data.add_argument("data_action", choices=["refresh", "status"], help="数据子命令")
+    p_data.add_argument("--start-date", type=str, default="2021-01-01", help="刷新开始日期")
+    p_data.add_argument("--end-date", type=str, default="2025-12-31", help="刷新结束日期")
+    p_data.add_argument("--config", type=str, default="resources/backtest.yaml", help="配置文件")
+    p_data.add_argument("--db", type=str, default="data/market.duckdb", help="数据库文件路径")
 
     # --- list ---
     subparsers.add_parser("list", help="列出所有可用策略")
@@ -133,6 +143,10 @@ def main() -> None:
             from src.interfaces.cli.commands.factor_test import run_factor_test
 
             run_factor_test(args)
+        case "data":
+            from src.interfaces.cli.commands.data_cmd import run_data
+
+            run_data(args)
         case "list":
             from src.domain.strategy.registry import list_strategies
 

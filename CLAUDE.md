@@ -103,7 +103,7 @@ python -m src.interfaces.cli.compare_strategies --strategies dual_ma,micro_value
 - **Python 3.13+**：使用 `list[X]`、`dict[K,V]`、`X | None`（弃用 `List`、`Dict`、`Optional`）
 - **Dataclass**：实体/值对象使用 `@dataclass(slots=True, kw_only=True)`
 - **状态机**：优先使用 `match/case` 语法
-- **Domain 红线**：`src/domain/` 下禁止 import 任何第三方库（pandas、numpy 等）
+- **Domain 红线**：`src/domain/` 允许纯计算库（numpy/pandas/scipy，无 I/O、无网络、无全局状态）；仍禁止数据源 SDK（xtquant/tushare）、存储引擎（duckdb/sqlite 包装）、Web 框架、可视化、ML 训练库（变更记录：`docs/feat/0611-market-data-store/`）
 - **测试**：pytest + AAA 模式；domain 层测试不需要 mock；测试文件命名 `test_<源文件名>.py`，目录结构与 `src/` 镜像映射
 - **QMT/xtquant**：获取 K 线必须用 `get_market_data_ex()`（禁用旧版 `get_market_data()`），必须指定 `dividend_type='front'`
 
