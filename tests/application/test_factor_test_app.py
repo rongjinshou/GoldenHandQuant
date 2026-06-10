@@ -1,5 +1,6 @@
 """Tests for FactorTestAppService -- mock-based integration test."""
 
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 from src.application.factor_test_app import (
@@ -7,8 +8,82 @@ from src.application.factor_test_app import (
     FactorTestResult,
     _compute_forward_returns,
 )
+from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
+from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.strategy.factor_test.factor_catalog import P0_FACTORS
 from src.domain.strategy.factor_test.report import FactorTestReport, ScoredFactorTestReport
+
+
+class _StubHistoryFetcher:
+    """真实数据结构的历史行情 stub (非 MagicMock)。"""
+
+    def __init__(self, bars_by_symbol: dict[str, list[Bar]]) -> None:
+        self._bars = bars_by_symbol
+
+    def fetch_history_bars(self, symbol, timeframe, start_date, end_date):
+        s = datetime.strptime(start_date, "%Y-%m-%d")
+        e = datetime.strptime(end_date, "%Y-%m-%d")
+        return [b for b in self._bars.get(symbol, []) if s <= b.timestamp <= e]
+
+
+class _StubFundamentalFetcher:
+    """真实数据结构的基本面 stub (非 MagicMock)。"""
+
+    def __init__(self, snapshots: list[FundamentalSnapshot]) -> None:
+        self._snapshots = snapshots
+
+    def fetch_by_range(self, start_date, end_date):
+        return [
+            s for s in self._snapshots
+            if start_date <= s.date.strftime("%Y-%m-%d") <= end_date
+        ]
+
+
+def _consecutive_dates(first: str, n: int) -> list[str]:
+    """从 first 起连续 n 个自然日 (MockMarketGateway 不区分交易日/自然日)。"""
+    d0 = datetime.strptime(first, "%Y-%m-%d")
+    return [(d0 + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(n)]
+
+
+def _make_daily_bars(symbol: str, closes: dict[str, float]) -> list[Bar]:
+    """每个日期一根日线 bar, OHLC 同价、量恒定 — close 唯一可辨识来源日。"""
+    return [
+        Bar(
+            symbol=symbol,
+            timeframe=Timeframe.DAY_1,
+            timestamp=datetime.strptime(d, "%Y-%m-%d"),
+            open=c, high=c, low=c, close=c,
+            volume=1_000_000.0,
+        )
+        for d, c in closes.items()
+    ]
+
+
+def _make_fundamentals(symbol: str, dates: list[str]) -> list[FundamentalSnapshot]:
+    """每个交易日一条基本面快照 (registry 按 ann_date 精确匹配当日)。"""
+    return [
+        FundamentalSnapshot(
+            symbol=symbol,
+            date=datetime.strptime(d, "%Y-%m-%d"),
+            name="测试股",
+            list_date=datetime(2010, 1, 1),
+            market_cap=5_000_000_000.0,
+        )
+        for d in dates
+    ]
+
+
+def _build_service(
+    closes: dict[str, float], symbol: str = "000001.SZ"
+) -> FactorTestAppService:
+    """用真实数据结构的 stub 组装服务 (走完整 prepare_snapshots 管道)。"""
+    return FactorTestAppService(
+        history_fetcher=_StubHistoryFetcher({symbol: _make_daily_bars(symbol, closes)}),
+        fundamental_fetcher=_StubFundamentalFetcher(
+            _make_fundamentals(symbol, list(closes.keys()))
+        ),
+    )
 
 
 class TestPrepareSnapshotsWarmup:
@@ -25,6 +100,116 @@ class TestPrepareSnapshotsWarmup:
         # fetch_history_bars(symbol, tf, start, end) — start 应早于请求的 2024-01-01
         call_start = mock_hist.fetch_history_bars.call_args[0][2]
         assert call_start < "2024-01-01"
+
+    def test_first_window_day_has_history_features(self):
+        """warmup 约定: 窗口首日的 return_5d / volatility_20d 已可算。
+
+        取数从 start-200 天开始, 窗口开头不该有特征 NaN 冷启动期。
+        """
+        # 40 天 warmup + 5 天窗口, close 线性递增保证特征非平凡
+        dates = _consecutive_dates("2024-01-01", 45)
+        closes = {d: 10.0 + i * 0.1 for i, d in enumerate(dates)}
+        service = _build_service(closes)
+
+        snaps, _, _ = service.prepare_snapshots(
+            ["000001.SZ"], "2024-02-10", "2024-02-14"
+        )
+
+        first_day = min(snaps.keys())
+        assert first_day == "2024-02-10"
+        snap = snaps[first_day][0]
+        assert snap.return_5d is not None
+        assert snap.volatility_20d is not None
+
+    def test_output_window_excludes_warmup_dates(self):
+        """warmup 约定: 提前取的数只喂特征, 不进输出 — 键严格落在 [start, end]。"""
+        dates = _consecutive_dates("2024-01-01", 45)
+        closes = {d: 10.0 + i * 0.1 for i, d in enumerate(dates)}
+        service = _build_service(closes)
+
+        snaps, rets, prices = service.prepare_snapshots(
+            ["000001.SZ"], "2024-02-10", "2024-02-14"
+        )
+
+        for keys in (snaps.keys(), rets.keys(), prices.keys()):
+            assert all("2024-02-10" <= d <= "2024-02-14" for d in keys)
+
+
+class TestPrepareSnapshotsNoLookahead:
+    def test_snapshot_features_come_from_t_minus_1_bar(self):
+        """T-1 信息约定: T 日快照的价量特征来自 T-1 bar, 执行价才是 T 日 close。
+
+        信号在 T 日开盘前只能依据 T-1 及更早的信息; T 日 close 仅作成交价。
+        """
+        dates = _consecutive_dates("2024-01-01", 10)
+        closes = {d: 10.0 + i for i, d in enumerate(dates)}  # 每日 close 唯一
+        service = _build_service(closes)
+
+        snaps, _, prices = service.prepare_snapshots(
+            ["000001.SZ"], "2024-01-05", "2024-01-10"
+        )
+
+        snap = snaps["2024-01-05"][0]
+        # 特征 bar = T-1 (2024-01-04) 的 close, 而非 T 日的
+        assert snap.close == closes["2024-01-04"]
+        assert snap.close != closes["2024-01-05"]
+        # 执行价 = T 日 close
+        assert prices["2024-01-05"]["000001.SZ"] == closes["2024-01-05"]
+
+    def test_technical_features_use_info_up_to_t_minus_1(self):
+        """无前视约定: return_5d 等窗口特征严格用 T-1 及更早的 close 计算。"""
+        dates = _consecutive_dates("2024-01-01", 10)
+        closes = {d: 10.0 + i for i, d in enumerate(dates)}
+        service = _build_service(closes)
+
+        snaps, _, _ = service.prepare_snapshots(
+            ["000001.SZ"], "2024-01-10", "2024-01-10"
+        )
+
+        snap = snaps["2024-01-10"][0]
+        # info 截止 T-1=01-09: return_5d = (close[01-09] - close[01-04]) / close[01-04]
+        expected = (closes["2024-01-09"] - closes["2024-01-04"]) / closes["2024-01-04"]
+        assert abs(snap.return_5d - expected) < 1e-12
+
+    def test_future_prices_do_not_affect_past_snapshots(self):
+        """无前视约定: 篡改未来 (末日暴涨 10 倍) 不得改变此前任何一天的快照与收益。"""
+        dates = _consecutive_dates("2024-01-01", 30)
+        closes = {d: 10.0 + i * 0.1 for i, d in enumerate(dates)}
+        spiked = dict(closes)
+        spiked[dates[-1]] = closes[dates[-1]] * 10  # 只动最后一天
+
+        snaps_a, rets_a, _ = _build_service(closes).prepare_snapshots(
+            ["000001.SZ"], "2024-01-20", "2024-01-30"
+        )
+        snaps_b, rets_b, _ = _build_service(spiked).prepare_snapshots(
+            ["000001.SZ"], "2024-01-20", "2024-01-30"
+        )
+
+        last_day = dates[-1]
+        for d in snaps_a:
+            if d == last_day:
+                continue
+            a, b = snaps_a[d][0], snaps_b[d][0]
+            assert a.close == b.close
+            assert a.return_5d == b.return_5d
+            assert a.volatility_20d == b.volatility_20d
+        for d in rets_a:
+            if d == last_day:
+                continue
+            assert rets_a[d] == rets_b[d]
+
+    def test_returns_realized_from_execution_closes(self):
+        """收益对齐约定: returns[T] = T-1→T 的执行价收益 (按实现日键入)。"""
+        dates = _consecutive_dates("2024-01-01", 10)
+        closes = {d: 10.0 + i for i, d in enumerate(dates)}
+        service = _build_service(closes)
+
+        _, rets, _ = service.prepare_snapshots(
+            ["000001.SZ"], "2024-01-05", "2024-01-10"
+        )
+
+        expected = (closes["2024-01-06"] - closes["2024-01-05"]) / closes["2024-01-05"]
+        assert abs(rets["2024-01-06"]["000001.SZ"] - expected) < 1e-12
 
 
 class TestForwardReturnsAlignment:
