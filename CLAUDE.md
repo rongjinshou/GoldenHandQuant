@@ -56,6 +56,16 @@ python -m src.interfaces.cli.run_backtest
 
 # 多策略对比
 python -m src.interfaces.cli.compare_strategies --strategies dual_ma,micro_value --plot
+
+# 市场数据库维护（DuckDB, 只刷缺口; 需 Windows Python + QMT）
+$WIN_PYTHON -m src.interfaces.cli.quant data refresh --start-date 2021-01-01 --end-date 2025-12-31
+$WIN_PYTHON -m src.interfaces.cli.quant data status
+
+# 因子判决（结果自动入库 factor_verdicts）
+$WIN_PYTHON -m src.interfaces.cli.quant factor-test --factors P0 --split-date 2024-06-30
+
+# 投研驾驶舱（http://127.0.0.1:8501/ui/）
+$WIN_PYTHON -m src.interfaces.cli.quant dashboard
 ```
 
 ## 核心架构
