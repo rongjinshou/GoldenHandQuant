@@ -3,12 +3,19 @@
 测试 fetch_history_bars 方法的正确性。
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
+import json
+from unittest.mock import patch
+
 import pandas as pd
-from datetime import datetime
-from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
+import pytest
+
 from src.domain.market.value_objects.timeframe import Timeframe
+from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
+
+
+def _ms(d: str) -> int:
+    """日期字符串 -> QMT 毫秒时间戳。"""
+    return int(pd.Timestamp(d).value // 10**6)
 
 
 class TestQmtHistoryDataFetcher:
@@ -211,3 +218,187 @@ class TestQmtHistoryDataFetcher:
         assert bars, "应返回 bar"
         last = max(b.timestamp for b in bars)
         assert (last.year, last.month) == (2024, 12)
+
+    def test_cache_not_covering_start_should_refetch_full_range(self, fetcher, mock_xtdata):
+        """缓存虽新鲜到 end、但起点晚于请求 start 时，应重拉完整区间。
+
+        复现 start 侧缺口: 旧缓存只从 2024 起，请求 2020-06-15 起 (warmup)
+        -> 旧逻辑静默截掉 2020-2023，因子测试前几年的数据悄悄消失。
+        """
+        symbol = "000001.SZ"
+        timeframe = Timeframe.DAY_1
+        start_date = "2020-06-15"
+        end_date = "2025-12-31"
+
+        # 缓存新鲜 (max 2026-02-13 >= end) 但起点只到 2024-01-02
+        cached_df = pd.DataFrame({
+            "datetime": pd.to_datetime(["2024-01-02", "2025-06-02", "2026-02-13"]),
+            "open": [10.0, 10.5, 11.0], "high": [11.0, 11.5, 12.0],
+            "low": [9.0, 9.5, 10.0], "close": [10.5, 11.0, 11.5],
+            "volume": [1000, 2000, 3000],
+        })
+
+        full_ts = [_ms("2020-06-15"), _ms("2023-01-03"), _ms("2025-12-31")]
+        df_front = pd.DataFrame({
+            "open": [8.0, 10.0, 14.0], "high": [9.0, 11.0, 15.0],
+            "low": [7.0, 9.0, 13.0], "close": [8.5, 10.5, 14.5],
+            "volume": [1000, 2000, 3000],
+        }, index=full_ts)
+        df_front.index.name = "datetime"
+        df_unadj = pd.DataFrame({"close": [8.8, 10.8, 14.8]}, index=full_ts)
+
+        with patch("src.infrastructure.gateway.qmt_history_data.Path") as mock_path:
+            mock_path.return_value.exists.return_value = True
+            mock_path.return_value.__truediv__.return_value = mock_path.return_value
+            with patch("pandas.read_csv", return_value=cached_df):
+                with patch("pandas.DataFrame.to_csv"):
+                    mock_xtdata.get_market_data_ex.side_effect = [
+                        {symbol: df_front},
+                        {symbol: df_unadj},
+                    ]
+                    bars = fetcher.fetch_history_bars(
+                        symbol, timeframe, start_date, end_date
+                    )
+
+        # 应检测到缓存未覆盖 start -> 重新下载完整区间
+        mock_xtdata.download_history_data.assert_called_once()
+        # 返回的数据应回溯到 2020，而非从 2024 开始
+        assert bars, "应返回 bar"
+        first = min(b.timestamp for b in bars)
+        assert first.year == 2020
+
+    def test_meta_prevents_refetch_for_late_listed_symbol(self, fetcher, mock_xtdata):
+        """晚上市股票: 缓存起点=上市日(晚于请求 start), 但 meta 记录
+        已按该 start 完整拉取过 -> 用缓存, 不应每次重拉(防风暴)。
+        """
+        symbol = "000001.SZ"
+        timeframe = Timeframe.DAY_1
+        start_date = "2020-06-15"
+        end_date = "2025-12-31"
+
+        # 2022 年才上市: 缓存数据天然无法回溯到 2020
+        cached_df = pd.DataFrame({
+            "datetime": pd.to_datetime(["2022-05-10", "2024-01-02", "2025-12-31"]),
+            "open": [10.0, 10.5, 11.0], "high": [11.0, 11.5, 12.0],
+            "low": [9.0, 9.5, 10.0], "close": [10.5, 11.0, 11.5],
+            "volume": [1000, 2000, 3000],
+        })
+
+        with patch("src.infrastructure.gateway.qmt_history_data.Path") as mock_path:
+            mock_path.return_value.exists.return_value = True
+            mock_path.return_value.__truediv__.return_value = mock_path.return_value
+            # meta: 该 symbol 已按 2020-06-15 起完整下载过
+            mock_path.return_value.read_text.return_value = json.dumps(
+                {"000001.SZ_1d": "2020-06-15"}
+            )
+            with patch("pandas.read_csv", return_value=cached_df):
+                mock_xtdata.get_market_data_ex.return_value = {
+                    symbol: pd.DataFrame({"close": [10.8]}, index=[_ms("2022-05-10")])
+                }
+                bars = fetcher.fetch_history_bars(
+                    symbol, timeframe, start_date, end_date
+                )
+
+        # meta 已确认 start 不可回溯更多 -> 直接用缓存, 不重新下载
+        mock_xtdata.download_history_data.assert_not_called()
+        assert len(bars) == 3
+        assert bars[0].close == 10.5
+
+    def test_meta_records_requested_start_after_download(self, fetcher, mock_xtdata):
+        """重新下载后应把本次履约的 requested start 写入 meta,
+        下次同样请求才不会再次重拉 (与防风暴测试闭环)。
+        """
+        symbol = "000001.SZ"
+        timeframe = Timeframe.DAY_1
+        start_date = "2020-06-15"
+        end_date = "2025-12-31"
+
+        # 起点缺口 -> 触发重新下载
+        cached_df = pd.DataFrame({
+            "datetime": pd.to_datetime(["2024-01-02", "2026-02-13"]),
+            "open": [10.0, 11.0], "high": [11.0, 12.0],
+            "low": [9.0, 10.0], "close": [10.5, 11.5],
+            "volume": [1000, 3000],
+        })
+        full_ts = [_ms("2022-05-10"), _ms("2025-12-31")]
+        df_front = pd.DataFrame({
+            "open": [8.0, 14.0], "high": [9.0, 15.0],
+            "low": [7.0, 13.0], "close": [8.5, 14.5],
+            "volume": [1000, 3000],
+        }, index=full_ts)
+        df_front.index.name = "datetime"
+        df_unadj = pd.DataFrame({"close": [8.8, 14.8]}, index=full_ts)
+
+        with patch("src.infrastructure.gateway.qmt_history_data.Path") as mock_path:
+            mock_path.return_value.exists.return_value = True
+            mock_path.return_value.__truediv__.return_value = mock_path.return_value
+            with patch("pandas.read_csv", return_value=cached_df):
+                with patch("pandas.DataFrame.to_csv"):
+                    mock_xtdata.get_market_data_ex.side_effect = [
+                        {symbol: df_front},
+                        {symbol: df_unadj},
+                    ]
+                    fetcher.fetch_history_bars(symbol, timeframe, start_date, end_date)
+
+        # 下载后 meta 应记录: 该 symbol 已按 2020-06-15 起完整拉取
+        written = mock_path.return_value.write_text.call_args
+        assert written is not None, "应写入 _fetch_meta.json"
+        saved = json.loads(written[0][0])
+        assert saved["000001.SZ_1d"] == "2020-06-15"
+
+    def test_download_exception_logged_not_swallowed(
+        self, fetcher, mock_xtdata, mock_to_csv, mock_path, capsys
+    ):
+        """download_history_data 异常不应被静默吞掉: 打警告后继续走本地数据。"""
+        symbol = "000001.SZ"
+        ts = [_ms("2023-01-01"), _ms("2023-01-02")]
+        df_front = pd.DataFrame({
+            "open": [10.0, 10.5], "high": [11.0, 11.5],
+            "low": [9.0, 9.5], "close": [10.5, 11.0],
+            "volume": [1000, 2000],
+        }, index=ts)
+        df_front.index.name = "datetime"
+        df_unadj = pd.DataFrame({"close": [10.8, 11.2]}, index=ts)
+
+        mock_xtdata.download_history_data.side_effect = RuntimeError("boom")
+        mock_xtdata.get_market_data_ex.side_effect = [
+            {symbol: df_front},
+            {symbol: df_unadj},
+        ]
+
+        bars = fetcher.fetch_history_bars(
+            symbol, Timeframe.DAY_1, "2023-01-01", "2023-01-02"
+        )
+
+        captured = capsys.readouterr()
+        assert "download_history_data failed" in captured.out
+        assert "boom" in captured.out
+        # 异常后仍应继续从本地已有数据取数
+        assert len(bars) == 2
+
+    def test_unadjusted_close_failure_logged(
+        self, fetcher, mock_xtdata, mock_to_csv, mock_path, capsys
+    ):
+        """不复权收盘价获取失败不应静默置 0: 打警告并继续返回 bars。"""
+        symbol = "000001.SZ"
+        ts = [_ms("2023-01-01"), _ms("2023-01-02")]
+        df_front = pd.DataFrame({
+            "open": [10.0, 10.5], "high": [11.0, 11.5],
+            "low": [9.0, 9.5], "close": [10.5, 11.0],
+            "volume": [1000, 2000],
+        }, index=ts)
+        df_front.index.name = "datetime"
+
+        mock_xtdata.get_market_data_ex.side_effect = [
+            {symbol: df_front},
+            RuntimeError("unadj boom"),
+        ]
+
+        bars = fetcher.fetch_history_bars(
+            symbol, Timeframe.DAY_1, "2023-01-01", "2023-01-02"
+        )
+
+        captured = capsys.readouterr()
+        assert "unadjusted close fetch failed" in captured.out
+        assert len(bars) == 2
+        assert bars[0].unadjusted_close == 0.0

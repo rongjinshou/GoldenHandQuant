@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -7,6 +8,27 @@ from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
 
 from .xtquant_client import xtdata
+
+# 下载元数据: {f"{symbol}_{timeframe}": 已完整下载过的最早 requested start}。
+# 用途: 晚上市股票的缓存起点(上市日)天然晚于请求 start, 仅凭数据无法区分
+# "缓存残缺"和"就只有这么多" -> 以 meta 记录的已履约 start 为准, 避免每次重拉。
+_FETCH_META_NAME = "_fetch_meta.json"
+
+
+def _load_fetch_meta(data_dir: Path) -> dict[str, str]:
+    try:
+        return json.loads((data_dir / _FETCH_META_NAME).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_fetch_meta(data_dir: Path, meta: dict[str, str]) -> None:
+    try:
+        (data_dir / _FETCH_META_NAME).write_text(
+            json.dumps(meta, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+        )
+    except Exception as e:
+        print(f"Warning: failed to save fetch meta: {e}")
 
 
 class QmtHistoryDataFetcher(IHistoryDataFetcher):
@@ -33,8 +55,8 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
         data_dir = Path("data")
         data_dir.mkdir(parents=True, exist_ok=True)
 
-        csv_filename = f"{symbol}_{timeframe.value}.csv"
-        csv_path = data_dir / csv_filename
+        meta_key = f"{symbol}_{timeframe.value}"
+        csv_path = data_dir / f"{meta_key}.csv"
 
         # 统一处理时间格式
         # 输入格式: YYYY-MM-DD
@@ -57,7 +79,8 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                 if 'datetime' in cached_df.columns:
                     cached_df['datetime'] = pd.to_datetime(cached_df['datetime'])
 
-                    # 缓存必须"新鲜到请求的 end"才可用，否则重拉完整区间。
+                    # 缓存必须"新鲜到请求的 end"且"回溯到请求的 start"才可用，
+                    # 否则重拉完整区间。
                     # 旧逻辑只看 mask.any()（区间内有任意一根 K 线就命中），
                     # 会把沙盒期遗留的残缺缓存当成命中 -> 请求多年却只回放那几个月。
                     in_range = cached_df[
@@ -68,12 +91,23 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                         not cached_df.empty
                         and cached_df['datetime'].max() >= pd_end_dt
                     )
+                    # start 侧: 数据回溯到 start, 或 meta 确认曾按该 start
+                    # (或更早) 完整拉取过 (晚上市股票数据天然到不了 start)
+                    cache_covers_start = (
+                        not cached_df.empty
+                        and (
+                            cached_df['datetime'].min() <= pd_start_dt
+                            or _load_fetch_meta(data_dir).get(
+                                meta_key, "9999-99-99"
+                            ) <= start_date
+                        )
+                    )
 
-                    if not in_range.empty and cache_reaches_end:
-                        # 缓存覆盖到 end，使用缓存 (截取所需片段)
+                    if not in_range.empty and cache_reaches_end and cache_covers_start:
+                        # 缓存完整覆盖请求区间，使用缓存 (截取所需片段)
                         df = in_range.copy()
                     else:
-                        # 缓存残缺/过期 (未覆盖到 end) -> 重新下载完整区间
+                        # 缓存残缺/过期 (start 或 end 侧有缺口) -> 重新下载完整区间
                         df = None
                 else:
                     # 格式不对，重新下载
@@ -93,8 +127,9 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                     stock_code=symbol, period=timeframe.value,
                     start_time=qmt_start_date, end_time=qmt_end_date,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                # 不中断: get_market_data_ex 仍可能读到 QMT 本地已有数据
+                print(f"Warning: download_history_data failed for {symbol}: {e}")
 
             field_list = ['open', 'high', 'low', 'close', 'volume']
 
@@ -127,8 +162,12 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
 
             df = raw_df.reset_index()
 
-            # 3.4 写入缓存
+            # 3.4 写入缓存 + 记录本次履约的 requested start (防止下次重拉)
             df.to_csv(csv_path, index=False)
+            meta = _load_fetch_meta(data_dir)
+            if start_date < meta.get(meta_key, "9999-99-99"):
+                meta[meta_key] = start_date
+                _save_fetch_meta(data_dir, meta)
 
         # 4. 转换为实体对象列表
         bars = []
@@ -151,8 +190,9 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                 if symbol in unadj_map and not unadj_map[symbol].empty:
                     unadj_series = unadj_map[symbol]["close"]
                     unadjusted_close_map = unadj_series.to_dict()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Warning: unadjusted close fetch failed for {symbol}: {e}; "
+                      f"unadjusted_close=0.0")
 
             for _, row in df.iterrows():
                 try:
