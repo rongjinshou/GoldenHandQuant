@@ -162,3 +162,52 @@ class TestQmtHistoryDataFetcher:
         call_kwargs = mock_xtdata.download_history_data.call_args[1]
         assert call_kwargs['start_time'] == '20230101'
         assert call_kwargs['end_time'] == '20230115'
+
+    def test_partial_cache_not_covering_end_should_refetch_full_range(self, fetcher, mock_xtdata):
+        """缓存只到 1 月、却请求到 12 月时，应重拉完整区间，而非返回残缺缓存。
+
+        复现根因 bug: mask.any() 命中即用缓存 -> 请求多年只回放缓存里那几个月。
+        """
+        symbol = "000001.SZ"
+        timeframe = Timeframe.DAY_1
+        start_date = "2024-01-01"
+        end_date = "2024-12-31"
+
+        # 缓存只覆盖 1 月头两天，远不到请求的 12-31
+        cached_df = pd.DataFrame({
+            "datetime": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+            "open": [10.0, 10.5], "high": [11.0, 11.5],
+            "low": [9.0, 9.5], "close": [10.5, 11.0], "volume": [1000, 2000],
+        })
+
+        def _ms(d):
+            return int(pd.Timestamp(d).value // 10**6)
+
+        full_ts = [_ms("2024-01-02"), _ms("2024-06-03"), _ms("2024-12-31")]
+        df_front = pd.DataFrame({
+            "open": [10.0, 12.0, 14.0], "high": [11.0, 13.0, 15.0],
+            "low": [9.0, 11.0, 13.0], "close": [10.5, 12.5, 14.5],
+            "volume": [1000, 2000, 3000],
+        }, index=full_ts)
+        df_front.index.name = "datetime"
+        df_unadj = pd.DataFrame({"close": [10.8, 12.8, 14.8]}, index=full_ts)
+
+        with patch("src.infrastructure.gateway.qmt_history_data.Path") as mock_path:
+            mock_path.return_value.exists.return_value = True
+            mock_path.return_value.__truediv__.return_value = mock_path.return_value
+            with patch("pandas.read_csv", return_value=cached_df):
+                with patch("pandas.DataFrame.to_csv"):
+                    mock_xtdata.get_market_data_ex.side_effect = [
+                        {symbol: df_front},
+                        {symbol: df_unadj},
+                    ]
+                    bars = fetcher.fetch_history_bars(
+                        symbol, timeframe, start_date, end_date
+                    )
+
+        # 应检测到缓存未覆盖到 end -> 重新下载完整区间
+        mock_xtdata.download_history_data.assert_called_once()
+        # 返回的数据应延伸到 12 月，而非停在 1 月
+        assert bars, "应返回 bar"
+        last = max(b.timestamp for b in bars)
+        assert (last.year, last.month) == (2024, 12)

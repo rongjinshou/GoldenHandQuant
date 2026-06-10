@@ -57,18 +57,23 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
                 if 'datetime' in cached_df.columns:
                     cached_df['datetime'] = pd.to_datetime(cached_df['datetime'])
 
-                    # 检查缓存数据是否覆盖请求的时间段
-                    # 简单策略：检查缓存中是否有处于请求时间范围内的数据
-                    # 更严格策略：检查 min(date) <= start 和 max(date) >= end (但考虑到停牌等因素，这里只做简单检查)
-                    mask = (cached_df['datetime'] >= pd_start_dt) & (cached_df['datetime'] <= pd_end_dt)
+                    # 缓存必须"新鲜到请求的 end"才可用，否则重拉完整区间。
+                    # 旧逻辑只看 mask.any()（区间内有任意一根 K 线就命中），
+                    # 会把沙盒期遗留的残缺缓存当成命中 -> 请求多年却只回放那几个月。
+                    in_range = cached_df[
+                        (cached_df['datetime'] >= pd_start_dt)
+                        & (cached_df['datetime'] <= pd_end_dt)
+                    ]
+                    cache_reaches_end = (
+                        not cached_df.empty
+                        and cached_df['datetime'].max() >= pd_end_dt
+                    )
 
-                    if mask.any():
-                        # 有数据命中，使用缓存 (截取所需片段)
-                        df = cached_df[mask].copy()
-                        # print(f"Loaded {len(df)} bars from cache: {csv_path}")
+                    if not in_range.empty and cache_reaches_end:
+                        # 缓存覆盖到 end，使用缓存 (截取所需片段)
+                        df = in_range.copy()
                     else:
-                        # 缓存存在但无匹配数据 (可能是时间段不重合)，需要重新下载
-                        # print(f"Cache miss (time range mismatch) for {symbol}, re-downloading...")
+                        # 缓存残缺/过期 (未覆盖到 end) -> 重新下载完整区间
                         df = None
                 else:
                     # 格式不对，重新下载

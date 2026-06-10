@@ -119,15 +119,9 @@ def main():
                 except Exception:
                     pass
             stock_universe = sorted(set(stock_universe))
-            # 沙盒测试: 限制股票数量以加速数据加载
-            max_stocks = 500
-            if len(stock_universe) > max_stocks:
-                import random
-                random.seed(42)
-                stock_universe = sorted(random.sample(stock_universe, max_stocks))
-                print(f"Stock universe: limited to {max_stocks} stocks (from full market)")
-            else:
-                print(f"Stock universe: {len(stock_universe)} stocks")
+            # 全市场股票池（已移除沙盒期 random 500 限速）。
+            # 提示: 全市场首次回测会逐只补全历史, 建议先跑一次 batch_download 预热 QMT 本地库。
+            print(f"Stock universe: {len(stock_universe)} stocks (full market)")
             snapshots = fund_fetcher.fetch_by_range(start_date, end_date, symbols=stock_universe)
             fundamental_registry.load_snapshots(snapshots)
 
