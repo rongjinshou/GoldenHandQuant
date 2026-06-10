@@ -7,6 +7,7 @@ docs/feat/0611-market-data-store/2026-06-11-market-data-store-design.md
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -63,6 +64,25 @@ _DDL_STATEMENTS = (
         updated_at TIMESTAMP NOT NULL,
         PRIMARY KEY (source, table_name, symbol)
     )""",
+    """CREATE TABLE IF NOT EXISTS factor_verdicts (
+        run_id     VARCHAR NOT NULL,
+        created_at TIMESTAMP NOT NULL,
+        factor_id  VARCHAR NOT NULL,
+        factor_name VARCHAR, expression VARCHAR,
+        ic_mean DOUBLE, ir DOUBLE, ic_positive_rate DOUBLE,
+        monotonicity_score DOUBLE, long_short_return DOUBLE,
+        score DOUBLE, grade VARCHAR,
+        oos_ic_mean DOUBLE, oos_ir DOUBLE, oos_long_short_return DOUBLE,
+        passed BOOLEAN,
+        reasons VARCHAR,
+        params  VARCHAR,
+        PRIMARY KEY (run_id, factor_id)
+    )""",
+)
+
+_VERDICT_NUMERIC_COLS = (
+    "ic_mean", "ir", "ic_positive_rate", "monotonicity_score", "long_short_return",
+    "score", "oos_ic_mean", "oos_ir", "oos_long_short_return",
 )
 
 _FUND_COLS = (
@@ -78,14 +98,19 @@ def _day_shift(date_str: str, days: int) -> str:
 
 
 class MarketDataStore:
-    """市场数据 DuckDB 仓储。日期参数/返回值统一 'YYYY-MM-DD' 字符串。"""
+    """市场数据 DuckDB 仓储。日期参数/返回值统一 'YYYY-MM-DD' 字符串。
 
-    def __init__(self, db_path: str = "data/market.duckdb") -> None:
-        if db_path != ":memory:":
+    read_only=True 用于 dashboard 等只读消费方: 不执行 DDL、可与写进程
+    （factor-test / data refresh）并存而不抢写锁。
+    """
+
+    def __init__(self, db_path: str = "data/market.duckdb", read_only: bool = False) -> None:
+        if db_path != ":memory:" and not read_only:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = duckdb.connect(db_path)
-        for stmt in _DDL_STATEMENTS:
-            self._conn.execute(stmt)
+        self._conn = duckdb.connect(db_path, read_only=read_only)
+        if not read_only:
+            for stmt in _DDL_STATEMENTS:
+                self._conn.execute(stmt)
 
     def close(self) -> None:
         self._conn.close()
@@ -290,6 +315,62 @@ class MarketDataStore:
                VALUES (?, ?, ?, CAST(? AS DATE), CAST(? AS DATE), ?)""",
             [source, table_name, symbol, start_date, end_date, datetime.now()],
         )
+
+    # ------------------------------------------------------------------ #
+    # factor_verdicts（判决留痕）
+    # ------------------------------------------------------------------ #
+
+    def insert_verdicts(self, run_id: str, params: dict, rows: list[dict]) -> None:
+        """一次 factor-test run 的判决批量入库（同 run 重写幂等）。"""
+        if not rows:
+            return
+        created_at = datetime.now()
+        params_json = json.dumps(params, ensure_ascii=False)
+        for r in rows:
+            self._conn.execute(
+                f"""INSERT OR REPLACE INTO factor_verdicts
+                    (run_id, created_at, factor_id, factor_name, expression,
+                     {", ".join(_VERDICT_NUMERIC_COLS)}, grade, passed, reasons, params)
+                    VALUES (?, ?, ?, ?, ?, {", ".join("?" for _ in _VERDICT_NUMERIC_COLS)},
+                            ?, ?, ?, ?)""",
+                [
+                    run_id, created_at, r["factor_id"],
+                    r.get("factor_name"), r.get("expression"),
+                    *[r.get(c) for c in _VERDICT_NUMERIC_COLS],
+                    r.get("grade"), r.get("passed"),
+                    json.dumps(r.get("reasons", []), ensure_ascii=False),
+                    params_json,
+                ],
+            )
+
+    def load_verdict_runs(self) -> list[dict]:
+        """全部判决按 run 分组，created_at 倒序。"""
+        rows = self._conn.execute(
+            f"""SELECT run_id, created_at, factor_id, factor_name, expression,
+                       {", ".join(_VERDICT_NUMERIC_COLS)}, grade, passed, reasons, params
+                FROM factor_verdicts
+                ORDER BY created_at DESC, factor_id"""
+        ).fetchall()
+        runs: dict[str, dict] = {}
+        for row in rows:
+            run_id = row[0]
+            if run_id not in runs:
+                runs[run_id] = {
+                    "run_id": run_id,
+                    "created_at": str(row[1]),
+                    "params": json.loads(row[-1]) if row[-1] else {},
+                    "factors": [],
+                }
+            factor = {
+                "factor_id": row[2], "factor_name": row[3], "expression": row[4],
+                **dict(zip(_VERDICT_NUMERIC_COLS, row[5:5 + len(_VERDICT_NUMERIC_COLS)],
+                           strict=True)),
+                "grade": row[5 + len(_VERDICT_NUMERIC_COLS)],
+                "passed": row[6 + len(_VERDICT_NUMERIC_COLS)],
+                "reasons": json.loads(row[7 + len(_VERDICT_NUMERIC_COLS)] or "[]"),
+            }
+            runs[run_id]["factors"].append(factor)
+        return list(runs.values())
 
     # ------------------------------------------------------------------ #
     # 概览

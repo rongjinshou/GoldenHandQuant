@@ -165,6 +165,49 @@ class TestFeatures:
         assert len(out) == 1
 
 
+class TestVerdicts:
+    def _rows(self) -> list[dict]:
+        return [{
+            "factor_id": "F04", "factor_name": "低波动", "expression": "0 - volatility_20d",
+            "ic_mean": 0.05, "ir": 0.31, "ic_positive_rate": 0.62,
+            "monotonicity_score": 1.0, "long_short_return": 0.15,
+            "score": 88.0, "grade": "A",
+            "oos_ic_mean": 0.05, "oos_ir": 0.3, "oos_long_short_return": -0.01,
+            "passed": False, "reasons": ["样本外多空收益<=0"],
+        }]
+
+    def test_insert_and_load_runs_grouped_desc(self, store):
+        store.insert_verdicts("20260611-010000", {"start": "2021-01-01"}, self._rows())
+        store.insert_verdicts("20260611-020000", {"start": "2021-01-01"}, self._rows())
+
+        runs = store.load_verdict_runs()
+
+        assert [r["run_id"] for r in runs] == ["20260611-020000", "20260611-010000"]
+        assert runs[0]["params"]["start"] == "2021-01-01"
+        f = runs[0]["factors"][0]
+        assert f["factor_id"] == "F04"
+        assert f["passed"] is False
+        assert f["reasons"] == ["样本外多空收益<=0"]
+
+    def test_insert_idempotent(self, store):
+        store.insert_verdicts("r1", {}, self._rows())
+        store.insert_verdicts("r1", {}, self._rows())
+        assert len(store.load_verdict_runs()) == 1
+
+
+class TestReadOnly:
+    def test_read_only_can_read(self, tmp_path):
+        path = str(tmp_path / "m.duckdb")
+        rw = MarketDataStore(path)
+        rw.upsert_bars([_bar("A", "2024-01-02", 10.0)], "qmt")
+        rw.close()
+
+        ro = MarketDataStore(path, read_only=True)
+        df = ro.load_bars_df(["A"], "2024-01-01", "2024-12-31", "qmt")
+        ro.close()
+        assert len(df) == 1
+
+
 class TestInstruments:
     def test_upsert_and_load_symbols(self, store):
         store.upsert_instruments(
