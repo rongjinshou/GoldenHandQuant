@@ -112,34 +112,53 @@ def run_factor_test(args: argparse.Namespace) -> None:
         for reason in v.reasons:
             print(f"  {reason}")
 
-    # 8. 输出 JSON (if requested)
+    # 8. 判决留痕: JSON (可选) + factor_verdicts 入库 (总是)
+    verdict_rows = []
+    for r in results:
+        v = r.verdict
+        verdict_rows.append({
+            "factor_id": v.factor_id,
+            "factor_name": v.factor_name,
+            "expression": v.expression,
+            "ic_mean": v.ic_mean,
+            "ir": v.ir,
+            "ic_positive_rate": v.ic_positive_rate,
+            "monotonicity_score": v.monotonicity_score,
+            "long_short_return": v.long_short_return,
+            "score": v.score,
+            "grade": v.grade,
+            "oos_ic_mean": v.oos_ic_mean,
+            "oos_ir": v.oos_ir,
+            "oos_long_short_return": v.oos_long_short_return,
+            "passed": v.passed,
+            "reasons": v.reasons,
+        })
+
     if output_path:
         output = {
             "test_period": [start_date, end_date],
             "split_date": split_date,
             "num_layers": num_layers,
             "rebalance_days": rebalance_days,
-            "results": [],
+            "results": verdict_rows,
         }
-        for r in results:
-            v = r.verdict
-            output["results"].append({
-                "factor_id": v.factor_id,
-                "factor_name": v.factor_name,
-                "expression": v.expression,
-                "ic_mean": v.ic_mean,
-                "ir": v.ir,
-                "ic_positive_rate": v.ic_positive_rate,
-                "monotonicity_score": v.monotonicity_score,
-                "long_short_return": v.long_short_return,
-                "score": v.score,
-                "grade": v.grade,
-                "oos_ic_mean": v.oos_ic_mean,
-                "oos_ir": v.oos_ir,
-                "oos_long_short_return": v.oos_long_short_return,
-                "passed": v.passed,
-                "reasons": v.reasons,
-            })
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
         print(f"\nResults saved to {output_path}")
+
+    from datetime import datetime
+
+    from src.domain.market.services.feature_engine import FEATURE_VERSION
+
+    run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_params = {
+        "start": start_date, "end": end_date, "split": split_date,
+        "rebalance_days": rebalance_days, "num_layers": num_layers,
+        "feature_version": FEATURE_VERSION, "universe_count": len(symbols),
+        "store_path": "memory" if not use_store else "db",
+    }
+    try:
+        wiring.store.insert_verdicts(run_id, run_params, verdict_rows)
+        print(f"Verdicts persisted to factor_verdicts (run_id={run_id})")
+    except Exception as e:
+        print(f"Warning: 判决入库失败 ({e}); JSON/终端输出不受影响。")
