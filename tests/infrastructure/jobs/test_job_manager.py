@@ -120,10 +120,14 @@ class TestRegistry:
 
 
 class TestWorkerResilience:
-    def test_empty_argv_marks_failed_worker_survives(self, tmp_path: Path) -> None:
-        """argv=[] 触发 Popen 内部异常（非 OSError）→ job FAILED; worker 继续处理后续任务。"""
+    def test_malformed_argv_marks_failed_worker_survives(self, tmp_path: Path) -> None:
+        """非法 argv 触发非 OSError 异常 → 护栏标 FAILED; worker 继续处理后续任务。
+
+        故意传 [123]: Windows 下 argv=[] 抛 OSError(WinError 87) 走旧分支,
+        命中不了 _run_loop 的 Exception 护栏; [123] 两平台都抛 TypeError。
+        """
         mgr = JobManager(log_dir=tmp_path)
-        bad_job = mgr.submit(job_type="demo", params={}, argv=[])
+        bad_job = mgr.submit(job_type="demo", params={}, argv=[123])  # type: ignore[list-item]
         assert _wait(lambda: bad_job.status is JobStatus.FAILED, timeout=10.0)
         assert bad_job.return_code == -1
 

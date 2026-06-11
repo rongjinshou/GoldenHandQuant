@@ -132,7 +132,9 @@ class JobManager:
                 except (ProcessLookupError, OSError):
                     pass  # 进程已退出，忽略
 
-            threading.Timer(_TERMINATE_GRACE_SECONDS, _force_kill).start()
+            killer = threading.Timer(_TERMINATE_GRACE_SECONDS, _force_kill)
+            killer.daemon = True  # 防止未触发的计时器阻塞解释器关停
+            killer.start()
         return job
 
     # ---- worker ----
