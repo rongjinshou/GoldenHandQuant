@@ -117,7 +117,8 @@ def assemble_task(account_info: dict, settings) -> str:
         task += "| 标的 | 持仓数量 | 可用数量 | 成本价 |\n"
         task += "|------|---------|---------|--------|\n"
         for pos in account_info["positions"]:
-            task += f"| {pos['ticker']} | {pos['total_volume']} | {pos['available_volume']} | {pos['average_cost']:.2f} |\n"
+            task += (f"| {pos['ticker']} | {pos['total_volume']} "
+                     f"| {pos['available_volume']} | {pos['average_cost']:.2f} |\n")
     else:
         task += "当前无持仓。\n"
 
