@@ -160,6 +160,10 @@ def main() -> None:
     except Exception as e:
         print(f"Error preparing data: {e}")
         return
+    finally:
+        # 释放数据源连接 (DuckDB read_only 与之后入库写连接同进程互斥)
+        if hasattr(fetcher, "close"):
+            fetcher.close()
 
     # 执行对比
     dt_start = datetime.strptime(start_date, "%Y-%m-%d")

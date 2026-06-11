@@ -80,7 +80,9 @@ P1_FACTORS: list[FactorHypothesis] = [
         factor_id="F10", name="毛利率", category="质量",
         expression="gross_margin",
         direction_note="高毛利率=预期跑赢(Novy-Marx)",
-        evidence_strength="中", field_ready=True, priority="P1",
+        # 2026-06-11 夜判定: 基本面管道无 gross_margin 字段, 全链路恒 0,
+        # run 20260611-192433 的 F10 判决无效。补字段前不得纳入批次。
+        evidence_strength="中", field_ready=False, priority="P1",
     ),
 ]
 

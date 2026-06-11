@@ -71,15 +71,10 @@ def run_backtest(args: argparse.Namespace) -> None:
     print(f"Target: {symbols}")
     print(f"Range: {start_date} to {end_date}")
 
-    # 初始化基础设施
-    if history_fetcher_type == "TushareHistoryDataFetcher":
-        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
+    # 初始化基础设施 (fetcher 构建与 run_backtest 共用, 支持 DuckDBHistoryDataFetcher)
+    from src.interfaces.cli.run_backtest import build_history_fetcher
 
-        fetcher = TushareHistoryDataFetcher(token=tushare_token)
-    else:
-        from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
-
-        fetcher = QmtHistoryDataFetcher()
+    fetcher = build_history_fetcher(history_fetcher_type, tushare_token)
 
     market_gateway = MockMarketGateway()
     trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital)
@@ -170,6 +165,10 @@ def run_backtest(args: argparse.Namespace) -> None:
     except Exception as e:
         print(f"Error preparing data: {e}")
         return
+    finally:
+        # 释放数据源连接 (DuckDB read_only 与之后入库写连接同进程互斥)
+        if hasattr(fetcher, "close"):
+            fetcher.close()
 
     # 执行回测
     backtest_symbols = stock_universe if stock_universe else symbols
@@ -183,3 +182,10 @@ def run_backtest(args: argparse.Namespace) -> None:
         return
 
     _print_report(reports[0])
+
+    # 结果入库 (与 run_backtest 同款钩子; GHQ_NO_STORE=1 可关)
+    from src.interfaces.cli.run_backtest import store_backtest_reports
+    store_backtest_reports(reports, params={
+        "symbols": symbols, "timeframe": tf.value, "source": "quant backtest",
+        "strategy": strategy_name,
+    })

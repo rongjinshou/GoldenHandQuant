@@ -155,6 +155,11 @@ def main():
         print(f"Error preparing data: {e}")
         print("Please ensure 'xtquant' is installed or data is cached in 'data/' directory.")
         return
+    finally:
+        # bars 已装入内存网关; 释放数据源连接(DuckDB 同进程 read_only 与
+        # 之后入库的写连接配置冲突, 不释放会导致 backtest_runs 写入失败)
+        if hasattr(fetcher, "close"):
+            fetcher.close()
 
     # 5. 执行回测循环
     # 回测标的 = stock_universe (策略从中选股)
