@@ -80,7 +80,7 @@ class JobManager:
 
     def submit(self, *, job_type: str, params: dict, argv: list[str]) -> Job:
         job_id = uuid.uuid4().hex[:12]
-        job = Job(job_id=job_id, job_type=job_type, params=params, argv=list(argv),
+        job = Job(job_id=job_id, job_type=job_type, params=dict(params), argv=list(argv),
                   log_path=str(self._log_dir / f"{job_id}.log"))
         with self._lock:
             self._jobs[job_id] = job
@@ -102,6 +102,12 @@ class JobManager:
                        for j in self._jobs.values())
 
     def cancel(self, job_id: str) -> Job:
+        """取消任务。
+
+        Raises:
+            KeyError: 未知 job_id（路由映射 404）。
+            ValueError: 任务已结束，无法取消（路由映射 409）。
+        """
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
@@ -118,7 +124,15 @@ class JobManager:
                 case _:
                     raise ValueError(f"job already finished: {job_id}")
         if proc is not None:
-            proc.terminate()  # 收尾由 _execute 的 wait/kill 兜底完成
+            proc.terminate()
+            # 若子进程无视 SIGTERM 且不关管道，宽限期后强杀，防 worker 永久阻塞
+            def _force_kill() -> None:
+                try:
+                    proc.kill()
+                except (ProcessLookupError, OSError):
+                    pass  # 进程已退出，忽略
+
+            threading.Timer(_TERMINATE_GRACE_SECONDS, _force_kill).start()
         return job
 
     # ---- worker ----
@@ -129,13 +143,25 @@ class JobManager:
             job = self.get(job_id)
             if job is None or job.status is not JobStatus.QUEUED:
                 continue  # 排队期被取消
-            self._execute(job)
+            try:
+                self._execute(job)
+            except Exception as exc:
+                # 兜住 _execute 内一切未预期异常，防 worker 线程死亡
+                with self._lock:
+                    job.log_tail.append(f"[job] 执行异常: {exc}")
+                    job.return_code = -1
+                    job.finished_at = datetime.now()
+                    job.proc = None
+                    job.status = JobStatus.FAILED
 
     def _execute(self, job: Job) -> None:
+        # CAS 守卫：取消后不再执行（QUEUED→RUNNING 原子检查）
         with self._lock:
+            if job.status is not JobStatus.QUEUED:
+                return
             job.status = JobStatus.RUNNING
             job.started_at = datetime.now()
-        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1"}
         rc: int
         try:
             with open(job.log_path, "w", encoding="utf-8") as logf:
@@ -144,6 +170,10 @@ class JobManager:
                     job.argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, encoding="utf-8", errors="replace", env=env,
                 )
+                # Popen 成功后检查 cancel_requested（修"cancel 时 proc 还是 None"的窗口）
+                with self._lock:
+                    if job.cancel_requested:
+                        job.proc.terminate()
                 assert job.proc.stdout is not None
                 for raw in job.proc.stdout:
                     line = raw.rstrip("\n")
@@ -157,6 +187,12 @@ class JobManager:
                     rc = job.proc.wait()
         except OSError as exc:  # 可执行文件不存在等启动失败
             job.log_tail.append(f"[job] 启动失败: {exc}")
+            if job.proc is not None:
+                try:
+                    job.proc.kill()
+                    job.proc.wait()
+                except (ProcessLookupError, OSError):
+                    pass  # 进程已退出
             rc = -1
         with self._lock:
             job.return_code = rc

@@ -117,3 +117,25 @@ class TestRegistry:
                          argv=["definitely-not-a-real-binary-xyz"])
         assert _wait(lambda: job.status is JobStatus.FAILED)
         assert any("启动失败" in line for line in job.log_tail)
+
+
+class TestWorkerResilience:
+    def test_empty_argv_marks_failed_worker_survives(self, tmp_path: Path) -> None:
+        """argv=[] 触发 Popen 内部异常（非 OSError）→ job FAILED; worker 继续处理后续任务。"""
+        mgr = JobManager(log_dir=tmp_path)
+        bad_job = mgr.submit(job_type="demo", params={}, argv=[])
+        assert _wait(lambda: bad_job.status is JobStatus.FAILED, timeout=10.0)
+        assert bad_job.return_code == -1
+
+        # worker 没有崩溃：继续处理后续任务
+        good_job = mgr.submit(job_type="demo", params={}, argv=_py("print('ok')"))
+        assert _wait(lambda: good_job.status is JobStatus.SUCCEEDED, timeout=15.0)
+        assert "ok" in list(good_job.log_tail)
+
+    def test_chinese_output_captured_in_log_tail(self, tmp_path: Path) -> None:
+        """子进程输出中文 → log_tail 能正确捕获（PYTHONUTF8=1 保证 Windows 下不乱码）。"""
+        mgr = JobManager(log_dir=tmp_path)
+        job = mgr.submit(job_type="demo", params={},
+                         argv=_py("print('中文日志')"))
+        assert _wait(lambda: job.status is JobStatus.SUCCEEDED, timeout=15.0)
+        assert any("中文日志" in line for line in job.log_tail)
