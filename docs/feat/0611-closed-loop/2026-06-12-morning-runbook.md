@@ -72,6 +72,7 @@ $WIN_PY -m src.interfaces.cli.run_backtest        # 跑完自动入库 backtest_
 
 ## 昨夜遗留事项（晨间补审清单）
 
+- [ ] **git push**：WSL 侧无 SSH 私钥（`Permission denied (publickey)`），本地 main 领先 origin 30+ 提交——请在 Windows 侧推送
 - [ ] QMT 极简模式登录后执行第 1 步（昨日 14:00 冒烟卡在 `connect != 0`，错误路径已验证正确）
 - [ ] `QmtTradeGateway.cancel_order` 为新增接口，未经实盘验证——首次 live 前可用一笔 dry-run 超时单观察日志（dry-run 的撤单是模拟的，真实撤单要等 live 首跑或在 QMT 端手工配合验证）
 - [ ] 治理债（设计文档 §六）：`AutoTradingEngine`/`TradingOrchestrator`/`SignalPipeline` 已被 `AutoTradeAppService` 旁路，后续 Spec 决定合并或归档
