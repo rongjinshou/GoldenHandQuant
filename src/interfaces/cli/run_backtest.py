@@ -196,5 +196,33 @@ def main():
         print("No trades executed.")
     print("="*40)
 
+    # 7. 结果入库 (驾驶舱回测页消费; GHQ_NO_STORE=1 可关)
+    store_backtest_reports(reports, params={
+        "symbols": symbols, "timeframe": tf.value, "source": "run_backtest",
+        "strategy": registry_name,
+    })
+
+
+def store_backtest_reports(reports, *, params: dict) -> None:
+    """回测结果写入 market.duckdb backtest_runs (闭环 v1 DD-5)。失败不影响回测。"""
+    if os.environ.get("GHQ_NO_STORE") == "1":
+        return
+    try:
+        from src.infrastructure.persistence.backtest_run_mapper import build_backtest_run_row
+        from src.infrastructure.persistence.market_data_store import MarketDataStore
+
+        run_id = f"{datetime.now():%Y%m%d-%H%M%S}"
+        rows = [build_backtest_run_row(r, run_id=run_id, params=params)
+                for r in reports]
+        store = MarketDataStore(os.environ.get("GHQ_MARKET_DB", "data/market.duckdb"))
+        try:
+            store.insert_backtest_runs(rows)
+        finally:
+            store.close()
+        print(f"结果已入库: backtest_runs run_id={run_id} ({len(rows)} 策略)")
+    except Exception as e:
+        print(f"⚠ 回测结果入库失败 (不影响回测本身): {e}")
+
+
 if __name__ == "__main__":
     main()

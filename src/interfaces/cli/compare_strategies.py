@@ -186,6 +186,13 @@ def main() -> None:
     # 输出报告
     ComparisonRichPrinter().print(report)
 
+    # 结果入库 (驾驶舱回测页消费; GHQ_NO_STORE=1 可关)
+    from src.interfaces.cli.run_backtest import store_backtest_reports
+    store_backtest_reports(report.reports, params={
+        "symbols": symbols, "timeframe": tf.value, "source": "compare_strategies",
+        "strategies": strategy_names,
+    })
+
     if args.plot:
         ComparisonPlotter().plot(report, show=True)
 

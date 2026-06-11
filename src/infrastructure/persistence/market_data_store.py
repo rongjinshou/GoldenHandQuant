@@ -78,6 +78,24 @@ _DDL_STATEMENTS = (
         params  VARCHAR,
         PRIMARY KEY (run_id, factor_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS backtest_runs (
+        run_id VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL,
+        strategy VARCHAR NOT NULL,
+        start_date DATE, end_date DATE, initial_capital DOUBLE,
+        params VARCHAR,
+        total_return DOUBLE, annualized_return DOUBLE, max_drawdown DOUBLE,
+        sharpe_ratio DOUBLE, sortino_ratio DOUBLE, calmar_ratio DOUBLE,
+        win_rate DOUBLE, trade_count INTEGER, turnover_rate DOUBLE,
+        equity_curve VARCHAR,
+        PRIMARY KEY (run_id, strategy)
+    )""",
+)
+
+_BACKTEST_COLS = (
+    "strategy", "start_date", "end_date", "initial_capital", "params",
+    "total_return", "annualized_return", "max_drawdown", "sharpe_ratio",
+    "sortino_ratio", "calmar_ratio", "win_rate", "trade_count",
+    "turnover_rate", "equity_curve",
 )
 
 _VERDICT_NUMERIC_COLS = (
@@ -398,6 +416,43 @@ class MarketDataStore:
                 "reasons": json.loads(row[7 + len(_VERDICT_NUMERIC_COLS)] or "[]"),
             }
             runs[run_id]["factors"].append(factor)
+        return list(runs.values())
+
+    # ------------------------------------------------------------------ #
+    # backtest_runs（回测结果留痕, 闭环 v1 DD-5）
+    # ------------------------------------------------------------------ #
+
+    def insert_backtest_runs(self, rows: list[dict]) -> None:
+        """一次回测(可多策略)的结果入库, 同 (run_id, strategy) 重写幂等。"""
+        if not rows:
+            return
+        created_at = datetime.now()
+        for r in rows:
+            self._conn.execute(
+                f"""INSERT OR REPLACE INTO backtest_runs
+                    (run_id, created_at, {", ".join(_BACKTEST_COLS)})
+                    VALUES (?, ?, {", ".join("?" for _ in _BACKTEST_COLS)})""",
+                [r["run_id"], created_at, *[r.get(c) for c in _BACKTEST_COLS]],
+            )
+
+    def load_backtest_runs(self, limit: int = 100) -> list[dict]:
+        """按 run 分组, created_at 倒序。equity_curve/params 保持 JSON 字符串。"""
+        rows = self._conn.execute(
+            f"""SELECT run_id, created_at, {", ".join(_BACKTEST_COLS)}
+                FROM backtest_runs ORDER BY created_at DESC, strategy LIMIT ?""",
+            [limit],
+        ).fetchall()
+        runs: dict[str, dict] = {}
+        for row in rows:
+            run_id = row[0]
+            if run_id not in runs:
+                runs[run_id] = {"run_id": run_id, "created_at": str(row[1]),
+                                "strategies": []}
+            strategy = dict(zip(_BACKTEST_COLS, row[2:], strict=True))
+            for col in ("start_date", "end_date"):
+                if strategy[col] is not None:
+                    strategy[col] = str(strategy[col])
+            runs[run_id]["strategies"].append(strategy)
         return list(runs.values())
 
     # ------------------------------------------------------------------ #
