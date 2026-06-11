@@ -339,6 +339,38 @@ class TestFactorTestAppServiceRunBatch:
 
         assert service._runner.run.call_args.kwargs["rebalance_days"] == 5
 
+    def test_run_batch_passes_objective_and_cost_rate(self):
+        """run_batch 应把 objective/cost_rate 透传给 runner 与 judge_factor。"""
+        mock_hist = MagicMock()
+        mock_fund = MagicMock()
+        service = FactorTestAppService(history_fetcher=mock_hist, fundamental_fetcher=mock_fund)
+        mock_r = FactorTestReport(
+            expression="0 - log(market_cap)",
+            test_period=("2023-01-01", "2024-01-01"),
+            universe_count=50, ic_mean=0.03, ic_std=0.3, ir=0.1,
+            ic_positive_rate=0.55, monotonicity_score=0.8,
+            long_short_return=0.0, top_excess_return=0.06, excess_ir=0.7,
+            excess_positive_rate=0.6,
+        )
+        mock_scored = ScoredFactorTestReport(
+            report=mock_r, score=60.0, grade="C", grade_reasons=["t"]
+        )
+        service._runner = MagicMock()
+        service._runner.run.return_value = mock_scored
+
+        results = service.run_batch(
+            hypotheses=P0_FACTORS[:1],
+            snapshots_by_date={"2023-06-01": []},
+            returns_by_date={"2023-06-01": {}},
+            prices_by_date={"2023-06-01": {}},
+            test_period=("2023-01-01", "2024-01-01"),
+            objective="long_only", cost_rate=0.005,
+        )
+        assert service._runner.run.call_args.kwargs["objective"] == "long_only"
+        assert service._runner.run.call_args.kwargs["cost_rate"] == 0.005
+        assert results[0].verdict.objective == "long_only"
+        assert results[0].verdict.top_excess_return == 0.06
+
     def test_run_batch_without_split(self):
         """Verify batch run creates only IS report when no split_date."""
         mock_hist = MagicMock()

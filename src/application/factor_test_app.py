@@ -154,6 +154,8 @@ class FactorTestAppService:
         test_period: tuple[str, str],
         num_layers: int = 5,
         rebalance_days: int = 1,
+        objective: str = "long_short",
+        cost_rate: float = 0.003,
     ) -> ScoredFactorTestReport:
         """测试单个因子假设。"""
         return self._runner.run(
@@ -164,6 +166,8 @@ class FactorTestAppService:
             test_period=test_period,
             num_layers=num_layers,
             rebalance_days=rebalance_days,
+            objective=objective,
+            cost_rate=cost_rate,
         )
 
     def run_batch(
@@ -176,6 +180,8 @@ class FactorTestAppService:
         split_date: str | None = None,
         num_layers: int = 5,
         rebalance_days: int = 1,
+        objective: str = "long_short",
+        cost_rate: float = 0.003,
     ) -> list[FactorTestResult]:
         """批量测试因子假设，支持样本内外切分。
 
@@ -211,7 +217,7 @@ class FactorTestAppService:
 
             is_report = self.run_single(
                 hyp, is_snapshots, is_returns, is_prices, is_period,
-                num_layers, rebalance_days,
+                num_layers, rebalance_days, objective=objective, cost_rate=cost_rate,
             )
 
             # Out-of-sample (if split)
@@ -224,7 +230,7 @@ class FactorTestAppService:
                 if oos_snapshots:
                     oos_report = self.run_single(
                         hyp, oos_snapshots, oos_returns, oos_prices, oos_period,
-                        num_layers, rebalance_days,
+                        num_layers, rebalance_days, objective=objective, cost_rate=cost_rate,
                     )
 
             # 正交化增量门槛(§7.5): 非控制类因子才做中性化
@@ -238,7 +244,7 @@ class FactorTestAppService:
             verdict = judge_factor(
                 is_report, oos_report=oos_report,
                 factor_id=hyp.factor_id, factor_name=hyp.name,
-                neutralized_ic=neutralized_ic,
+                neutralized_ic=neutralized_ic, objective=objective,
             )
 
             results.append(FactorTestResult(
