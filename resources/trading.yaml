@@ -29,6 +29,22 @@ live_trade:
   # strategy_params:
   #   top_n: 9
 
+auto_trade:
+  enabled: false              # 双保险: 配置 + CLI; live 模式还需 --live
+  mode: dry_run               # dry_run | live
+  strategy: dual_ma
+  symbols: ["600000.SH", "601006.SH", "600096.SH", "000021.SZ"]   # 主板白名单内
+  execution_times: ["09:35", "14:50"]
+  min_confidence: 0.6
+  max_orders_per_cycle: 3
+  per_order_notional_cap: 1500.0
+  daily_notional_cap: 3000.0
+  daily_loss_limit_ratio: 0.02
+  poll_timeout_seconds: 30
+  position_ratio: 0.1
+  bar_lookback: 100
+  db_path: "data/trading.db"
+
 monitor:
   refresh_interval: 3
   snapshot_dir: "data/snapshots/"

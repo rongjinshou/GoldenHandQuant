@@ -5,9 +5,10 @@
 
 import argparse
 import json
-import os
 from datetime import datetime
 from pathlib import Path
+
+from src.interfaces.cli.cli_utils import mask_account_id, resolve_account_id
 
 _TRADE_LOG_DIR = Path("data/trade_logs")
 
@@ -16,46 +17,6 @@ def run_order(args: argparse.Namespace) -> None:
     match args.order_action:
         case "buy":
             _run_buy(args)
-
-
-def _mask(account_id: str) -> str:
-    if len(account_id) <= 4:
-        return "****"
-    return account_id[:2] + "*" * (len(account_id) - 4) + account_id[-2:]
-
-
-def _resolve_account_id(qmt_settings, userdata_path: str, session_id: int) -> str:
-    """账号解析: env → 配置(非占位) → 交易端枚举(仅一个时直用)。"""
-    env_id = os.environ.get("QMT_ACCOUNT_ID", "").strip()
-    if env_id:
-        return env_id
-
-    cfg_id = (qmt_settings.account_id or "").strip()
-    if cfg_id and not cfg_id.startswith("${"):
-        return cfg_id
-
-    from src.infrastructure.gateway.xtquant_client import XtQuantTrader
-
-    trader = XtQuantTrader(userdata_path, session_id + 1)
-    trader.start()
-    try:
-        if trader.connect() != 0:
-            raise RuntimeError(
-                "交易端连接失败 (connect != 0): 请确认 QMT 以极简模式登录"
-            )
-        accounts = trader.query_account_infos() or []
-    finally:
-        trader.stop()
-
-    stock_accounts = [a for a in accounts if getattr(a, "account_type", None) in (2, "STOCK")] or accounts
-    if len(stock_accounts) == 1:
-        aid = stock_accounts[0].account_id
-        print(f"账号自动解析: {_mask(aid)} (交易端枚举)")
-        return aid
-    raise RuntimeError(
-        f"无法唯一确定资金账号 (枚举到 {len(stock_accounts)} 个); "
-        "请设置环境变量 QMT_ACCOUNT_ID 或在 trading.yaml 配置 qmt.account_id"
-    )
 
 
 def _run_buy(args: argparse.Namespace) -> None:
@@ -74,7 +35,7 @@ def _run_buy(args: argparse.Namespace) -> None:
     print(f"标的: {args.symbol}  手数: {args.lots}  金额上限: {args.max_notional}")
 
     try:
-        account_id = _resolve_account_id(qmt, qmt.userdata_path, qmt.session_id)
+        account_id = resolve_account_id(qmt, qmt.userdata_path, qmt.session_id)
     except RuntimeError as e:
         print(f"错误: {e}")
         return
@@ -106,7 +67,7 @@ def _run_buy(args: argparse.Namespace) -> None:
 
     # 审计落盘 (脱敏)
     audit = dict(result.ticket)
-    audit["account_id"] = _mask(account_id)
+    audit["account_id"] = mask_account_id(account_id)
     audit["accepted"] = result.accepted
     audit["final_status"] = result.final_status
     _TRADE_LOG_DIR.mkdir(parents=True, exist_ok=True)

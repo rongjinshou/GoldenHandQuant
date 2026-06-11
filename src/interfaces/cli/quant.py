@@ -100,7 +100,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_at = subparsers.add_parser("auto-trade", help="自动交易引擎")
     p_at.add_argument("--config", default="resources/trading.yaml", help="交易配置文件路径")
     p_at.add_argument("--once", action="store_true", help="仅执行一次交易循环")
-    p_at.add_argument("--enable", action="store_true", help="显式启用自动交易")
+    p_at.add_argument("--enable", action="store_true", help="显式启用自动交易 (仅 dry-run 生效)")
+    p_at.add_argument("--live", action="store_true",
+                      help="真实下单 (还需配置 mode:live + enabled:true)")
 
     # --- ml-train ---
     p_mt = subparsers.add_parser("ml-train", help="ML 模型训练")

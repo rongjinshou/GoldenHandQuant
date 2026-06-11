@@ -92,3 +92,49 @@ def check_qmt_connection() -> bool:
         return detail is not None and len(detail) > 0
     except Exception:
         return False
+
+
+def mask_account_id(account_id: str) -> str:
+    """资金账号脱敏 (审计/日志用)。"""
+    if len(account_id) <= 4:
+        return "****"
+    return account_id[:2] + "*" * (len(account_id) - 4) + account_id[-2:]
+
+
+def resolve_account_id(qmt_settings, userdata_path: str, session_id: int) -> str:
+    """账号解析: env → 配置(非占位) → 交易端枚举(仅一个时直用)。
+
+    order/auto-trade 等实盘命令共用。
+    """
+    import os
+
+    env_id = os.environ.get("QMT_ACCOUNT_ID", "").strip()
+    if env_id:
+        return env_id
+
+    cfg_id = (qmt_settings.account_id or "").strip()
+    if cfg_id and not cfg_id.startswith("${"):
+        return cfg_id
+
+    from src.infrastructure.gateway.xtquant_client import XtQuantTrader
+
+    trader = XtQuantTrader(userdata_path, session_id + 1)
+    trader.start()
+    try:
+        if trader.connect() != 0:
+            raise RuntimeError(
+                "交易端连接失败 (connect != 0): 请确认 QMT 以极简模式登录"
+            )
+        accounts = trader.query_account_infos() or []
+    finally:
+        trader.stop()
+
+    stock_accounts = [a for a in accounts if getattr(a, "account_type", None) in (2, "STOCK")] or accounts
+    if len(stock_accounts) == 1:
+        aid = stock_accounts[0].account_id
+        print(f"账号自动解析: {mask_account_id(aid)} (交易端枚举)")
+        return aid
+    raise RuntimeError(
+        f"无法唯一确定资金账号 (枚举到 {len(stock_accounts)} 个); "
+        "请设置环境变量 QMT_ACCOUNT_ID 或在 trading.yaml 配置 qmt.account_id"
+    )

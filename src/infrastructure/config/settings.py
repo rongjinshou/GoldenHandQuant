@@ -148,14 +148,23 @@ class LiveTradeSettings:
 
 @dataclass(slots=True, kw_only=True)
 class AutoTradeSettings:
-    """自动交易配置。"""
+    """自动交易配置 (闭环 v1 设计 DD-8)。"""
     enabled: bool = False
-    strategy_names: list[str] = field(default_factory=list)
+    mode: str = "dry_run"               # dry_run | live (live 还需 CLI --live)
+    strategy: str = "dual_ma"
+    strategy_names: list[str] = field(default_factory=list)   # 兼容旧字段
     symbols: list[str] = field(default_factory=list)
     execution_times: list[str] = field(default_factory=lambda: ["09:35", "14:50"])
-    max_orders_per_cycle: int = 20
+    max_orders_per_cycle: int = 3
     min_confidence: float = 0.6
     check_interval_seconds: int = 60
+    per_order_notional_cap: float = 1500.0
+    daily_notional_cap: float = 3000.0
+    daily_loss_limit_ratio: float = 0.02
+    poll_timeout_seconds: float = 30.0
+    position_ratio: float = 0.1
+    bar_lookback: int = 100
+    db_path: str = "data/trading.db"
 
 
 @dataclass(slots=True, kw_only=True)
