@@ -151,10 +151,14 @@ OOS 段用同口径在 `date > split_date` 子集上再算一遍，得 `oos_top_
 `CREATE TABLE IF NOT EXISTS` 不会对存量表加列。新增**幂等迁移**（store 初始化时执行
 `ALTER TABLE factor_verdicts ADD COLUMN IF NOT EXISTS <col> DOUBLE`，DuckDB 支持）：
 
-新增列：`top_excess_return`、`oos_top_excess_return`、`excess_ir`、`excess_positive_rate`、
-`benchmark_return`（DOUBLE，存量 run 该列 NULL）、`objective`（VARCHAR，存量 run 回填
+新增列：`top_excess_return`、`oos_top_excess_return`、`excess_ir`、`excess_positive_rate`
+（DOUBLE，存量 run 该列 NULL）、`objective`（VARCHAR，存量 run 回填
 `'long_short'`）。主键 `(run_id, factor_id)` 不变（每次 factor-test 调用是单一 objective →
 单一 run_id，无冲突）。
+
+> **实现修正（2026-06-12 审查后）**：`benchmark_return` 最终**未落库**——它在 `FactorTestReport`
+> VO 内算出（供报告/JSON），但不进 verdict 列（YAGNI：超额已自含 top−benchmark，基准非门槛非显示项）。
+> 登记为债 L1，需要时再补落库或在 SUMMARY 输出。详见判决报告 §七。
 
 `load_verdict_runs` 按行位置切片解析（offset 敏感）——加列后必须同步更新 offset，并加回归测试
 覆盖"旧 run（新列 NULL）+ 新 run"混读不错位。
@@ -189,6 +193,13 @@ OOS 段用同口径在 `date > split_date` 子集上再算一遍，得 `oos_top_
 4. **1 日逐日重排噪声**：默认 rebalance_days 已定 5（非 1），且做 1/5/20 敏感性，避免单一频率误判。
 5. **窗口短段年化外推**：OOS≈2 年，年化噪声仍在；OOS 超额作绑定闸而非唯一判据，与 IS 一致性合看。
 6. **判决阈值三处硬编码**（verdict.py / app.js / CLI 格式）：本次同步更新，单一真相源收敛留作债 [[D2]]。
+7. **基准 costless 不对称**（2026-06-12 审查 MEDIUM）：基准腿不扣换手、Top 腿扣自身换手，把基准应付的
+   换手成本让渡给超额，方向性抬高 top_excess/excess_ir。对慢因子（F01 排序稳）量级小，对高换手 universe
+   偏宽。债 L4：如需消除，对 bench_daily 同口径估换手扣成本。
+8. **excess_ir 自相关高估**（2026-06-12 审查 LOW）：mean/std×√244 隐含日超额 IID，N 日持有使其强自相关
+   → IR 高估（F01 1.37 真值或 ~0.7–0.9，仍 ≫0.50；恰卡线因子更受影响）。与既有多空 IC-IR 同源老惯例。
+   债 L3：可改不重叠块 IR / Newey-West。
+   → 综合 §八.2/§八.7/§八.8：long_only headline 超额应读作**乐观上界**，真实可投收益由下游可投性回测确认。
 
 ## 九、验收标准
 
