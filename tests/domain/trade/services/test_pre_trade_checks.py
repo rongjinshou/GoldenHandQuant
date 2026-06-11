@@ -100,12 +100,31 @@ class TestAggregateGates:
         )
         assert not stale.passed and "报价" in stale.reject_reason
 
-    def test_odd_lot_rejected(self):
+    def test_buy_odd_lot_rejected(self):
         r = run_pre_trade_gates(
             symbol="601006.SH", direction=OrderDirection.BUY, volume=150,
             quote=_quote(), now=WED, max_notional=1500.0, available_cash=1e6,
         )
         assert not r.passed and "100" in r.reject_reason
+
+    def test_sell_odd_lot_allowed(self):
+        """A 股零股(送配产生)允许一次性卖出 — 卖出不受 100 整数倍限制。"""
+        r = run_pre_trade_gates(
+            symbol="601006.SH", direction=OrderDirection.SELL, volume=150,
+            quote=_quote(), now=WED, max_notional=1500.0, available_volume=150,
+        )
+        assert r.passed
+
+    def test_stale_quote_rejected(self):
+        """报价新鲜度闸: 停牌/断连回退的陈旧快照必须拒单。"""
+        from datetime import timedelta
+        stale = Quote(symbol="601006.SH", last=5.0, bid1=4.99, ask1=5.01,
+                      prev_close=5.0, timestamp=WED - timedelta(minutes=10))
+        r = run_pre_trade_gates(
+            symbol="601006.SH", direction=OrderDirection.BUY, volume=100,
+            quote=stale, now=WED, max_notional=1500.0, available_cash=1e6,
+        )
+        assert not r.passed and "过期" in r.reject_reason
 
     def test_sell_uses_volume_gate_not_cash(self):
         r = run_pre_trade_gates(

@@ -50,6 +50,8 @@ class FakeTradeGateway:
     statuses=[...] → 依次弹出, 耗尽后 ALIVE。
     """
 
+    is_dry_run = True  # 测试默认按 dry_run 语义(返回 DRY_RUN 终态)
+
     def __init__(self, statuses=None, place_id="gw-1"):
         self.placed: list = []
         self.canceled: list[str] = []
@@ -112,7 +114,16 @@ class TestHappyPath:
         assert cycles[0]["orders_submitted"] == 1 and cycles[0]["signals_generated"] == 1
         execs = store.load_executions()
         assert execs[0]["status"] == "DRY_RUN" and execs[0]["notional"] == 500.0
-        assert store.day_start_equity(mode="dry_run", today="2026-06-10") == 146000.0
+        assert store.day_start_equity(today="2026-06-10") == 146000.0
+
+    def test_first_cycle_writes_pretrade_baseline_snapshot(self, tmp_path):
+        """评审发现 #4: 当日首循环必须先落盘前基准快照, 再交易(基准=交易前权益)。"""
+        svc, store, _ = _service(tmp_path, displays=[_display()])
+
+        svc.run_cycle()
+
+        series = store.load_account_series(mode="dry_run")
+        assert len(series) == 2  # 盘前基准 + 循环末快照
 
     def test_sell_signal_passes_with_position(self, tmp_path):
         pos = Position(account_id="t", ticker="601006.SH",
@@ -182,6 +193,63 @@ class TestFiltersAndBudget:
         execs = {e["symbol"]: e for e in store.load_executions()}
         assert "亏损" in execs["601006.SH"]["reject_reason"]
         assert execs["600000.SH"]["status"] == "DRY_RUN"
+
+
+class TestSafetyHardening:
+    def test_cash_cursor_decrements_within_cycle(self, tmp_path):
+        """评审发现 #8: 同循环多笔买单需扣减资金游标, 不得共用陈旧快照。"""
+        displays = [_display(symbol="600000.SH"), _display(symbol="601006.SH")]
+        svc, store, gw = _service(tmp_path, displays=displays,
+                                  account=FakeAccount(cash=600.0))
+
+        summary = svc.run_cycle()
+
+        # 报价 ask1=5.0 → 限价 5.0, notional 500, 需求 505; 600 只够第一单
+        assert summary.orders_submitted == 1 and summary.orders_rejected == 1
+        rejected = [e for e in store.load_executions() if e["status"] == "REJECTED"]
+        assert "可用资金" in rejected[0]["reject_reason"]
+
+    def test_per_order_exception_isolated_and_cycle_finalized(self, tmp_path):
+        """评审发现 #3: 单笔异常不得炸穿循环; 快照与 finalize 必达。"""
+        class BoomQuotes:
+            def __init__(self):
+                self.calls = 0
+            def subscribe_first_tick(self, symbol, timeout=3.0):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("行情断连")
+                return FakeQuotes()._q
+
+        store = TradingStore(str(tmp_path / "t.db"))
+        gw = FakeTradeGateway()
+        svc = AutoTradeAppService(
+            signal_service=FakeSignalService(
+                [_display(symbol="600000.SH"), _display(symbol="601006.SH")]),
+            quote_fetcher=BoomQuotes(), trade_gateway=gw,
+            account_gateway=FakeAccount(), store=store,
+            audit=AuditService(SqliteAuditLogRepository(store.db)),
+            config=AutoTradeConfig(mode="dry_run"),
+            clock=lambda: NOW, sleep=lambda s: None)
+
+        summary = svc.run_cycle()
+
+        assert summary.orders_failed == 1      # 第一单 FAILED 留痕
+        assert summary.orders_submitted == 1   # 第二单照常执行
+        cycles = store.load_cycles()
+        assert cycles[0]["orders_failed"] == 1  # finalize 已执行
+
+    def test_mode_gateway_mismatch_rejected_at_construction(self, tmp_path):
+        """评审发现 #10: mode 标注必须与网关真实性一致, 失配应拒绝装配。"""
+        import pytest
+        store = TradingStore(str(tmp_path / "t.db"))
+        with pytest.raises(ValueError, match="mode"):
+            AutoTradeAppService(
+                signal_service=FakeSignalService([]), quote_fetcher=FakeQuotes(),
+                trade_gateway=FakeTradeGateway(),  # is_dry_run=True
+                account_gateway=FakeAccount(), store=store,
+                audit=AuditService(SqliteAuditLogRepository(store.db)),
+                config=AutoTradeConfig(mode="live"),
+                clock=lambda: NOW, sleep=lambda s: None)
 
 
 class TestExecutionLifecycle:

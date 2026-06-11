@@ -46,3 +46,11 @@ class TestDryRunTradeGateway:
         gw = DryRunTradeGateway(_FakeReal())
         assert gw.get_asset() == "ASSET"
         assert gw.get_positions() == ["POS"]
+
+    def test_order_ids_unique_across_instances(self):
+        """评审发现 #7: 进程重启(新实例)的单号不得与历史撞 PRIMARY KEY 覆盖留痕。"""
+        gw1, gw2 = DryRunTradeGateway(_FakeReal()), DryRunTradeGateway(_FakeReal())
+        assert gw1.place_order(_order()) != gw2.place_order(_order())
+
+    def test_declares_dry_run_flag(self):
+        assert DryRunTradeGateway(_FakeReal()).is_dry_run is True

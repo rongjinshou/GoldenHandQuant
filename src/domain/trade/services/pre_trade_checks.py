@@ -16,6 +16,7 @@ from src.domain.trade.value_objects.order_direction import OrderDirection
 PRICE_BAND = 0.10                 # 主板涨跌停带
 MAX_NOTIONAL_CEILING = 5000.0     # 单笔金额上限的硬顶
 CASH_FEE_BUFFER = 1.01            # 买入资金费用 buffer
+MAX_QUOTE_AGE_SECONDS = 180.0     # 报价新鲜度: 超龄视为停牌/断连的陈旧快照
 _SESSIONS = (("09:30", "11:30"), ("13:00", "15:00"))
 
 
@@ -105,14 +106,23 @@ def run_pre_trade_gates(
     available_volume: int | None = None,
 ) -> GateResult:
     """六道闸逐序检查（自动循环用的聚合入口）。"""
-    if volume <= 0 or volume % 100 != 0:
-        return GateResult(passed=False, reject_reason=f"数量非法: {volume} (须为 100 整数倍)")
+    if volume <= 0:
+        return GateResult(passed=False, reject_reason=f"数量非法: {volume}")
+    # 买入须 100 整数倍; 卖出允许零股(送配产生的不足一手持仓可一次性卖出)
+    if direction == OrderDirection.BUY and volume % 100 != 0:
+        return GateResult(passed=False, reject_reason=f"数量非法: {volume} (买入须为 100 整数倍)")
     if reason := check_symbol_scope(symbol):
         return GateResult(passed=False, reject_reason=reason)
     if reason := check_trading_session(now):
         return GateResult(passed=False, reject_reason=reason)
     if quote is None or quote.last <= 0 or quote.prev_close <= 0:
         return GateResult(passed=False, reject_reason="拿不到有效实时报价 (停牌/退市/行情断连?)")
+    age = (now - quote.timestamp).total_seconds()
+    if age > MAX_QUOTE_AGE_SECONDS:
+        return GateResult(
+            passed=False,
+            reject_reason=f"报价过期 {age:.0f}s (>{MAX_QUOTE_AGE_SECONDS:.0f}s, 停牌/行情断连?)",
+        )
 
     price = build_limit_price(direction, quote)
     if reason := check_price_band(price, prev_close=quote.prev_close):

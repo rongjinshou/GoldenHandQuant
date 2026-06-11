@@ -35,8 +35,10 @@ _SCHEMA = [
     )""",
 ]
 
-# 占用预算的状态(意向已发出): 拒单/失败不占
-_BUDGET_STATUSES = ("DRY_RUN", "SUBMITTED", "FILLED", "PARTIAL",
+# 占用预算的状态(意向已发出): 拒单/失败不占。
+# CANCELED 必须占: QMT 部成部撤(ORDER_PART_CANCEL)也映射为 CANCELED,
+# 已成交部分是真实敞口, 不占预算会导致同日重复追单突破日上限。
+_BUDGET_STATUSES = ("DRY_RUN", "SUBMITTED", "FILLED", "PARTIAL", "CANCELED",
                     "TIMEOUT_CANCELED", "TIMEOUT_UNCANCELED", "ALIVE")
 
 
@@ -106,21 +108,24 @@ class TradingStore:
         )
         return [dict(r) for r in cur.fetchall()]
 
-    def today_submitted_notional(self, *, mode: str, today: str) -> float:
+    def today_submitted_notional(self, *, today: str) -> float:
+        """当日已提交金额——跨 mode 统计: dry_run/live 背后是同一真实账户,
+        切换模式不得重置日级预算防线。"""
         cur = self._db.execute(
             f"""SELECT COALESCE(SUM(notional), 0) FROM execution_records
-                WHERE mode=? AND date(submitted_at)=?
+                WHERE date(submitted_at)=?
                   AND status IN ({', '.join('?' for _ in _BUDGET_STATUSES)})""",
-            (mode, today, *_BUDGET_STATUSES),
+            (today, *_BUDGET_STATUSES),
         )
         return float(cur.fetchone()[0])
 
-    def today_traded_keys(self, *, mode: str, today: str) -> set[str]:
+    def today_traded_keys(self, *, today: str) -> set[str]:
+        """当日已交易 symbol:direction——同样跨 mode, 防模式切换后重复下单。"""
         cur = self._db.execute(
             f"""SELECT DISTINCT symbol || ':' || direction FROM execution_records
-                WHERE mode=? AND date(submitted_at)=?
+                WHERE date(submitted_at)=?
                   AND status IN ({', '.join('?' for _ in _BUDGET_STATUSES)})""",
-            (mode, today, *_BUDGET_STATUSES),
+            (today, *_BUDGET_STATUSES),
         )
         return {r[0] for r in cur.fetchall()}
 
@@ -135,12 +140,13 @@ class TradingStore:
         )
         self._db.commit()
 
-    def day_start_equity(self, *, mode: str, today: str) -> float | None:
+    def day_start_equity(self, *, today: str) -> float | None:
+        """当日首个权益快照——跨 mode: 同一真实账户只有一条权益曲线。"""
         cur = self._db.execute(
             """SELECT total_asset FROM account_snapshots
-               WHERE mode=? AND date(snapshot_time)=?
+               WHERE date(snapshot_time)=?
                ORDER BY snapshot_time ASC LIMIT 1""",
-            (mode, today),
+            (today,),
         )
         row = cur.fetchone()
         return float(row[0]) if row else None

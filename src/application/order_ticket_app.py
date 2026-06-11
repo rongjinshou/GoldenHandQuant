@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from src.domain.trade.entities.order import Order
 from src.domain.trade.services.pre_trade_checks import (
     MAX_NOTIONAL_CEILING,
+    PRICE_BAND,
     build_limit_price,
     check_buy_cash,
     check_notional_cap,
@@ -96,7 +97,8 @@ class OrderTicketAppService:
             return self._reject(ticket, reason)
         volume = lots * 100
         notional = price * volume
-        band = [round(quote.prev_close * 0.9, 2), round(quote.prev_close * 1.1, 2)]
+        band = [round(quote.prev_close * (1 - PRICE_BAND), 2),
+                round(quote.prev_close * (1 + PRICE_BAND), 2)]
         ticket.update({"price": price, "volume": volume, "notional": round(notional, 2),
                        "price_band": band})
 

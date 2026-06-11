@@ -3,6 +3,7 @@
 脊柱复用已实测的 LiveSignalService(quant live 同路径), 安全闸复用
 domain pre_trade_checks(与首单 ticket 同一实现)。
 设计: docs/feat/0611-closed-loop/2026-06-11-closed-loop-design.md DD-1/DD-2
+夜审加固(2026-06-11): docs/feat/0611-closed-loop/2026-06-11-night-review.md
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.trade.entities.order import Order
 from src.domain.trade.exceptions import OrderSubmitError
 from src.domain.trade.services.pre_trade_checks import (
+    CASH_FEE_BUFFER,
     check_daily_loss_block_buys,
     run_pre_trade_gates,
 )
@@ -60,7 +62,12 @@ class CycleSummary:
 
 
 class AutoTradeAppService:
-    """单次循环可独立调用(--once), 守护模式由 TradingScheduler 周期触发。"""
+    """单次循环可独立调用(--once), 守护模式由 TradingScheduler 周期触发。
+
+    装配不变量: config.mode 必须与 trade_gateway 的真实性配对
+    (dry_run ↔ is_dry_run 网关), 构造时强制校验, 防止「标注 dry_run
+    实际真单」的审计灾难。
+    """
 
     def __init__(
         self,
@@ -75,6 +82,13 @@ class AutoTradeAppService:
         clock: Callable[[], datetime] = datetime.now,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        if config.mode not in ("dry_run", "live"):
+            raise ValueError(f"非法 mode: {config.mode!r} (仅 dry_run/live)")
+        gateway_is_dry = bool(getattr(trade_gateway, "is_dry_run", False))
+        if (config.mode == "dry_run") != gateway_is_dry:
+            raise ValueError(
+                f"mode={config.mode} 与网关真实性不一致 (gateway.is_dry_run={gateway_is_dry})"
+            )
         self._signals = signal_service
         self._quotes = quote_fetcher
         self._trade = trade_gateway
@@ -109,51 +123,68 @@ class AutoTradeAppService:
             return summary
 
         summary.signals_generated = len(displays)
-        candidates = self._select(displays, now)
-        block_buys, asset = self._daily_loss_check(now)
+        try:
+            candidates = self._select(displays, now)
+            block_buys, asset = self._prepare_baseline_and_loss_check(now)
+            cash_available = asset.available_cash if asset else 0.0
 
-        for d in candidates:
-            record = self._execute_one(d, cycle_id, now, block_buys, asset)
-            self._store.save_execution(record)
-            match record["status"]:
-                case "REJECTED":
-                    summary.orders_rejected += 1
-                case "FAILED":
-                    summary.orders_failed += 1
-                case _:
-                    summary.orders_submitted += 1
-                    summary.notional_submitted += record["notional"] or 0.0
-
-        self._snapshot(now)
-        self._finalize(summary)
+            for d in candidates:
+                record = self._execute_one(d, cycle_id, now, block_buys, cash_available)
+                self._store.save_execution(record)
+                match record["status"]:
+                    case "REJECTED":
+                        summary.orders_rejected += 1
+                    case "FAILED":
+                        summary.orders_failed += 1
+                    case _:
+                        summary.orders_submitted += 1
+                        notional = record["notional"] or 0.0
+                        summary.notional_submitted += notional
+                        if record["direction"] == OrderDirection.BUY.value:
+                            # 同循环资金游标: 后续买单的资金闸用扣减后的余额
+                            cash_available -= notional * CASH_FEE_BUFFER
+        finally:
+            # 快照与 finalize 必达: 即便循环中段异常, 留痕也要收口
+            try:
+                self._snapshot(now)
+            except Exception as e:
+                logger.error("循环末快照失败: %s", e, exc_info=True)
+                summary.note = (summary.note + f" snapshot failed: {e}").strip()
+            self._finalize(summary)
         return summary
 
     # ------------------------------------------------------------- selection
     def _select(self, displays: list[SignalDisplay], now: datetime) -> list[SignalDisplay]:
         passed = [d for d in displays if d.confidence_score >= self._cfg.min_confidence]
-        done = self._store.today_traded_keys(
-            mode=self._cfg.mode, today=now.date().isoformat())
+        done = self._store.today_traded_keys(today=now.date().isoformat())
         fresh = [d for d in passed if f"{d.symbol}:{d.direction.value}" not in done]
         fresh.sort(key=lambda d: (0 if d.direction == SignalDirection.SELL else 1,
                                   -d.confidence_score))
         return fresh[: self._cfg.max_orders_per_cycle]
 
-    def _daily_loss_check(self, now: datetime):
+    def _prepare_baseline_and_loss_check(self, now: datetime):
+        """当日首循环先落盘前基准快照(交易前权益), 再做亏损禁买判定。"""
         asset = self._account.get_asset()
-        day_start = self._store.day_start_equity(
-            mode=self._cfg.mode, today=now.date().isoformat())
+        today = now.date().isoformat()
+        day_start = self._store.day_start_equity(today=today)
+        if day_start is None and asset is not None:
+            self._write_account_snapshot(now, asset)
+            day_start = asset.total_asset
         if asset is None or day_start is None:
+            logger.warning("无法获取账户资产或当日基准, 亏损闸本循环跳过 (fail-open)")
             return False, asset
         blocked = check_daily_loss_block_buys(
             day_start, asset.total_asset, limit_ratio=self._cfg.daily_loss_limit_ratio)
         if blocked:
-            logger.warning("当日权益回撤超 %.1f%%, 本循环禁买",
-                           self._cfg.daily_loss_limit_ratio * 100)
+            logger.warning("当日权益回撤超 %.1f%% (基准 %.2f → 当前 %.2f), 本循环禁买",
+                           self._cfg.daily_loss_limit_ratio * 100,
+                           day_start, asset.total_asset)
         return blocked, asset
 
     # ------------------------------------------------------------- execution
     def _execute_one(self, d: SignalDisplay, cycle_id: str, now: datetime,
-                     block_buys: bool, asset) -> dict:
+                     block_buys: bool, cash_available: float) -> dict:
+        """单笔执行(异常自隔离): 任何异常以 FAILED 留痕, 不波及循环内其他订单。"""
         direction = (OrderDirection.BUY if d.direction == SignalDirection.BUY
                      else OrderDirection.SELL)
         record = {
@@ -166,7 +197,18 @@ class AutoTradeAppService:
             "submitted_at": now.isoformat(), "final_status_at": None,
             "status_trail": "[]",
         }
+        try:
+            return self._execute_guarded(d, record, now, direction,
+                                         block_buys, cash_available)
+        except Exception as e:
+            logger.error("订单执行异常: %s - %s", d.symbol, e, exc_info=True)
+            record.update({"status": "FAILED", "reject_reason": f"执行异常: {e}"})
+            self._audit_order(record, "execute_failed")
+            return record
 
+    def _execute_guarded(self, d: SignalDisplay, record: dict, now: datetime,
+                         direction: OrderDirection, block_buys: bool,
+                         cash_available: float) -> dict:
         if block_buys and direction == OrderDirection.BUY:
             return self._reject(record, "当日亏损超限禁买 (仅放行卖出)")
 
@@ -179,14 +221,13 @@ class AutoTradeAppService:
         gate = run_pre_trade_gates(
             symbol=d.symbol, direction=direction, volume=d.suggested_volume,
             quote=quote, now=now, max_notional=self._cfg.per_order_notional_cap,
-            available_cash=asset.available_cash if asset else 0.0,
+            available_cash=cash_available,
             available_volume=available_volume,
         )
         if not gate.passed:
             return self._reject(record, gate.reject_reason)
 
-        spent = self._store.today_submitted_notional(
-            mode=self._cfg.mode, today=now.date().isoformat())
+        spent = self._store.today_submitted_notional(today=now.date().isoformat())
         if spent + gate.notional > self._cfg.daily_notional_cap:
             return self._reject(
                 record,
@@ -203,11 +244,6 @@ class AutoTradeAppService:
         try:
             order_id = str(self._trade.place_order(order))
         except OrderSubmitError as e:
-            record.update({"status": "FAILED", "reject_reason": str(e)})
-            self._audit_order(record, "place_order_failed")
-            return record
-        except Exception as e:
-            logger.error("下单异常: %s", e, exc_info=True)
             record.update({"status": "FAILED", "reject_reason": str(e)})
             self._audit_order(record, "place_order_failed")
             return record
@@ -258,14 +294,18 @@ class AutoTradeAppService:
                      "notional": record["notional"], "mode": record["mode"],
                      "reason": record["reject_reason"]})
 
+    def _write_account_snapshot(self, now: datetime, asset) -> None:
+        self._store.save_account_snapshot(
+            snapshot_time=now.isoformat(), mode=self._cfg.mode,
+            total_asset=asset.total_asset, available_cash=asset.available_cash,
+            frozen_cash=asset.frozen_cash,
+            market_value=asset.total_asset - asset.available_cash - asset.frozen_cash)
+
     def _snapshot(self, now: datetime) -> None:
         asset = self._account.get_asset()
         if asset is not None:
-            self._store.save_account_snapshot(
-                snapshot_time=now.isoformat(), mode=self._cfg.mode,
-                total_asset=asset.total_asset, available_cash=asset.available_cash,
-                frozen_cash=asset.frozen_cash,
-                market_value=asset.total_asset - asset.available_cash - asset.frozen_cash)
+            # 循环末快照与盘前基准用不同时间戳, 避免同 ts 排序歧义
+            self._write_account_snapshot(self._clock(), asset)
         positions = self._account.get_positions()
         if positions:
             self._store.save_position_snapshots(

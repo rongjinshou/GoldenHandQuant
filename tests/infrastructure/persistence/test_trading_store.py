@@ -23,6 +23,29 @@ def _exec_row(order_id="o1", symbol="601006.SH", direction="BUY",
     }
 
 
+class TestThreadSafety:
+    def test_usable_from_worker_thread(self, tmp_path):
+        """守护模式: store 在主线程创建、在调度线程使用, 不得抛跨线程错误。"""
+        import threading
+
+        s = _store(tmp_path)
+        errors: list[Exception] = []
+
+        def _work():
+            try:
+                s.save_cycle_start(cycle_id="t1", cycle_time=T0.isoformat(),
+                                   mode="dry_run", strategy="dual_ma")
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+
+        t = threading.Thread(target=_work)
+        t.start()
+        t.join()
+
+        assert errors == []
+        assert len(s.load_cycles()) == 1
+
+
 class TestCycles:
     def test_start_then_finalize_roundtrip(self, tmp_path):
         s = _store(tmp_path)
@@ -62,9 +85,29 @@ class TestExecutions:
         s.save_execution(_exec_row("o2", status="REJECTED", notional=999.0))
         s.save_execution(_exec_row("o3", status="DRY_RUN", notional=300.0))
 
-        total = s.today_submitted_notional(mode="dry_run", today=T0.date().isoformat())
+        total = s.today_submitted_notional(today=T0.date().isoformat())
 
         assert total == 800.0
+
+    def test_today_notional_counts_canceled_partial_fill(self, tmp_path):
+        """PART_CANCEL→CANCELED 的已发意向必须占预算 (评审发现 #5)。"""
+        s = _store(tmp_path)
+        s.save_execution(_exec_row("o1", status="CANCELED", notional=1400.0))
+
+        assert s.today_submitted_notional(today=T0.date().isoformat()) == 1400.0
+
+    def test_day_level_queries_ignore_mode(self, tmp_path):
+        """日级防线跨 mode 统计——dry_run/live 背后是同一真实账户 (评审发现 #9)。"""
+        s = _store(tmp_path)
+        row = _exec_row("o1", status="DRY_RUN", notional=500.0)
+        row["mode"] = "dry_run"
+        s.save_execution(row)
+        row2 = _exec_row("o2", status="SUBMITTED", notional=300.0)
+        row2["mode"] = "live"
+        s.save_execution(row2)
+
+        assert s.today_submitted_notional(today=T0.date().isoformat()) == 800.0
+        assert s.today_traded_keys(today=T0.date().isoformat()) == {"601006.SH:BUY"}
 
     def test_today_traded_keys(self, tmp_path):
         s = _store(tmp_path)
@@ -72,7 +115,7 @@ class TestExecutions:
         s.save_execution(_exec_row("o2", symbol="600000.SH", direction="SELL",
                                    status="REJECTED"))
 
-        keys = s.today_traded_keys(mode="dry_run", today=T0.date().isoformat())
+        keys = s.today_traded_keys(today=T0.date().isoformat())
 
         assert keys == {"601006.SH:BUY"}  # 拒单不算已交易
 
@@ -88,7 +131,7 @@ class TestSnapshots:
                                 available_cash=139000.0, frozen_cash=0.0,
                                 market_value=6000.0)
 
-        assert s.day_start_equity(mode="dry_run", today=T0.date().isoformat()) == 146000.0
+        assert s.day_start_equity(today=T0.date().isoformat()) == 146000.0
         series = s.load_account_series(mode="dry_run")
         assert len(series) == 2
         assert series[0]["total_asset"] == 146000.0  # 升序返回

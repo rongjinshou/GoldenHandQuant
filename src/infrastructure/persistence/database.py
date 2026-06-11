@@ -7,9 +7,13 @@ class Database:
 
     def __init__(self, db_path: str = "data/backtest.db") -> None:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(db_path)
+        # check_same_thread=False: 守护模式下连接在主线程创建、由调度线程串行使用
+        # (单写者顺序访问, 无并发竞争); 默认 True 会让调度线程每次写入即抛错。
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
+        # WAL 下 NORMAL 仅在断电时丢最后事务、不损坏库; /mnt/c 上 FULL 的逐次 fsync 代价过高
+        self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:

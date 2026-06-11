@@ -106,7 +106,11 @@ def main(args: argparse.Namespace | None = None) -> None:
         args = parser.parse_args()
 
     _setup_logging()
-    settings = load_trading_config(args.config)
+    try:
+        settings = load_trading_config(args.config)
+    except Exception as e:
+        logger.error("加载配置失败 (%s): %s", args.config, e)
+        sys.exit(1)
     at = settings.auto_trade
 
     if not (at.enabled or args.enable):

@@ -152,7 +152,6 @@ class AutoTradeSettings:
     enabled: bool = False
     mode: str = "dry_run"               # dry_run | live (live 还需 CLI --live)
     strategy: str = "dual_ma"
-    strategy_names: list[str] = field(default_factory=list)   # 兼容旧字段
     symbols: list[str] = field(default_factory=list)
     execution_times: list[str] = field(default_factory=lambda: ["09:35", "14:50"])
     max_orders_per_cycle: int = 3

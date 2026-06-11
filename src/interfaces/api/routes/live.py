@@ -1,6 +1,7 @@
 """实盘留痕只读端点 — 读 data/trading.db (SQLite, 与交易进程 WAL 并发安全)。
 
 驾驶舱实盘页消费; 不触 QMT、不做写操作。库文件不存在时显式空态。
+处理器为同步 def: FastAPI 自动丢线程池执行, sqlite I/O 不阻塞事件循环。
 设计: docs/feat/0611-closed-loop/2026-06-11-closed-loop-design.md DD-6
 """
 
@@ -33,7 +34,7 @@ def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
 
 
 @router.get("/overview")
-async def overview(db_path: str = Depends(get_trading_db_path)) -> dict:
+def overview(db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
         return {"db_exists": False, "latest_account": None, "cycles_today": 0,
@@ -55,7 +56,7 @@ async def overview(db_path: str = Depends(get_trading_db_path)) -> dict:
 
 
 @router.get("/cycles")
-async def cycles(limit: int = 50, db_path: str = Depends(get_trading_db_path)) -> dict:
+def cycles(limit: int = 50, db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
         return {"cycles": []}
@@ -68,7 +69,7 @@ async def cycles(limit: int = 50, db_path: str = Depends(get_trading_db_path)) -
 
 
 @router.get("/executions")
-async def executions(limit: int = 200,
+def executions(limit: int = 200,
                      db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
@@ -82,7 +83,7 @@ async def executions(limit: int = 200,
 
 
 @router.get("/positions")
-async def positions(db_path: str = Depends(get_trading_db_path)) -> dict:
+def positions(db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
         return {"positions": [], "snapshot_time": None}
@@ -97,7 +98,7 @@ async def positions(db_path: str = Depends(get_trading_db_path)) -> dict:
 
 
 @router.get("/equity")
-async def equity(limit: int = 500,
+def equity(limit: int = 500,
                  db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
