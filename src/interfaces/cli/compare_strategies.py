@@ -91,13 +91,9 @@ def main() -> None:
     print(f"Symbols: {symbols}")
     print(f"Range: {start_date} to {end_date}")
 
-    # 初始化基础设施
-    if history_fetcher_type == "TushareHistoryDataFetcher":
-        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
-        fetcher = TushareHistoryDataFetcher(token=tushare_token)
-    else:
-        from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
-        fetcher = QmtHistoryDataFetcher()
+    # 初始化基础设施 (fetcher 构建逻辑与 run_backtest 共用)
+    from src.interfaces.cli.run_backtest import build_history_fetcher
+    fetcher = build_history_fetcher(history_fetcher_type, tushare_token)
 
     market_gateway = MockMarketGateway()
     trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital)

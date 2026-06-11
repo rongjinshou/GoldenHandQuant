@@ -56,12 +56,7 @@ def main():
 
     # 2. 初始化基础设施
     print("\nInitializing infrastructure...")
-    if history_fetcher_type == "TushareHistoryDataFetcher":
-        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
-        fetcher = TushareHistoryDataFetcher(token=tushare_token)
-    else:
-        from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
-        fetcher = QmtHistoryDataFetcher()
+    fetcher = build_history_fetcher(history_fetcher_type, tushare_token)
 
     market_gateway = MockMarketGateway()
 
@@ -201,6 +196,29 @@ def main():
         "symbols": symbols, "timeframe": tf.value, "source": "run_backtest",
         "strategy": registry_name,
     })
+
+
+def build_history_fetcher(fetcher_type: str, tushare_token: str | None = None):
+    """按配置构建历史数据源 (run_backtest/compare 共用)。
+
+    DuckDBHistoryDataFetcher: 与研究共库, QMT 不在线也能跑;
+    缺失标的(如指数)优先回退 QMT, QMT 不可用则无回退。
+    """
+    if fetcher_type == "TushareHistoryDataFetcher":
+        from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
+        return TushareHistoryDataFetcher(token=tushare_token)
+    if fetcher_type == "DuckDBHistoryDataFetcher":
+        from src.infrastructure.gateway.duckdb_history_data import DuckDBHistoryDataFetcher
+        fallback = None
+        try:
+            from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
+            fallback = QmtHistoryDataFetcher()
+        except Exception as e:
+            print(f"QMT 回退不可用 (库内缺失标的将跳过): {e}")
+        return DuckDBHistoryDataFetcher(
+            os.environ.get("GHQ_MARKET_DB", "data/market.duckdb"), fallback=fallback)
+    from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher
+    return QmtHistoryDataFetcher()
 
 
 def store_backtest_reports(reports, *, params: dict) -> None:
