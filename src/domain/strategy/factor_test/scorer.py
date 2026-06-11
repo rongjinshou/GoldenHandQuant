@@ -25,8 +25,13 @@ def _grade(score: float) -> str:
 class FactorScorer:
     """综合评分器：根据 IC/IR/分层收益/单调性/衰减计算 0-100 评分。"""
 
-    def score(self, report: FactorTestReport) -> tuple[float, str, list[str]]:
-        """返回 (score_0_100, grade_ABCD, reasons)。"""
+    def score(
+        self, report: FactorTestReport, objective: str = "long_short"
+    ) -> tuple[float, str, list[str]]:
+        """返回 (score_0_100, grade_ABCD, reasons)。
+
+        objective='long_only' 时变现项(20%)从多空收益切到 Top 层超额。
+        """
         reasons: list[str] = []
 
         # 1. IC 均值 (30%): |IC| >= 0.05 → 满分, |IC| < 0.01 → 0 分
@@ -39,9 +44,13 @@ class FactorScorer:
         ir_part = _linear_score(ir_abs, 0.1, 0.5) * 25
         reasons.append(f"IR (25%): {ir_part:.0f}/25  |IR|={ir_abs:.3f}")
 
-        # 3. 多空年化收益 (20%): >= 15% → 满分, < 3% → 0 分
-        ls_part = _linear_score(report.long_short_return, 0.03, 0.15) * 20
-        reasons.append(f"多空收益 (20%): {ls_part:.0f}/20  年化 {report.long_short_return:.1%}")
+        # 3. 变现 (20%): long_short→多空 0.03→0.15; long_only→Top 超额 0.0→0.05
+        if objective == "long_only":
+            realize_part = _linear_score(report.top_excess_return, 0.0, 0.05) * 20
+            reasons.append(f"Top超额 (20%): {realize_part:.0f}/20  年化 {report.top_excess_return:.1%}")
+        else:
+            realize_part = _linear_score(report.long_short_return, 0.03, 0.15) * 20
+            reasons.append(f"多空收益 (20%): {realize_part:.0f}/20  年化 {report.long_short_return:.1%}")
 
         # 4. 单调性 (15%): score 1.0 → 满分, score 0 → 0 分
         mono_part = report.monotonicity_score * 15
@@ -63,6 +72,6 @@ class FactorScorer:
         else:
             reasons.append(f"衰减 (10%): {decay_part:.0f}/10  数据不足")
 
-        total = ic_part + ir_part + ls_part + mono_part + decay_part
+        total = ic_part + ir_part + realize_part + mono_part + decay_part
         total = min(100.0, max(0.0, total))
         return total, _grade(total), reasons

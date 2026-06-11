@@ -93,6 +93,22 @@ class TestScorer:
         assert 40 <= score < 80
         assert grade in ("B", "C")
 
+    def test_long_only_uses_top_excess(self):
+        """objective=long_only 时变现项改记 Top 超额。"""
+        report = _make_report(
+            ic_mean=0.03, ir=0.2, long_short_return=0.0, top_excess_return=0.05,
+            monotonicity_score=1.0,
+        )
+        score, _, reasons = FactorScorer().score(report, objective="long_only")
+        assert any("Top超额" in r for r in reasons)
+        assert score > 0
+
+    def test_long_short_default_uses_long_short(self):
+        """默认 objective=long_short, 变现项仍记多空收益。"""
+        report = _make_report(ic_mean=0.03, ir=0.3, long_short_return=0.10, monotonicity_score=0.7)
+        _, _, reasons = FactorScorer().score(report)
+        assert any("多空收益" in r for r in reasons)
+
     def test_ic_clamped(self):
         """IC 超过阈值也应满分，不超 30 分。"""
         report = _make_report(

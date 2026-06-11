@@ -31,6 +31,8 @@ class FactorTestRunner:
         test_period: tuple[str, str] = ("", ""),
         num_layers: int = 5,
         rebalance_days: int = 1,
+        objective: str = "long_short",
+        cost_rate: float = 0.003,
     ) -> ScoredFactorTestReport:
         """执行完整因子测试流程。
 
@@ -61,7 +63,7 @@ class FactorTestRunner:
         # 3. 分层回测
         layer_result = self._layer_backtester.run(
             expression, snapshots_by_date, returns_by_date, num_layers,
-            rebalance_days=rebalance_days,
+            cost_rate=cost_rate, rebalance_days=rebalance_days,
         )
 
         # 4. 因子衰减
@@ -88,13 +90,18 @@ class FactorTestRunner:
             layer_returns=layer_result.layer_returns,
             long_short_return=layer_result.long_short_return,
             layer_cumulative=layer_result.layer_cumulative,
+            top_layer_return=layer_result.top_layer_return,
+            benchmark_return=layer_result.benchmark_return,
+            top_excess_return=layer_result.top_excess_return,
+            excess_ir=layer_result.excess_ir,
+            excess_positive_rate=layer_result.excess_positive_rate,
             monotonicity_score=layer_result.monotonicity_score,
             decay_periods=decay_periods,
             decay_ics=decay_ics,
         )
 
         # 7. 综合评分 — 一次性构建包含评分的完整报告
-        score, grade, reasons = self._scorer.score(report)
+        score, grade, reasons = self._scorer.score(report, objective=objective)
         return ScoredFactorTestReport(
             report=report,
             score=score,

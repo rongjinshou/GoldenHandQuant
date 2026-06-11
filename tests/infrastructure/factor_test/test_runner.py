@@ -138,6 +138,31 @@ class TestFactorTestRunner:
         assert daily.report.long_short_return > 0
         assert hold.report.long_short_return < 0
 
+    def test_long_only_populates_top_excess(self):
+        """objective=long_only 时 report 携带 Top 超额, 代理属性可达。"""
+        runner = FactorTestRunner()
+        dates = [f"2024-01-{d:02d}" for d in range(1, 8)]
+        snapshots_by_date, returns_by_date, prices_by_date = {}, {}, {}
+        for date_str in dates:
+            snapshots_by_date[date_str] = [_make_snapshot(f"S{i}", float(i + 1)) for i in range(10)]
+            prices_by_date[date_str] = {f"S{i}": 10.0 for i in range(10)}
+        # 高 pe 收益更高 → Top 层跑赢等权基准
+        for i in range(len(dates) - 1):
+            returns_by_date[dates[i]] = {f"S{j}": 0.005 * (j + 1) for j in range(10)}
+
+        scored = runner.run(
+            expression_str="pe_ratio",
+            snapshots_by_date=snapshots_by_date,
+            returns_by_date=returns_by_date,
+            prices_by_date=prices_by_date,
+            test_period=("2024-01-01", "2024-01-07"),
+            num_layers=5,
+            objective="long_only",
+        )
+        assert scored.report.top_excess_return > 0
+        assert scored.top_excess_return == scored.report.top_excess_return  # 代理属性
+        assert scored.excess_ir > 0
+
     def test_rank_expression(self):
         runner = FactorTestRunner()
 

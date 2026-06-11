@@ -25,6 +25,13 @@ class FactorTestReport:
     long_short_return: float = 0.0
     layer_cumulative: list[list[float]] = field(default_factory=list)
 
+    # long-only 记分牌 (Top 层纯多头超额 vs 等权覆盖池基准)
+    top_layer_return: float = 0.0
+    benchmark_return: float = 0.0
+    top_excess_return: float = 0.0
+    excess_ir: float = 0.0
+    excess_positive_rate: float = 0.0
+
     # 单调性
     monotonicity_score: float = 0.0
 
@@ -103,6 +110,26 @@ class ScoredFactorTestReport:
     @property
     def layer_cumulative(self) -> list[list[float]]:
         return self.report.layer_cumulative
+
+    @property
+    def top_layer_return(self) -> float:
+        return self.report.top_layer_return
+
+    @property
+    def benchmark_return(self) -> float:
+        return self.report.benchmark_return
+
+    @property
+    def top_excess_return(self) -> float:
+        return self.report.top_excess_return
+
+    @property
+    def excess_ir(self) -> float:
+        return self.report.excess_ir
+
+    @property
+    def excess_positive_rate(self) -> float:
+        return self.report.excess_positive_rate
 
     @property
     def monotonicity_score(self) -> float:
