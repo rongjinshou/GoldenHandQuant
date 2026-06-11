@@ -21,6 +21,8 @@
     <button class="tab active" data-tab="overview">数据资产</button>
     <button class="tab" data-tab="verdicts">因子判决</button>
     <button class="tab" data-tab="explorer">个股查看</button>
+    <button class="tab" data-tab="backtests">回测</button>
+    <button class="tab" data-tab="live">实盘</button>
   </nav>
 
   <main>
@@ -71,6 +73,58 @@
       <div id="kline-chart" class="chart tall"></div>
       <div class="toolbar feature-picker" id="feature-picker"></div>
       <div id="feature-chart" class="chart"></div>
+    </section>
+    <!-- 回测 -->
+    <section id="tab-backtests" class="panel">
+      <div class="toolbar">
+        <label>回测轮次
+          <select id="bt-run-select"></select>
+        </label>
+        <span id="bt-run-meta" class="run-params"></span>
+      </div>
+      <table id="bt-table" class="verdict-table">
+        <thead>
+          <tr>
+            <th>策略</th><th>区间</th><th>总收益</th><th>年化</th><th>最大回撤</th>
+            <th>夏普</th><th>索提诺</th><th>Calmar</th><th>胜率</th><th>交易数</th><th>换手</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="bt-chart" class="chart tall" style="margin-top:14px"></div>
+      <p id="bt-empty" class="empty hidden">
+        暂无回测入库 — 运行 <code>python -m src.interfaces.cli.run_backtest</code> 后自动写入 backtest_runs。
+      </p>
+    </section>
+
+    <!-- 实盘 / 纸面前向 -->
+    <section id="tab-live" class="panel">
+      <div id="live-cards" class="cards" style="margin-bottom:14px"></div>
+      <div id="live-equity-chart" class="chart" style="margin-bottom:14px"></div>
+      <h3 class="section-title">当前持仓 <span id="live-pos-time" class="run-params"></span></h3>
+      <table id="live-positions" class="verdict-table">
+        <thead><tr><th>标的</th><th>总量</th><th>可用</th><th>成本价</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <h3 class="section-title">交易循环</h3>
+      <table id="live-cycles" class="verdict-table">
+        <thead>
+          <tr><th>时刻</th><th>模式</th><th>策略</th><th>信号</th><th>提交</th>
+              <th>拒绝</th><th>失败</th><th>金额</th><th>备注</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <h3 class="section-title">执行记录</h3>
+      <table id="live-executions" class="verdict-table">
+        <thead>
+          <tr><th>时间</th><th>标的</th><th>方向</th><th>限价</th><th>数量</th>
+              <th>金额</th><th>置信</th><th>状态</th><th>拒因</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="live-empty" class="empty hidden">
+        暂无交易留痕 — 运行 <code>quant auto-trade --once --enable</code>（dry-run）后生成 data/trading.db。
+      </p>
     </section>
   </main>
 

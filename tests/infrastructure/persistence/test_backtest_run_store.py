@@ -54,6 +54,19 @@ class TestBacktestRunStore:
 
         assert len(runs) == 1 and len(runs[0]["strategies"]) == 2
 
+    def test_read_only_old_schema_db_returns_empty(self, tmp_path):
+        """旧库(无 backtest_runs 表)被 read_only 打开时优雅返回空, 不 500。"""
+        import duckdb
+
+        db = str(tmp_path / "old.duckdb")
+        duckdb.connect(db).close()  # 建一个不含任何表的旧库
+
+        store = MarketDataStore(db, read_only=True)
+        try:
+            assert store.load_backtest_runs() == []
+        finally:
+            store.close()
+
     def test_reinsert_same_key_is_idempotent(self):
         store = MarketDataStore(":memory:")
         row = build_backtest_run_row(_report(), run_id="r1", params={})

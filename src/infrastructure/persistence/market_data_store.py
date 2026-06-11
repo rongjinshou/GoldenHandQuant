@@ -436,12 +436,19 @@ class MarketDataStore:
             )
 
     def load_backtest_runs(self, limit: int = 100) -> list[dict]:
-        """按 run 分组, created_at 倒序。equity_curve/params 保持 JSON 字符串。"""
-        rows = self._conn.execute(
-            f"""SELECT run_id, created_at, {", ".join(_BACKTEST_COLS)}
-                FROM backtest_runs ORDER BY created_at DESC, strategy LIMIT ?""",
-            [limit],
-        ).fetchall()
+        """按 run 分组, created_at 倒序。equity_curve/params 保持 JSON 字符串。
+
+        read_only 打开的旧库可能尚无 backtest_runs 表(DDL 只在写模式执行),
+        缺表按空结果处理而非报错。
+        """
+        try:
+            rows = self._conn.execute(
+                f"""SELECT run_id, created_at, {", ".join(_BACKTEST_COLS)}
+                    FROM backtest_runs ORDER BY created_at DESC, strategy LIMIT ?""",
+                [limit],
+            ).fetchall()
+        except duckdb.CatalogException:
+            return []
         runs: dict[str, dict] = {}
         for row in rows:
             run_id = row[0]

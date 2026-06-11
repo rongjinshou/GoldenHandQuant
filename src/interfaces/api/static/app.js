@@ -35,6 +35,8 @@ document.querySelectorAll(".tab").forEach((btn) => {
     $(`#tab-${btn.dataset.tab}`).classList.add("active");
     location.hash = btn.dataset.tab;
     if (btn.dataset.tab === "explorer") resizeCharts();
+    if (btn.dataset.tab === "backtests") loadBacktests().catch((e) => showError(e.message));
+    setLivePolling(btn.dataset.tab === "live");
   });
 });
 
@@ -249,7 +251,171 @@ function resizeCharts() {
   setTimeout(() => {
     if (klineChart) klineChart.resize();
     if (featureChart) featureChart.resize();
+    if (btChart) btChart.resize();
+    if (liveEquityChart) liveEquityChart.resize();
   }, 0);
+}
+
+// ---------- 回测 ----------
+
+let btChart = null;
+let btRuns = [];
+
+async function loadBacktests() {
+  const data = await fetchJSON(`${API}/backtests`);
+  btRuns = data.runs;
+  $("#bt-empty").classList.toggle("hidden", btRuns.length > 0);
+  const select = $("#bt-run-select");
+  select.innerHTML = "";
+  btRuns.forEach((run, i) => {
+    const names = run.strategies.map((s) => s.strategy).join(", ");
+    select.insertAdjacentHTML(
+      "beforeend",
+      `<option value="${i}">${run.run_id}（${names}）</option>`
+    );
+  });
+  select.onchange = () => renderBtRun(btRuns[Number(select.value)]);
+  if (btRuns.length) renderBtRun(btRuns[0]);
+}
+
+function renderBtRun(run) {
+  const first = run.strategies[0] || {};
+  const p = first.params || {};
+  $("#bt-run-meta").textContent =
+    `入库 ${run.created_at.slice(0, 19)} · 来源 ${p.source || "?"} · ` +
+    `初始资金 ${first.initial_capital ? first.initial_capital.toLocaleString() : "?"}`;
+
+  const tbody = $("#bt-table tbody");
+  tbody.innerHTML = "";
+  const signed = (v, fmt) => {
+    if (v === null || v === undefined) return `<td class="gate-na">-</td>`;
+    const cls = v > 0 ? "gate-good" : v < 0 ? "gate-bad" : "";
+    return `<td class="${cls}">${fmt(v)}</td>`;
+  };
+  for (const s of run.strategies) {
+    tbody.insertAdjacentHTML(
+      "beforeend",
+      `<tr>
+         <td>${s.strategy}</td>
+         <td>${s.start_date} ~ ${s.end_date}</td>
+         ${signed(s.total_return, pct)}
+         ${signed(s.annualized_return, pct)}
+         <td class="${s.max_drawdown > 0.2 ? "gate-bad" : ""}">${pct(s.max_drawdown)}</td>
+         ${signed(s.sharpe_ratio, f3)}
+         ${signed(s.sortino_ratio, f3)}
+         ${signed(s.calmar_ratio, f3)}
+         <td>${pct(s.win_rate)}</td>
+         <td>${s.trade_count}</td>
+         <td>${pct(s.turnover_rate)}</td>
+       </tr>`
+    );
+  }
+
+  if (!btChart) btChart = echarts.init($("#bt-chart"), "dark");
+  const withCurve = run.strategies.filter((s) => (s.equity_curve.dates || []).length);
+  btChart.setOption({
+    backgroundColor: "transparent",
+    animation: false,
+    title: { text: `净值曲线 · ${run.run_id}`, textStyle: { fontSize: 13 } },
+    tooltip: { trigger: "axis" },
+    legend: { top: 4, right: 10, textStyle: { fontSize: 11 } },
+    grid: { left: 80, right: 20, top: 40, bottom: 40 },
+    xAxis: { type: "category", data: (withCurve[0] || { equity_curve: { dates: [] } }).equity_curve.dates },
+    yAxis: { type: "value", scale: true },
+    dataZoom: [{ type: "inside" }],
+    series: withCurve.map((s) => ({
+      name: s.strategy, type: "line", data: s.equity_curve.values,
+      showSymbol: false,
+    })),
+  }, true);
+  resizeCharts();
+}
+
+// ---------- 实盘 / 纸面前向 ----------
+
+let liveEquityChart = null;
+let liveTimer = null;
+
+const STATUS_BADGE = {
+  DRY_RUN: "info", SUBMITTED: "info", FILLED: "pass", PARTIAL: "warn",
+  ALIVE: "warn", TIMEOUT_CANCELED: "warn", TIMEOUT_UNCANCELED: "fail",
+  CANCELED: "warn", REJECTED: "fail", FAILED: "fail",
+};
+
+function setLivePolling(on) {
+  if (on) {
+    loadLive().catch((e) => showError(e.message));
+    if (!liveTimer) liveTimer = setInterval(
+      () => loadLive().catch(() => {}), 5000);
+  } else if (liveTimer) {
+    clearInterval(liveTimer);
+    liveTimer = null;
+  }
+}
+
+async function loadLive() {
+  const [ov, cyc, exe, pos, eq] = await Promise.all([
+    fetchJSON("/api/live/overview"),
+    fetchJSON("/api/live/cycles"),
+    fetchJSON("/api/live/executions"),
+    fetchJSON("/api/live/positions"),
+    fetchJSON("/api/live/equity"),
+  ]);
+
+  $("#live-empty").classList.toggle("hidden", ov.db_exists);
+
+  const acct = ov.latest_account || {};
+  const num = (v) => (v === null || v === undefined ? "-" : Number(v).toLocaleString());
+  $("#live-cards").innerHTML = `
+    <div class="card"><h3>总资产</h3><div class="big">${num(acct.total_asset)}</div>
+      <div class="dim">${(acct.snapshot_time || "").slice(0, 19) || "无快照"} · ${acct.mode || ""}</div></div>
+    <div class="card"><h3>可用资金</h3><div class="big">${num(acct.available_cash)}</div>
+      <div class="dim">冻结 ${num(acct.frozen_cash)}</div></div>
+    <div class="card"><h3>今日循环</h3><div class="big">${ov.cycles_today}</div>
+      <div class="dim">执行时刻命中次数</div></div>
+    <div class="card"><h3>今日执行</h3><div class="big">${ov.executions_today}</div>
+      <div class="dim">含拒单/失败留痕</div></div>`;
+
+  if (!liveEquityChart) liveEquityChart = echarts.init($("#live-equity-chart"), "dark");
+  liveEquityChart.setOption({
+    backgroundColor: "transparent",
+    animation: false,
+    title: { text: "账户权益（循环快照）", textStyle: { fontSize: 13 } },
+    tooltip: { trigger: "axis" },
+    grid: { left: 90, right: 20, top: 40, bottom: 40 },
+    xAxis: { type: "category", data: eq.series.map((r) => r.snapshot_time.slice(5, 16)) },
+    yAxis: { type: "value", scale: true },
+    series: [{ name: "总资产", type: "line", showSymbol: false,
+               data: eq.series.map((r) => r.total_asset) }],
+  }, true);
+
+  $("#live-pos-time").textContent = pos.snapshot_time
+    ? `快照 ${pos.snapshot_time.slice(0, 19)}` : "";
+  $("#live-positions tbody").innerHTML = pos.positions.map((r) => `
+    <tr><td>${r.symbol}</td><td>${r.total_volume}</td>
+        <td>${r.available_volume}</td><td>${(r.average_cost ?? 0).toFixed(3)}</td></tr>`
+  ).join("") || `<tr><td colspan="4" class="gate-na">无持仓快照</td></tr>`;
+
+  $("#live-cycles tbody").innerHTML = cyc.cycles.map((c) => `
+    <tr><td>${c.cycle_time.slice(0, 19)}</td>
+        <td><span class="badge ${c.mode === "live" ? "fail" : "info"}">${c.mode}</span></td>
+        <td>${c.strategy}</td><td>${c.signals_generated}</td><td>${c.orders_submitted}</td>
+        <td>${c.orders_rejected}</td><td>${c.orders_failed}</td>
+        <td>${num(c.notional_submitted)}</td>
+        <td style="text-align:left">${c.note || ""}</td></tr>`
+  ).join("") || `<tr><td colspan="9" class="gate-na">暂无循环</td></tr>`;
+
+  $("#live-executions tbody").innerHTML = exe.executions.map((e) => `
+    <tr><td>${e.submitted_at.slice(0, 19)}</td><td>${e.symbol}</td>
+        <td class="${e.direction === "BUY" ? "gate-bad" : "gate-good"}">${e.direction}</td>
+        <td>${e.exec_price != null ? e.exec_price.toFixed(2) : "-"}</td>
+        <td>${e.volume ?? "-"}</td><td>${e.notional != null ? num(e.notional) : "-"}</td>
+        <td>${e.confidence != null ? e.confidence.toFixed(2) : "-"}</td>
+        <td><span class="badge ${STATUS_BADGE[e.status] || "info"}">${e.status}</span></td>
+        <td style="text-align:left">${e.reject_reason || ""}</td></tr>`
+  ).join("") || `<tr><td colspan="9" class="gate-na">暂无执行记录</td></tr>`;
+
+  resizeCharts();
 }
 
 // symbol 搜索联想
@@ -284,7 +450,7 @@ window.addEventListener("resize", resizeCharts);
 (async function init() {
   initFeaturePicker();
   const tab = location.hash.replace("#", "");
-  if (tab && ["overview", "verdicts", "explorer"].includes(tab)) {
+  if (tab && ["overview", "verdicts", "explorer", "backtests", "live"].includes(tab)) {
     document.querySelector(`.tab[data-tab="${tab}"]`).click();
   }
   try {
