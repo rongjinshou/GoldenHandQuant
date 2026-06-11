@@ -77,6 +77,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_data.add_argument("--config", type=str, default="resources/backtest.yaml", help="配置文件")
     p_data.add_argument("--db", type=str, default="data/market.duckdb", help="数据库文件路径")
 
+    # --- order ---
+    p_ord = subparsers.add_parser("order", help="受控单笔下单 (实盘)")
+    p_ord.add_argument("order_action", choices=["buy"], help="动作")
+    p_ord.add_argument("--symbol", type=str, required=True, help="标的 (仅沪深主板)")
+    p_ord.add_argument("--lots", type=int, default=1, help="手数 (1 手=100 股)")
+    p_ord.add_argument("--max-notional", type=float, default=1500.0,
+                        help="单笔金额上限(元), 硬顶 5000")
+    p_ord.add_argument("--poll-timeout", type=float, default=60.0, help="状态轮询超时(秒)")
+    p_ord.add_argument("--config", type=str, default="resources/trading.yaml", help="交易配置")
+    p_ord.add_argument("--yes", action="store_true", help="跳过交互确认 (实单!)")
+
     # --- dashboard ---
     p_db = subparsers.add_parser("dashboard", help="投研驾驶舱 (浏览器查看数据/判决/个股)")
     p_db.add_argument("--port", type=int, default=8501, help="监听端口")
@@ -156,6 +167,10 @@ def main() -> None:
             from src.interfaces.cli.commands.dashboard_cmd import run_dashboard
 
             run_dashboard(args)
+        case "order":
+            from src.interfaces.cli.commands.order_cmd import run_order
+
+            run_order(args)
         case "list":
             from src.domain.strategy.registry import list_strategies
 

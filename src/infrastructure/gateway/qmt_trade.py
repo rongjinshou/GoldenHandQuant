@@ -14,6 +14,19 @@ from .xtquant_client import StockAccount, XtQuantTrader, XtQuantTraderCallback, 
 logger = logging.getLogger(__name__)
 
 
+def _map_xt_order_status(status: int) -> str:
+    """xtconstant 委托状态 → 引擎通用状态。"""
+    if status == xtconstant.ORDER_SUCCEEDED:
+        return "FILLED"
+    if status == xtconstant.ORDER_PART_SUCC:
+        return "PARTIAL"
+    if status in (xtconstant.ORDER_CANCELED, xtconstant.ORDER_PART_CANCEL):
+        return "CANCELED"
+    if status == xtconstant.ORDER_JUNK:
+        return "REJECTED"
+    return "ALIVE"  # 未报/待报/已报/待撤等中间态
+
+
 class QmtTradeGateway(ITradeGateway, IAccountGateway):
     """QMT 交易网关实现。"""
 
@@ -108,6 +121,25 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
         except Exception as e:
             logger.error(f"Error querying positions: {e}", exc_info=True)
             return []
+
+    def query_order_status(self, order_id: str) -> str | None:
+        """按 QMT 委托号查询订单状态（映射为引擎通用状态字符串）。
+
+        Returns:
+            FILLED/PARTIAL/CANCELED/REJECTED/ALIVE，查不到返回 None。
+        """
+        if not self._check_initialized():
+            return None
+        try:
+            orders = self.xt_trader.query_stock_orders(self.account) or []
+            for xt_order in orders:
+                if str(xt_order.order_id) != str(order_id):
+                    continue
+                return _map_xt_order_status(xt_order.order_status)
+            return None
+        except Exception as e:
+            logger.error(f"Error querying order status: {e}", exc_info=True)
+            return None
 
     def place_order(self, order: Order) -> str:
         """提交订单。"""
