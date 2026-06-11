@@ -120,7 +120,11 @@ def main(args: argparse.Namespace | None = None) -> None:
         logger.warning(">>> LIVE 模式: 将提交真实订单! 单笔上限 ¥%.0f 日上限 ¥%.0f <<<",
                        at.per_order_notional_cap, at.daily_notional_cap)
 
-    service = _build_service(settings, mode)
+    try:
+        service = _build_service(settings, mode)
+    except RuntimeError as e:
+        logger.error("依赖组装失败: %s", e)
+        sys.exit(1)
 
     if args.once:
         s = service.run_cycle()

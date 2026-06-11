@@ -64,8 +64,13 @@ $WIN_PYTHON -m src.interfaces.cli.quant data status
 # 因子判决（结果自动入库 factor_verdicts）
 $WIN_PYTHON -m src.interfaces.cli.quant factor-test --factors P0 --split-date 2024-06-30
 
-# 投研驾驶舱（http://127.0.0.1:8501/ui/）
+# 投研驾驶舱（http://127.0.0.1:8501/ui/, 含回测/实盘页签）
 $WIN_PYTHON -m src.interfaces.cli.quant dashboard
+
+# 自动交易循环（dry-run 默认=纸面前向; 留痕入 data/trading.db; 需 QMT 客户端）
+$WIN_PYTHON -m src.interfaces.cli.quant auto-trade --once --enable
+# live 真单需三重确认: 配置 mode:live + enabled:true + CLI --live（运行手册:
+# docs/feat/0611-closed-loop/2026-06-12-morning-runbook.md）
 ```
 
 ## 核心架构

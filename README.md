@@ -63,18 +63,29 @@ quant dashboard          # → http://127.0.0.1:8501/ui/
 |---|---|
 | `quant data refresh / status` | 市场数据库维护（只刷缺口 / 覆盖概览） |
 | `quant factor-test --factors P0` | 因子假设硬门槛判决（IC/IR/单调性/扣成本多空/OOS） |
-| `quant dashboard` | 投研驾驶舱（数据资产 / 因子判决 / 个股查看） |
-| `quant backtest -s <strategy>` | 单策略回测 |
-| `quant compare --strategies a,b` | 多策略对比 |
+| `quant dashboard` | 投研驾驶舱（数据资产 / 因子判决 / 个股查看 / 回测 / 实盘） |
+| `quant backtest -s <strategy>` | 单策略回测（结果自动入库 `backtest_runs`） |
+| `quant compare --strategies a,b` | 多策略对比（同上入库, 同 run 并排） |
 | `quant list` | 列出可用策略 |
 | `quant ml-train / ml-evaluate` | ML 选股管道 |
-| `quant live / auto-trade / monitor` | 半自动/自动实盘与监控（Phase 3+） |
+| `quant order buy --symbol X --lots N` | 受控单笔实单（六道盘前闸） |
+| `quant live` | 半自动交易（信号确认后下单） |
+| `quant auto-trade --once --enable` | 自动交易循环：**dry-run 默认**（纸面前向）；`--live` + 配置 `mode:live` + `enabled:true` 三重确认才发真单 |
 
 ## 市场数据库（DuckDB, `data/market.duckdb`）
 
-五张表：`instruments`（股票池）/ `bars`（前复权日线）/ `fundamental_snapshots`
+六张表：`instruments`（股票池）/ `bars`（前复权日线）/ `fundamental_snapshots`
 （日度基本面）/ `stock_features`（截面特征，**T-1 信息口径固化进表结构**，
-版本化）/ `factor_verdicts`（判决留痕）+ `fetch_meta`（履约区间，刷新只拉缺口）。
+版本化）/ `factor_verdicts`（判决留痕）/ `backtest_runs`（回测结果留痕：
+指标 + 净值曲线，驾驶舱回测页消费）+ `fetch_meta`（履约区间，刷新只拉缺口）。
+
+## 交易留痕库（SQLite WAL, `data/trading.db`）
+
+自动交易循环的运行账本：`trading_cycles`（循环结果）/ `execution_records`
+（每单全生命周期，含拒单原因）/ `account_snapshots`、`position_snapshots`
+（循环末快照）/ `audit_logs`（审计）。驾驶舱实盘页只读轮询此库。
+安全模型：六道盘前闸（与受控单笔同一 domain 实现）+ 循环/日预算闸 +
+当日亏损禁买 + 超时撤单；live 模式三重显式确认，缺一自动降级 dry-run。
 
 特征由向量化引擎（`src/domain/market/services/feature_engine.py`）按 symbol
 全时段一次算完，与逐日重算的参考实现做过 1e-9 golden 等价验证；
@@ -97,4 +108,6 @@ ruff check src/
 - `docs/feat/0610-factor-library/` — 因子假设库 + 历轮判决报告
 - `docs/feat/0611-market-data-store/` — 市场数据库 + 向量化引擎设计/计划
 - `docs/feat/0611-dashboard/` — 投研驾驶舱设计/计划
+- `docs/feat/0611-realtime-order/` — 实时行情 + 受控单笔（首单回执）
+- `docs/feat/0611-closed-loop/` — 全闭环 v1：自动交易/留痕/驾驶舱扩展（设计/计划/晨间手册）
 - `CLAUDE.md` — AI 协作约定（Claude Code）

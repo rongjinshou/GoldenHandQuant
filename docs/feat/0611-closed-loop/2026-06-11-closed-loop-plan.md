@@ -2,6 +2,25 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## ✅ 完成状态（2026-06-11 夜, 同日执行完毕）
+
+全部 11 个任务已实现并验证：全量 pytest 绿（exit 0, --ignore=gateway）+ `ruff check src/` 干净。
+提交序列：`ebe22b4`(卫生) → `22bb99d`(盘前闸) → `08ddf6d`(撤单) → `35199a3`(留痕库+DryRun)
+→ `f65807f`(循环服务) → `80dcebf`(CLI 接线) → `e4cf007`(回测入库) → `4190607`(API)
+→ `6bc8616`(前端+缺表修复) → 文档收尾提交。
+
+### 实施偏差记录（计划 vs 实际）
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | pytest `--basetemp` 移入项目目录 `.pytest_tmp/`（pyproject addopts） | 系统 Temp 下 `pytest-of-11492` 目录 ACL 损坏且 takeown/icacls/rmdir 全部拒绝，tmp_path fixture 全体 ERROR；项目内 basetemp 一劳永逸 |
+| 2 | Task 2 happy-path 断言改 5.01/501.0（计划写 5.0/500.0） | `min(ask1=5.01, last×1.002=5.01)`=5.01——计划断言笔误，实现与 ticket 口径一致 |
+| 3 | Task 6 测试替身 FakeTradeGateway 默认改「永远 DRY_RUN」 | 原设计 statuses 耗尽后返回 ALIVE，固定时钟下多单轮询死循环（首跑即挂） |
+| 4 | Task 8 `--no-store/--db` 旗标改为环境变量 `GHQ_NO_STORE`/`GHQ_MARKET_DB` | `run_backtest.py` 本无 argparse（纯 YAML 配置驱动），不为旗标引入参数解析；compare 复用同一 `store_backtest_reports()` |
+| 5 | Task 9 增补：`load_backtest_runs` 缺表优雅返回空 + 回归测试 | 冒烟发现真实路径 500——既有 market.duckdb 是旧 schema，read_only 连接不执行 DDL；新建库的测试测不出此问题 |
+| 6 | Task 11 盘中 QMT 冒烟未完成，移入晨间手册 | 14:00 实测交易端 `connect != 0`（QMT 客户端未在线）；错误路径验证正确，并给 CLI 加了友好报错（不再裸 traceback） |
+| 7 | 顺手修一处存量 lint（fetch_account.py E501） | `ruff check src/` 全量验收时暴露，独立 commit `b738adf` |
+
 **Goal:** 打通「自动交易循环（dry-run/live）+ 交易留痕 + 回测结果入库 + 驾驶舱回测/实盘两页签」的端到端闭环。
 
 **Architecture:** 自动循环脊柱 = 已实测的 `LiveSignalService`，新建 `AutoTradeAppService` 编排「扫描→过滤→三层防线→下单→轮询→撤单→留痕」；盘前闸提取为 domain 纯函数与单笔 ticket 共用；交易留痕入 SQLite `data/trading.db`（新 `TradingStore` + 既有审计仓储），回测结果入 `market.duckdb` 新表 `backtest_runs`；驾驶舱沿用只读 REST + 原生 JS 页签。设计：`2026-06-11-closed-loop-design.md`（DD-1~DD-8）。
