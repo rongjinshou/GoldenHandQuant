@@ -113,7 +113,7 @@ $WIN_PYTHON -m src.interfaces.cli.quant auto-trade --once --enable
 
 ## 代码规范
 
-完整规范见 `docs/rules/architecture.md`。核心要点：
+完整规范见 `docs/rules/`（按主题拆分，入口 `architecture.md` 含索引；写代码读 `coding-style.md`、写测试读 `testing.md`、动 domain/网关读 `domain-rules.md`、动实盘链路读 `live-trading.md`、动数据层读 `data-layer.md`、找代码读 `codebase-map.md`）。核心要点：
 
 - **Python 3.13+**：使用 `list[X]`、`dict[K,V]`、`X | None`（弃用 `List`、`Dict`、`Optional`）
 - **Dataclass**：实体/值对象使用 `@dataclass(slots=True, kw_only=True)`

@@ -104,7 +104,7 @@ ruff check src/
 
 ## 文档索引
 
-- `docs/rules/architecture.md` — 架构红线与编码规范
+- `docs/rules/` — 架构红线与编码规范（v4.0 按主题拆分：宪法/风格/测试/领域规则/实盘/数据层/代码地图，入口 `architecture.md`）
 - `docs/feat/0610-factor-library/` — 因子假设库 + 历轮判决报告
 - `docs/feat/0611-market-data-store/` — 市场数据库 + 向量化引擎设计/计划
 - `docs/feat/0611-dashboard/` — 投研驾驶舱设计/计划
