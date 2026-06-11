@@ -96,6 +96,49 @@ class TestLayerBacktester:
         assert result.long_short_return == 0.0
 
 
+class TestLongOnlyExcess:
+    """long-only 记分牌: Top 层纯多头超额 vs 等权覆盖池基准。"""
+
+    def test_top_excess_positive_when_top_beats_market(self):
+        """Top 层(高 pe)每日跑赢等权全体 → 超额为正, 信息比为正, 正率=1。"""
+        bt = LayerBacktester()
+        expr = FactorRefExpr(field_name="pe_ratio")
+        # pe 稳定 1..10; 每个实现日高 pe 收益更高 (3 个实现步保证 n>=2)
+        snaps = [_make_snapshot(f"S{i}", float(i + 1)) for i in range(10)]
+        snapshots_by_date = {"2024-01-01": snaps, "2024-01-02": snaps, "2024-01-03": snaps}
+        ret = {f"S{i}": 0.01 * (i + 1) for i in range(10)}
+        returns_by_date = {
+            "2024-01-02": dict(ret), "2024-01-03": dict(ret), "2024-01-04": dict(ret),
+        }
+        res = bt.run(expr, snapshots_by_date, returns_by_date, num_layers=5)
+        assert res.top_layer_return > res.benchmark_return
+        assert res.top_excess_return > 0
+        assert res.excess_positive_rate == pytest.approx(1.0)
+        assert res.excess_ir > 0
+
+    def test_top_excess_zero_when_uniform_returns(self):
+        """全体同收益 → Top 与等权基准相等 → 超额≈0, 但基准本身有正收益。"""
+        bt = LayerBacktester()
+        expr = FactorRefExpr(field_name="pe_ratio")
+        snaps = [_make_snapshot(f"S{i}", float(i + 1)) for i in range(10)]
+        snapshots_by_date = {"2024-01-01": snaps, "2024-01-02": snaps, "2024-01-03": snaps}
+        ret = {f"S{i}": 0.01 for i in range(10)}
+        returns_by_date = {
+            "2024-01-02": dict(ret), "2024-01-03": dict(ret), "2024-01-04": dict(ret),
+        }
+        res = bt.run(expr, snapshots_by_date, returns_by_date, num_layers=5, cost_rate=0.0)
+        assert abs(res.top_excess_return) < 1e-9
+        assert res.benchmark_return > 0
+
+    def test_empty_data_top_excess_zero(self):
+        bt = LayerBacktester()
+        expr = FactorRefExpr(field_name="pe_ratio")
+        res = bt.run(expr, {}, {}, num_layers=5)
+        assert res.top_excess_return == 0.0
+        assert res.excess_ir == 0.0
+        assert res.excess_positive_rate == 0.0
+
+
 class TestRebalanceDays:
     """可配置调仓间隔: 持有期内不重排、不计换手成本。"""
 

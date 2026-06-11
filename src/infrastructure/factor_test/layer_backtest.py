@@ -1,5 +1,6 @@
 """分层回测引擎：按因子值将股票分组，计算各组收益。"""
 
+import math
 from dataclasses import dataclass
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
@@ -15,6 +16,12 @@ class LayerBacktestResult:
     long_short_return: float           # 多空年化收益
     layer_cumulative: list[list[float]]  # 各层累计收益曲线
     monotonicity_score: float          # 0-1 单调性
+    # --- long-only 记分牌 (默认 0.0, 向后兼容) ---
+    top_layer_return: float = 0.0       # Top 层年化净收益(长仓口径, 已扣换手成本)
+    benchmark_return: float = 0.0       # 等权覆盖池年化(costless 参考腿)
+    top_excess_return: float = 0.0      # Top 层年化超额(扣 Top 腿换手成本)
+    excess_ir: float = 0.0              # 年化超额信息比 mean(e)/std(e)×√244
+    excess_positive_rate: float = 0.0   # Top 日超额>0 占比
 
 
 class LayerBacktester:
@@ -52,6 +59,9 @@ class LayerBacktester:
         members: list[set[str]] = [set() for _ in range(num_layers)]
         has_membership = False
         days_held = 0
+        # 等权覆盖池基准腿: 成员=每次调仓的 common 全集, 与各层并行累积(costless)
+        bench_daily: list[float] = []
+        bench_members: set[str] = set()
 
         for date_str in sorted(snapshots_by_date.keys()):
             next_date = self._next_date(date_str, returns_by_date)
@@ -84,6 +94,7 @@ class LayerBacktester:
                         else:
                             day_turnover[layer_idx] = 1.0
                         members[layer_idx] = new_members
+                    bench_members = set(common)
                     has_membership = True
                     days_held = 0
                 elif not has_membership:
@@ -96,6 +107,9 @@ class LayerBacktester:
                 avg_ret = sum(rets) / len(rets) if rets else 0.0
                 layer_daily_gross[layer_idx].append(avg_ret)
                 layer_daily_turnover[layer_idx].append(day_turnover[layer_idx])
+            # 基准腿(costless): 持有 bench_members 等权, 与各层同日累积
+            b_rets = [next_returns[s] for s in bench_members if s in next_returns]
+            bench_daily.append(sum(b_rets) / len(b_rets) if b_rets else 0.0)
             days_held += 1
 
         # 各层净收益 (扣换手成本, 长仓口径) → 累计 → 年化
@@ -126,12 +140,23 @@ class LayerBacktester:
         )
         mono = self._monotonicity_score(layer_annual_returns)
 
+        # long-only: Top 层纯多头超额 vs 等权覆盖池基准
+        top_layer_ret, bench_ret, top_excess, excess_ir, excess_pos = self._top_excess_net(
+            layer_daily_gross, layer_daily_turnover, bench_daily, num_layers,
+            cost_rate, trading_days_per_year, layer_annual_returns,
+        )
+
         return LayerBacktestResult(
             layer_count=num_layers,
             layer_returns=layer_annual_returns,
             long_short_return=long_short,
             layer_cumulative=layer_cumulative,
             monotonicity_score=mono,
+            top_layer_return=top_layer_ret,
+            benchmark_return=bench_ret,
+            top_excess_return=top_excess,
+            excess_ir=excess_ir,
+            excess_positive_rate=excess_pos,
         )
 
     @staticmethod
@@ -155,6 +180,52 @@ class LayerBacktester:
         if cum <= 0:
             return -1.0
         return cum ** (trading_days_per_year / n) - 1
+
+    @staticmethod
+    def _top_excess_net(
+        layer_daily_gross: list[list[float]],
+        layer_daily_turnover: list[list[float]],
+        bench_daily: list[float],
+        num_layers: int,
+        cost_rate: float,
+        trading_days_per_year: int,
+        layer_annual_returns: list[float],
+    ) -> tuple[float, float, float, float, float]:
+        """Top 层纯多头超额 vs 等权覆盖池基准(costless 参考腿)。
+
+        Returns:
+            (top_layer_return, benchmark_return, top_excess_return,
+             excess_ir, excess_positive_rate)
+        """
+        top = num_layers - 1
+        n = min(len(layer_daily_gross[top]), len(bench_daily))
+        if n == 0:
+            return 0.0, 0.0, 0.0, 0.0, 0.0
+
+        # Top 日净超额: (顶层毛收益 - 顶层换手成本) - 基准日收益
+        excess_series: list[float] = []
+        cum_bench = 1.0
+        cum_excess = 1.0
+        for t in range(n):
+            top_net = layer_daily_gross[top][t] - layer_daily_turnover[top][t] * cost_rate
+            e = top_net - bench_daily[t]
+            excess_series.append(e)
+            cum_bench *= 1 + bench_daily[t]
+            cum_excess *= 1 + e
+
+        top_excess = (cum_excess ** (trading_days_per_year / n) - 1) if cum_excess > 0 else -1.0
+        bench_ret = (cum_bench ** (trading_days_per_year / n) - 1) if cum_bench > 0 else -1.0
+        top_layer_ret = layer_annual_returns[top]
+
+        mean_e = sum(excess_series) / n
+        if n > 1:
+            var = sum((x - mean_e) ** 2 for x in excess_series) / (n - 1)
+            std_e = math.sqrt(var)
+        else:
+            std_e = 0.0
+        excess_ir = (mean_e / std_e * math.sqrt(trading_days_per_year)) if std_e > 0 else 0.0
+        excess_pos = sum(1 for x in excess_series if x > 0) / n
+        return top_layer_ret, bench_ret, top_excess, excess_ir, excess_pos
 
     def _next_date(self, date_str: str, returns_by_date: dict[str, dict[str, float]]) -> str | None:
         sorted_dates = sorted(returns_by_date.keys())
