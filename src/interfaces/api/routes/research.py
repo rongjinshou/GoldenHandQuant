@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from collections.abc import Iterator
@@ -81,6 +82,19 @@ async def verdicts(store: MarketDataStore | None = Depends(get_research_store)):
     if store is None:
         return {"runs": []}
     return {"runs": store.load_verdict_runs()}
+
+
+@router.get("/backtests")
+async def backtests(store: MarketDataStore | None = Depends(get_research_store)):
+    """历次回测结果 (倒序, 同 run 多策略并排)。equity_curve/params 解析为对象。"""
+    if store is None:
+        return {"runs": []}
+    runs = store.load_backtest_runs()
+    for run in runs:
+        for s in run["strategies"]:
+            s["equity_curve"] = json.loads(s["equity_curve"]) if s["equity_curve"] else {}
+            s["params"] = json.loads(s["params"]) if s["params"] else {}
+    return {"runs": runs}
 
 
 @router.get("/symbols")

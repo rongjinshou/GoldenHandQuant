@@ -118,6 +118,47 @@ class TestVerdictsEndpoint:
         assert f["reasons"] == ["样本外多空收益<=0"]
 
 
+class TestBacktests:
+    def test_empty_db_returns_empty_runs(self, client):
+        assert client.get("/api/research/backtests").json() == {"runs": []}
+
+    def test_returns_runs_with_parsed_curve(self, tmp_path):
+        from src.domain.backtest.entities.backtest_report import BacktestReport
+        from src.infrastructure.persistence.backtest_run_mapper import build_backtest_run_row
+
+        db = str(tmp_path / "bt.duckdb")
+        s = MarketDataStore(db)
+        report = BacktestReport(
+            start_date=datetime(2024, 1, 1), end_date=datetime(2024, 12, 31),
+            initial_capital=100000.0, final_capital=112000.0,
+            total_return=0.12, annualized_return=0.12, max_drawdown=0.08,
+            win_rate=0.55, profit_loss_ratio=1.6, trade_count=42,
+            dates=[datetime(2024, 1, 2), datetime(2024, 1, 3)],
+            equity_curve=[100000.0, 100500.0], daily_returns=[0.0, 0.005],
+            strategy_name="dual_ma",
+        )
+        s.insert_backtest_runs(
+            [build_backtest_run_row(report, run_id="r1", params={"timeframe": "1d"})])
+        s.close()
+
+        def _override():
+            store = MarketDataStore(db, read_only=True)
+            try:
+                yield store
+            finally:
+                store.close()
+
+        app.dependency_overrides[get_research_store] = _override
+        try:
+            runs = TestClient(app).get("/api/research/backtests").json()["runs"]
+            assert runs[0]["run_id"] == "r1"
+            strategy = runs[0]["strategies"][0]
+            assert strategy["equity_curve"]["values"] == [100000.0, 100500.0]
+            assert strategy["params"] == {"timeframe": "1d"}
+        finally:
+            app.dependency_overrides.clear()
+
+
 class TestSymbols:
     def test_prefix_search(self, client):
         resp = client.get("/api/research/symbols", params={"q": "000"})
