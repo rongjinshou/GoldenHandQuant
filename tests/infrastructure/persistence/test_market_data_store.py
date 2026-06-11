@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+import duckdb
 import pandas as pd
 import pytest
 
@@ -193,6 +194,52 @@ class TestVerdicts:
         store.insert_verdicts("r1", {}, self._rows())
         store.insert_verdicts("r1", {}, self._rows())
         assert len(store.load_verdict_runs()) == 1
+
+    def _longonly_row(self) -> list[dict]:
+        return [{
+            "factor_id": "F01", "factor_name": "小市值", "expression": "0 - log(market_cap)",
+            "ic_mean": 0.03, "ir": 0.1, "ic_positive_rate": 0.55, "monotonicity_score": 0.8,
+            "long_short_return": 0.0, "score": 70.0, "grade": "B",
+            "oos_ic_mean": 0.02, "oos_ir": 0.1, "oos_long_short_return": 0.0,
+            "objective": "long_only", "top_excess_return": 0.06, "oos_top_excess_return": 0.04,
+            "excess_ir": 0.7, "excess_positive_rate": 0.6, "passed": True, "reasons": ["ok"],
+        }]
+
+    def test_longonly_verdict_roundtrip(self, store):
+        store.insert_verdicts("run-lo", {"objective": "long_only"}, self._longonly_row())
+        f = store.load_verdict_runs()[0]["factors"][0]
+        assert f["factor_id"] == "F01"   # 位置切片未错位
+        assert f["top_excess_return"] == 0.06
+        assert f["oos_top_excess_return"] == 0.04
+        assert f["excess_ir"] == 0.7
+        assert f["excess_positive_rate"] == 0.6
+        assert f["objective"] == "long_only"
+
+    def test_migration_adds_longonly_columns_to_legacy_table(self, tmp_path):
+        """存量库(无新列)再打开应被幂等迁移加列 + objective 回填 long_short。"""
+        path = str(tmp_path / "legacy.duckdb")
+        con = duckdb.connect(path)
+        con.execute("""CREATE TABLE factor_verdicts (
+            run_id VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL, factor_id VARCHAR NOT NULL,
+            factor_name VARCHAR, expression VARCHAR,
+            ic_mean DOUBLE, ir DOUBLE, ic_positive_rate DOUBLE,
+            monotonicity_score DOUBLE, long_short_return DOUBLE, score DOUBLE, grade VARCHAR,
+            oos_ic_mean DOUBLE, oos_ir DOUBLE, oos_long_short_return DOUBLE,
+            passed BOOLEAN, reasons VARCHAR, params VARCHAR,
+            PRIMARY KEY (run_id, factor_id))""")
+        con.execute(
+            "INSERT INTO factor_verdicts VALUES ('legacy-1', now(), 'F04', '低波动', "
+            "'0 - volatility_20d', 0.05,0.31,0.62,1.0,0.15,88.0,'A',0.05,0.3,-0.01,"
+            "false,'[]','{}')"
+        )
+        con.close()
+
+        store = MarketDataStore(path)  # __init__ 触发迁移
+        f = store.load_verdict_runs()[0]["factors"][0]
+        assert f["factor_id"] == "F04"
+        assert f["objective"] == "long_short"   # 回填
+        assert f["top_excess_return"] is None    # legacy 该列 NULL
+        store.close()
 
 
 class TestReadOnly:

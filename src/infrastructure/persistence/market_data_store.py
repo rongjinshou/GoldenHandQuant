@@ -73,6 +73,8 @@ _DDL_STATEMENTS = (
         monotonicity_score DOUBLE, long_short_return DOUBLE,
         score DOUBLE, grade VARCHAR,
         oos_ic_mean DOUBLE, oos_ir DOUBLE, oos_long_short_return DOUBLE,
+        top_excess_return DOUBLE, oos_top_excess_return DOUBLE,
+        excess_ir DOUBLE, excess_positive_rate DOUBLE, objective VARCHAR,
         passed BOOLEAN,
         reasons VARCHAR,
         params  VARCHAR,
@@ -101,6 +103,7 @@ _BACKTEST_COLS = (
 _VERDICT_NUMERIC_COLS = (
     "ic_mean", "ir", "ic_positive_rate", "monotonicity_score", "long_short_return",
     "score", "oos_ic_mean", "oos_ir", "oos_long_short_return",
+    "top_excess_return", "oos_top_excess_return", "excess_ir", "excess_positive_rate",
 )
 
 _FUND_COLS = (
@@ -129,6 +132,23 @@ class MarketDataStore:
         if not read_only:
             for stmt in _DDL_STATEMENTS:
                 self._conn.execute(stmt)
+            self._migrate_verdict_columns()
+
+    def _migrate_verdict_columns(self) -> None:
+        """存量 factor_verdicts 表幂等加 long-only 记分牌列 (CREATE IF NOT EXISTS 不会加列)。"""
+        cols = {
+            "top_excess_return": "DOUBLE", "oos_top_excess_return": "DOUBLE",
+            "excess_ir": "DOUBLE", "excess_positive_rate": "DOUBLE",
+            "objective": "VARCHAR",
+        }
+        for col, typ in cols.items():
+            self._conn.execute(
+                f"ALTER TABLE factor_verdicts ADD COLUMN IF NOT EXISTS {col} {typ}"
+            )
+        # 存量 run 回填 objective=long_short (历史判决均为多空记分牌)
+        self._conn.execute(
+            "UPDATE factor_verdicts SET objective='long_short' WHERE objective IS NULL"
+        )
 
     def close(self) -> None:
         self._conn.close()
@@ -376,15 +396,17 @@ class MarketDataStore:
             self._conn.execute(
                 f"""INSERT OR REPLACE INTO factor_verdicts
                     (run_id, created_at, factor_id, factor_name, expression,
-                     {", ".join(_VERDICT_NUMERIC_COLS)}, grade, passed, reasons, params)
+                     {", ".join(_VERDICT_NUMERIC_COLS)}, grade, passed, reasons,
+                     objective, params)
                     VALUES (?, ?, ?, ?, ?, {", ".join("?" for _ in _VERDICT_NUMERIC_COLS)},
-                            ?, ?, ?, ?)""",
+                            ?, ?, ?, ?, ?)""",
                 [
                     run_id, created_at, r["factor_id"],
                     r.get("factor_name"), r.get("expression"),
                     *[r.get(c) for c in _VERDICT_NUMERIC_COLS],
                     r.get("grade"), r.get("passed"),
                     json.dumps(r.get("reasons", []), ensure_ascii=False),
+                    r.get("objective", "long_short"),
                     params_json,
                 ],
             )
@@ -393,7 +415,8 @@ class MarketDataStore:
         """全部判决按 run 分组，created_at 倒序。"""
         rows = self._conn.execute(
             f"""SELECT run_id, created_at, factor_id, factor_name, expression,
-                       {", ".join(_VERDICT_NUMERIC_COLS)}, grade, passed, reasons, params
+                       {", ".join(_VERDICT_NUMERIC_COLS)}, grade, passed, reasons,
+                       objective, params
                 FROM factor_verdicts
                 ORDER BY created_at DESC, factor_id"""
         ).fetchall()
@@ -407,13 +430,14 @@ class MarketDataStore:
                     "params": json.loads(row[-1]) if row[-1] else {},
                     "factors": [],
                 }
+            n = len(_VERDICT_NUMERIC_COLS)
             factor = {
                 "factor_id": row[2], "factor_name": row[3], "expression": row[4],
-                **dict(zip(_VERDICT_NUMERIC_COLS, row[5:5 + len(_VERDICT_NUMERIC_COLS)],
-                           strict=True)),
-                "grade": row[5 + len(_VERDICT_NUMERIC_COLS)],
-                "passed": row[6 + len(_VERDICT_NUMERIC_COLS)],
-                "reasons": json.loads(row[7 + len(_VERDICT_NUMERIC_COLS)] or "[]"),
+                **dict(zip(_VERDICT_NUMERIC_COLS, row[5:5 + n], strict=True)),
+                "grade": row[5 + n],
+                "passed": row[6 + n],
+                "reasons": json.loads(row[7 + n] or "[]"),
+                "objective": row[8 + n],
             }
             runs[run_id]["factors"].append(factor)
         return list(runs.values())
