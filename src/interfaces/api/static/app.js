@@ -313,20 +313,48 @@ function renderBtRun(run) {
 
   if (!btChart) btChart = echarts.init($("#bt-chart"), "dark");
   const withCurve = run.strategies.filter((s) => (s.equity_curve.dates || []).length);
+  const dates = (withCurve[0] || { equity_curve: { dates: [] } }).equity_curve.dates;
+  // 回撤序列: v / 历史峰值 - 1 (前端现算, 与净值同轴联动)
+  const drawdown = (values) => {
+    let peak = -Infinity;
+    return values.map((v) => {
+      peak = Math.max(peak, v);
+      return peak > 0 ? +((v / peak - 1) * 100).toFixed(2) : 0;
+    });
+  };
   btChart.setOption({
     backgroundColor: "transparent",
     animation: false,
-    title: { text: `净值曲线 · ${run.run_id}`, textStyle: { fontSize: 13 } },
+    title: { text: `净值与回撤 · ${run.run_id}`, textStyle: { fontSize: 13 } },
     tooltip: { trigger: "axis" },
+    axisPointer: { link: [{ xAxisIndex: "all" }] },
     legend: { top: 4, right: 10, textStyle: { fontSize: 11 } },
-    grid: { left: 80, right: 20, top: 40, bottom: 40 },
-    xAxis: { type: "category", data: (withCurve[0] || { equity_curve: { dates: [] } }).equity_curve.dates },
-    yAxis: { type: "value", scale: true },
-    dataZoom: [{ type: "inside" }],
-    series: withCurve.map((s) => ({
-      name: s.strategy, type: "line", data: s.equity_curve.values,
-      showSymbol: false,
-    })),
+    grid: [
+      { left: 80, right: 20, top: 40, height: "52%" },
+      { left: 80, right: 20, top: "70%", height: "22%" },
+    ],
+    xAxis: [
+      { type: "category", data: dates, gridIndex: 0, axisLabel: { show: false } },
+      { type: "category", data: dates, gridIndex: 1 },
+    ],
+    yAxis: [
+      { type: "value", scale: true, gridIndex: 0 },
+      { type: "value", gridIndex: 1, axisLabel: { formatter: "{value}%" },
+        max: 0 },
+    ],
+    dataZoom: [{ type: "inside", xAxisIndex: [0, 1] }],
+    series: [
+      ...withCurve.map((s) => ({
+        name: s.strategy, type: "line", data: s.equity_curve.values,
+        showSymbol: false, xAxisIndex: 0, yAxisIndex: 0,
+      })),
+      ...withCurve.map((s) => ({
+        name: `回撤 ${s.strategy}`, type: "line",
+        data: drawdown(s.equity_curve.values),
+        showSymbol: false, xAxisIndex: 1, yAxisIndex: 1,
+        areaStyle: { opacity: 0.25 }, lineStyle: { width: 1 },
+      })),
+    ],
   }, true);
   resizeCharts();
 }
