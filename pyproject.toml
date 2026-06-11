@@ -45,7 +45,7 @@ quant = "src.interfaces.cli.quant:main"
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = ["-ra", "-q", "--strict-markers"]
+addopts = ["-ra", "-q", "--strict-markers", "--basetemp=.pytest_tmp"]  # 系统 Temp 的 pytest-of-* 目录 ACL 损坏不可删, 用项目内目录
 testpaths = ["tests"]
 pythonpath = ["."]
 

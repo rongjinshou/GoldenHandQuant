@@ -1,5 +1,7 @@
 **/__pycache__/
 *.py[cod]
+models/
+src/.cgcignore
 .venv/
 data/
 libs/xtquant/
@@ -11,3 +13,4 @@ libs/xtquant/
 .conda/
 resources/backtest.yaml
 resources/backtest_multi_factor.yaml
+.pytest_tmp/
