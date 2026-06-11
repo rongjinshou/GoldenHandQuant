@@ -141,6 +141,23 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
             logger.error(f"Error querying order status: {e}", exc_info=True)
             return None
 
+    def cancel_order(self, order_id: str) -> bool:
+        """按 QMT 委托号撤单。返回是否受理(异步撤单, 受理≠已撤)。"""
+        if not self._check_initialized():
+            return False
+        try:
+            result = self.xt_trader.cancel_order_stock(
+                self.account, int(order_id)
+            )
+            if result == 0:
+                logger.info(f"Cancel accepted for order {order_id}")
+                return True
+            logger.warning(f"Cancel rejected for order {order_id}: {result}")
+            return False
+        except Exception as e:
+            logger.error(f"Error canceling order {order_id}: {e}", exc_info=True)
+            return False
+
     def place_order(self, order: Order) -> str:
         """提交订单。"""
         if not self._check_initialized():
