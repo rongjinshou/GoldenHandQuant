@@ -14,19 +14,22 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from src.domain.trade.entities.order import Order
+from src.domain.trade.services.pre_trade_checks import (
+    MAX_NOTIONAL_CEILING,
+    build_limit_price,
+    check_buy_cash,
+    check_notional_cap,
+    check_price_band,
+    check_symbol_scope,
+    check_trading_session,
+)
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
 
 if TYPE_CHECKING:
     from src.domain.market.interfaces.gateways.realtime_quote_fetcher import IRealtimeQuoteFetcher
 
-# 主板涨跌停带（v1 只允许主板, 见设计 D4）
-_PRICE_BAND = 0.10
-# CLI 可调金额上限的硬顶
-MAX_NOTIONAL_CEILING = 5000.0
-
-# A 股连续竞价时段 (本地时钟)
-_SESSIONS = (("09:30", "11:30"), ("13:00", "15:00"))
+__all__ = ["MAX_NOTIONAL_CEILING", "OrderTicketAppService", "OrderTicketResult"]
 
 
 @dataclass(slots=True, kw_only=True)
@@ -37,22 +40,6 @@ class OrderTicketResult:
     order_id: str | None = None
     final_status: str | None = None  # FILLED/PARTIAL/ALIVE/CANCELED/REJECTED/TIMEOUT
     ticket: dict = field(default_factory=dict)
-
-
-def _in_trading_session(now: datetime) -> bool:
-    if now.weekday() >= 5:
-        return False
-    hm = now.strftime("%H:%M")
-    return any(start <= hm <= end for start, end in _SESSIONS)
-
-
-def _is_main_board(symbol: str) -> bool:
-    code, _, market = symbol.partition(".")
-    if market == "SH":
-        return code.startswith("60")
-    if market == "SZ":
-        return code.startswith("000") or code.startswith("001")
-    return False
 
 
 class OrderTicketAppService:
@@ -83,16 +70,16 @@ class OrderTicketAppService:
             "requested_at": self._clock().isoformat(),
         }
 
-        # 闸 0: 标的范围 (主板 only, 设计 D4)
+        # 闸 0: 标的范围 (主板 only, 设计 D4; 闸实现见 domain pre_trade_checks)
         if lots <= 0:
             return self._reject(ticket, f"手数非法: {lots}")
-        if not _is_main_board(symbol):
-            return self._reject(ticket, f"{symbol} 不在 v1 允许范围 (仅沪深主板 60xxxx/000xxx)")
+        if reason := check_symbol_scope(symbol):
+            return self._reject(ticket, reason)
 
         # 闸 1: 交易时段
         now = self._clock()
-        if not _in_trading_session(now):
-            return self._reject(ticket, f"非连续竞价时段: {now:%Y-%m-%d %H:%M} (9:30-11:30/13:00-15:00)")
+        if reason := check_trading_session(now):
+            return self._reject(ticket, reason)
 
         # 闸 2: 实时报价 (订阅优先, 快照兜底)
         quote = self._quotes.subscribe_first_tick(symbol)
@@ -104,35 +91,26 @@ class OrderTicketAppService:
         }
 
         # 闸 3: 限价构造 + 涨跌停带 (设计 D3)
-        raw_price = quote.ask1 if quote.ask1 else quote.last * 1.002
-        price = round(min(raw_price, quote.last * 1.002), 2)
-        low = round(quote.prev_close * (1 - _PRICE_BAND), 2)
-        high = round(quote.prev_close * (1 + _PRICE_BAND), 2)
-        if not (low <= price <= high):
-            return self._reject(
-                ticket, f"限价 {price} 超出涨跌停带 [{low}, {high}] (前收 {quote.prev_close})"
-            )
+        price = build_limit_price(OrderDirection.BUY, quote)
+        if reason := check_price_band(price, prev_close=quote.prev_close):
+            return self._reject(ticket, reason)
         volume = lots * 100
         notional = price * volume
+        band = [round(quote.prev_close * 0.9, 2), round(quote.prev_close * 1.1, 2)]
         ticket.update({"price": price, "volume": volume, "notional": round(notional, 2),
-                       "price_band": [low, high]})
+                       "price_band": band})
 
-        # 闸 4: 单笔金额上限
-        if notional > self._max_notional:
-            return self._reject(
-                ticket, f"金额 {notional:.2f} 超上限 {self._max_notional:.2f}"
-            )
+        # 闸 4: 单笔金额上限 (构造时已压硬顶)
+        if reason := check_notional_cap(notional, cap=self._max_notional):
+            return self._reject(ticket, reason)
 
         # 闸 5: 可用资金
         asset = self._account.get_asset()
         if asset is None:
             return self._reject(ticket, "查询账户资金失败")
-        required = notional * 1.01  # 费用 buffer
         ticket["available_cash"] = asset.available_cash
-        if asset.available_cash < required:
-            return self._reject(
-                ticket, f"可用资金 {asset.available_cash:.2f} < 需求 {required:.2f}"
-            )
+        if reason := check_buy_cash(notional, available_cash=asset.available_cash):
+            return self._reject(ticket, reason)
 
         # 提交限价单
         order = Order(
