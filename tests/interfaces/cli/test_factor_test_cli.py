@@ -53,3 +53,29 @@ class TestFactorTestCLI:
         run_factor_test(args)
 
         assert mock_service.run_batch.call_args.kwargs["rebalance_days"] == 5
+
+    @patch("src.application.factor_test_app.FactorTestAppService")
+    def test_run_factor_test_passes_objective_and_cost_rate(self, mock_service_cls):
+        """--objective/--cost-rate 应透传给 run_batch。"""
+        mock_service = MagicMock()
+        mock_service_cls.return_value = mock_service
+        mock_service.prepare_snapshots.return_value = ({}, {}, {})
+        mock_service.run_batch.return_value = []
+
+        args = argparse.Namespace(
+            factors="F01",
+            start_date="2021-01-01",
+            end_date="2026-06-11",
+            split_date="2024-06-30",
+            num_layers=5,
+            rebalance_days=5,
+            output=None,
+            config="nonexistent.yaml",
+            objective="long_only",
+            cost_rate=0.005,
+        )
+
+        run_factor_test(args)
+
+        assert mock_service.run_batch.call_args.kwargs["objective"] == "long_only"
+        assert mock_service.run_batch.call_args.kwargs["cost_rate"] == 0.005

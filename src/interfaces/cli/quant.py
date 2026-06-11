@@ -68,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_ft.add_argument("--config", type=str, default="resources/backtest.yaml", help="配置文件")
     p_ft.add_argument("--no-store", action="store_true",
                        help="不走市场数据库快路径, 回退旧内存管道")
+    p_ft.add_argument("--objective", choices=["long_short", "long_only"],
+                       default="long_short",
+                       help="判决记分牌: long_short(多空价差/IC-IR) / "
+                            "long_only(Top 层纯多头超额 vs 等权基准)")
+    p_ft.add_argument("--cost-rate", type=float, default=0.003,
+                       help="单边换手往返成本率 (默认 0.003)")
 
     # --- data ---
     p_data = subparsers.add_parser("data", help="市场数据库维护 (DuckDB)")

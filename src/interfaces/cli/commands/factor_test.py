@@ -16,6 +16,8 @@ def run_factor_test(args: argparse.Namespace) -> None:
     rebalance_days: int = args.rebalance_days
     output_path: str | None = args.output
     config_path: str = args.config
+    objective: str = getattr(args, "objective", "long_short")
+    cost_rate: float = getattr(args, "cost_rate", 0.003)
 
     # 1. 解析因子列表
     try:
@@ -31,6 +33,8 @@ def run_factor_test(args: argparse.Namespace) -> None:
         print(f"Split:   IS={start_date}→{split_date} | OOS={split_date}→{end_date}")
     print(f"Layers:  {num_layers}")
     print(f"Rebalance: 每 {rebalance_days} 个交易日调仓")
+    _scorecard = "Top 层纯多头超额" if objective == "long_only" else "多空价差/IC-IR"
+    print(f"Objective: {objective} ({_scorecard}), cost_rate={cost_rate}")
     if len(hypotheses) > 1 and not split_date:
         print("⚠️  多重检验提醒: 同时测多个因子且无样本外切分 → 单个'显著'很可能是噪声; "
               "强烈建议加 --split 用样本外定夺。")
@@ -81,13 +85,19 @@ def run_factor_test(args: argparse.Namespace) -> None:
         split_date=split_date,
         num_layers=num_layers,
         rebalance_days=rebalance_days,
+        objective=objective,
+        cost_rate=cost_rate,
     )
 
     # 6. 输出汇总
     print(f"\n{'=' * 80}")
     print(f"{'FACTOR VERDICT SUMMARY':^80}")
     print(f"{'=' * 80}")
-    print(f"{'ID':<5} {'Name':<12} {'IC':>8} {'IR':>8} {'Mono':>6} {'L/S':>8} {'Score':>6} {'Grade':>6} {'Verdict':>8}")
+    if objective == "long_only":
+        col2, col3 = "ExIR", "Excess"
+    else:
+        col2, col3 = "IR", "L/S"
+    print(f"{'ID':<5} {'Name':<12} {'IC':>8} {col2:>8} {'Mono':>6} {col3:>8} {'Score':>6} {'Grade':>6} {'Verdict':>8}")
     print(f"{'-' * 80}")
 
     passed_count = 0
@@ -96,8 +106,12 @@ def run_factor_test(args: argparse.Namespace) -> None:
         status = "PASS" if v.passed else "FAIL"
         if v.passed:
             passed_count += 1
-        print(f"{v.factor_id:<5} {v.factor_name:<12} {v.ic_mean:>8.4f} {v.ir:>8.3f} "
-              f"{v.monotonicity_score:>6.2f} {v.long_short_return:>8.2%} "
+        if objective == "long_only":
+            metric2, metric3 = f"{v.excess_ir:>8.2f}", f"{v.top_excess_return:>8.2%}"
+        else:
+            metric2, metric3 = f"{v.ir:>8.3f}", f"{v.long_short_return:>8.2%}"
+        print(f"{v.factor_id:<5} {v.factor_name:<12} {v.ic_mean:>8.4f} {metric2} "
+              f"{v.monotonicity_score:>6.2f} {metric3} "
               f"{v.score:>6.0f} {v.grade:>6} {status:>8}")
 
     print(f"{'-' * 80}")
@@ -130,6 +144,11 @@ def run_factor_test(args: argparse.Namespace) -> None:
             "oos_ic_mean": v.oos_ic_mean,
             "oos_ir": v.oos_ir,
             "oos_long_short_return": v.oos_long_short_return,
+            "objective": v.objective,
+            "top_excess_return": v.top_excess_return,
+            "oos_top_excess_return": v.oos_top_excess_return,
+            "excess_ir": v.excess_ir,
+            "excess_positive_rate": v.excess_positive_rate,
             "passed": v.passed,
             "reasons": v.reasons,
         })
@@ -140,6 +159,8 @@ def run_factor_test(args: argparse.Namespace) -> None:
             "split_date": split_date,
             "num_layers": num_layers,
             "rebalance_days": rebalance_days,
+            "objective": objective,
+            "cost_rate": cost_rate,
             "results": verdict_rows,
         }
         with open(output_path, "w", encoding="utf-8") as f:
@@ -154,6 +175,7 @@ def run_factor_test(args: argparse.Namespace) -> None:
     run_params = {
         "start": start_date, "end": end_date, "split": split_date,
         "rebalance_days": rebalance_days, "num_layers": num_layers,
+        "objective": objective, "cost_rate": cost_rate,
         "feature_version": FEATURE_VERSION, "universe_count": len(symbols),
         "store_path": "memory" if not use_store else "db",
     }
