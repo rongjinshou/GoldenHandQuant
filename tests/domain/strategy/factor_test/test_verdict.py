@@ -11,6 +11,9 @@ def _make_report(
     monotonicity_score: float = 0.8,
     long_short_return: float = 0.1,
     expression: str = "0 - return_20d",
+    top_excess_return: float = 0.0,
+    excess_ir: float = 0.0,
+    excess_positive_rate: float = 0.0,
 ) -> ScoredFactorTestReport:
     r = FactorTestReport(
         expression=expression,
@@ -22,6 +25,9 @@ def _make_report(
         ic_positive_rate=ic_positive_rate,
         monotonicity_score=monotonicity_score,
         long_short_return=long_short_return,
+        top_excess_return=top_excess_return,
+        excess_ir=excess_ir,
+        excess_positive_rate=excess_positive_rate,
     )
     return ScoredFactorTestReport(report=r, score=75.0, grade="B", grade_reasons=["test"])
 
@@ -97,3 +103,53 @@ class TestJudgeFactor:
         verdict = judge_factor(report, neutralized_ic=0.03)
         assert verdict.passed is True
         assert verdict.neutralized_ic == 0.03
+
+
+class TestJudgeFactorLongOnly:
+    """long_only 记分牌: 稳定性/一致性/变现闸改用 Top 超额口径。"""
+
+    def test_long_only_passes_when_excess_and_ir_ok(self):
+        is_r = _make_report(ic_mean=0.03, ir=0.1, monotonicity_score=0.8,
+                            top_excess_return=0.06, excess_ir=0.7, excess_positive_rate=0.6)
+        oos_r = _make_report(ic_mean=0.025, top_excess_return=0.04, excess_ir=0.5)
+        v = judge_factor(is_r, oos_report=oos_r, objective="long_only", neutralized_ic=None)
+        assert v.passed
+        assert v.objective == "long_only"
+        assert v.top_excess_return == 0.06
+        assert v.oos_top_excess_return == 0.04
+
+    def test_long_only_fails_low_excess_ir(self):
+        is_r = _make_report(ic_mean=0.03, monotonicity_score=0.8,
+                            top_excess_return=0.06, excess_ir=0.30, excess_positive_rate=0.6)
+        v = judge_factor(is_r, objective="long_only", neutralized_ic=None)
+        assert not v.passed
+        assert any("超额信息比" in r for r in v.reasons)
+
+    def test_long_only_fails_low_excess_positive_rate(self):
+        is_r = _make_report(ic_mean=0.03, monotonicity_score=0.8,
+                            top_excess_return=0.06, excess_ir=0.7, excess_positive_rate=0.40)
+        v = judge_factor(is_r, objective="long_only", neutralized_ic=None)
+        assert not v.passed
+        assert any("超额正率" in r for r in v.reasons)
+
+    def test_long_only_fails_negative_top_excess(self):
+        is_r = _make_report(ic_mean=0.03, monotonicity_score=0.8,
+                            top_excess_return=-0.02, excess_ir=0.7, excess_positive_rate=0.6)
+        v = judge_factor(is_r, objective="long_only", neutralized_ic=None)
+        assert not v.passed
+        assert any("Top超额" in r for r in v.reasons)
+
+    def test_long_only_fails_negative_oos_excess(self):
+        is_r = _make_report(ic_mean=0.03, monotonicity_score=0.8,
+                            top_excess_return=0.06, excess_ir=0.7, excess_positive_rate=0.6)
+        oos_r = _make_report(ic_mean=0.02, top_excess_return=-0.05, excess_ir=0.1)
+        v = judge_factor(is_r, oos_report=oos_r, objective="long_only", neutralized_ic=None)
+        assert not v.passed
+        assert any("样本外Top超额" in r for r in v.reasons)
+
+    def test_long_only_bypasses_ic_ir_gate(self):
+        """关键: long_only 下多空 IC-IR(0.11)不再卡(F01/F03 场景), 改由 excess_ir 判。"""
+        is_r = _make_report(ic_mean=0.021, ir=0.11, monotonicity_score=0.8,
+                            top_excess_return=0.06, excess_ir=0.7, excess_positive_rate=0.6)
+        v = judge_factor(is_r, objective="long_only", neutralized_ic=None)
+        assert v.passed  # 多空 IR 闸不再适用, 长多用超额信息比
