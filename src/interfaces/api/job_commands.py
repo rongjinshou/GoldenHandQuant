@@ -20,7 +20,6 @@ CONFIG_WHITELIST = (
 )
 _QUANT = [sys.executable, "-m", "src.interfaces.cli.quant"]
 
-_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 _SYMBOL_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
 _PARAM_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _PARAM_STR_VALUE_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
@@ -77,7 +76,7 @@ class BacktestJobRequest(BaseModel):
         # symbols 逐项正则
         if self.symbols is not None:
             for sym in self.symbols:
-                if not _SYMBOL_RE.match(sym):
+                if not _SYMBOL_RE.fullmatch(sym):
                     raise ValueError(
                         f"symbols 格式错误: {sym!r}，须匹配 NNNNNN.(SH|SZ|BJ)"
                     )
@@ -89,12 +88,12 @@ class BacktestJobRequest(BaseModel):
                 if strat_key not in strategy_set:
                     raise ValueError(f"params 引用未选策略: {strat_key}")
                 for param_name, param_val in kv.items():
-                    if not _PARAM_NAME_RE.match(param_name):
+                    if not _PARAM_NAME_RE.fullmatch(param_name):
                         raise ValueError(
                             f"参数名格式错误: {param_name!r}，须匹配 ^[A-Za-z_][A-Za-z0-9_]*$"
                         )
                     if isinstance(param_val, str):
-                        if not _PARAM_STR_VALUE_RE.match(param_val):
+                        if not _PARAM_STR_VALUE_RE.fullmatch(param_val):
                             raise ValueError(
                                 f"参数值含非法字符: {param_val!r}（禁 ,/=/空串）"
                             )
@@ -152,13 +151,13 @@ class MlTrainJobRequest(BaseModel):
     @field_validator("symbols")
     @classmethod
     def _validate_symbols(cls, v: str) -> str:
-        for seg in v.split(","):
-            seg = seg.strip()
-            if not _SYMBOL_RE.match(seg):
+        segments = [seg.strip() for seg in v.split(",")]
+        for seg in segments:
+            if not _SYMBOL_RE.fullmatch(seg):
                 raise ValueError(
                     f"symbols 格式错误: {seg!r}，须匹配 NNNNNN.(SH|SZ|BJ)"
                 )
-        return v
+        return ",".join(segments)  # 归一化: 去段内空格, 不依赖下游 CLI 容错
 
     @model_validator(mode="after")
     def _validate_dates(self) -> MlTrainJobRequest:
