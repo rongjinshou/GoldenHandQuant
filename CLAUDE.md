@@ -64,7 +64,8 @@ $WIN_PYTHON -m src.interfaces.cli.quant data status
 # 因子判决（结果自动入库 factor_verdicts）
 $WIN_PYTHON -m src.interfaces.cli.quant factor-test --factors P0 --split-date 2024-06-30
 
-# 投研驾驶舱（http://127.0.0.1:8501/ui/, 含回测/实盘页签）
+# 投研驾驶舱（http://127.0.0.1:8501/ui/, 可交互: 网页内直接跑回测/因子检验/数据刷新/ML,
+# 任务页看实时日志; 交易侧保持只读, Web 永不下单）
 $WIN_PYTHON -m src.interfaces.cli.quant dashboard
 
 # 自动交易循环（dry-run 默认=纸面前向; 留痕入 data/trading.db; 需 QMT 客户端）

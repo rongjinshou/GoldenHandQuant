@@ -50,7 +50,9 @@ costs:
 
 data:
   cache_dir: "data/"
-  history_fetcher: "QmtHistoryDataFetcher"
+  # DuckDB 快路径读本地 market.duckdb（已履约 2021-2025 全市场日线）;
+  # 库内缺数时自动回退 QMT（需客户端在线）。Web 回测任务与 CLI 共用此口径。
+  history_fetcher: "DuckDBHistoryDataFetcher"
   tushare:
     # Tushare token - 从环境变量 TUSHARE_TOKEN 读取
     # 后续主要使用 QMT 数据源，此 token 仅作备用

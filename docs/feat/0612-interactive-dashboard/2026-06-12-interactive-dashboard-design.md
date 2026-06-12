@@ -145,3 +145,13 @@ JobManager 经 `Depends(get_job_manager)` 注入（模块级单例 + 测试 depe
 - 不做 multi_factor 权重的表单编辑（配置文件承载）。
 - 不暴露任何交易写操作（DD-4 红线）。
 - explorer 页 K 线叠加回测买卖点（trades 未入库，另立项）。
+
+## 7. 实施记录（2026-06-12）
+
+按 plan 14 任务全部完成并直委 main（提交范围 `13c31ff..`，每任务实现+双阶段评审+修复闭环）：
+
+- 后端：`infrastructure/jobs/JobManager`（评审加固：取消 CAS/worker 异常护栏/PYTHONUTF8/强杀计时器）、`job_commands`（注入面收口：model_name 正则/params 字符集/symbols 逐项/日期语义）、`/api/jobs` 五任务型、`/api/meta`、live 路由 8 个只读扩展端点、compare_strategies `--initial-capital` + `--config` 失效 bug 修复、三族死代码清理（-1265 行）。
+- 前端：app.js 拆 9 个 ES modules（搬运保真审查 100%）、五页签交互表单 + 通用任务卡 + 任务中心页（评审修复：钻取抗轮询/错误兜底统一/任务卡 404 终止/pre 转义）。
+- 配置：`backtest.yaml` history_fetcher 切 `DuckDBHistoryDataFetcher`（本地快路径, 缺数回退 QMT）。
+- 验证：E2E 经 Web API 真跑 dual_ma 回测成功入库（run_id=20260612-093431）并由 /api/research/backtests 读回；全量 pytest 绿、ruff 干净。
+- 遗留债（低优先）：任务页 logTimer 切页签不清（终态自清）；live 子进程树 POSIX 强杀未做进程组（生产为 Windows TerminateProcess，已缓解）；uvicorn 单 worker 假设已注释。
