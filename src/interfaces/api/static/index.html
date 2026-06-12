@@ -83,7 +83,32 @@
 
     <!-- 回测 -->
     <section id="tab-backtests" class="panel">
-      <div id="bt-form-slot"></div>
+      <details class="form-card" id="bt-form">
+        <summary>新建回测 / 多策略对比</summary>
+        <div class="form-body">
+          <div class="form-row">
+            <span class="group-title">策略</span>
+            <span class="check-group" id="bt-strategies"></span>
+          </div>
+          <div class="form-row" id="bt-params"></div>
+          <div class="form-row">
+            <label>起 <input type="date" id="bt-start" value="2024-01-01"></label>
+            <label>止 <input type="date" id="bt-end" value="2025-12-31"></label>
+            <label>初始资金 <input type="number" id="bt-capital" placeholder="配置默认" step="10000"></label>
+            <label>配置 <select id="bt-config">
+              <option value="">resources/backtest.yaml（默认）</option>
+              <option value="resources/backtest_multi_factor.yaml">backtest_multi_factor.yaml</option>
+            </select></label>
+          </div>
+          <div class="form-row">
+            <label style="flex:1">标的（逗号分隔，留空=配置默认）
+              <input id="bt-symbols" style="flex:1" placeholder="000021.SZ,600000.SH"></label>
+            <button class="btn-primary" id="bt-submit">提交回测</button>
+          </div>
+          <div class="form-hint hidden" id="bt-hint"></div>
+        </div>
+      </details>
+      <div id="bt-job-area"></div>
       <div class="toolbar">
         <label>回测轮次
           <select id="bt-run-select"></select>

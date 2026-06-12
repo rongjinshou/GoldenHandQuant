@@ -1,8 +1,9 @@
 /* 回测页 */
 "use strict";
 
-import { $, API, fetchJSON, pct, f3 } from "../api.js";
+import { $, API, fetchJSON, pct, f3, showError, clearError } from "../api.js";
 import { makeChart, resizeCharts } from "../charts.js";
+import { submitJob, attachJobCard } from "../jobs.js";
 
 let btChart = null;
 let btRuns = [];
@@ -103,4 +104,77 @@ function renderBtRun(run) {
     ],
   }, true);
   resizeCharts();
+}
+
+let strategyMeta = [];
+
+export async function initBacktestForm() {
+  const data = await fetchJSON("/api/meta/strategies");
+  strategyMeta = data.strategies;
+  const box = $("#bt-strategies");
+  box.innerHTML = strategyMeta.map((s) => `
+    <label title="${s.description}">
+      <input type="checkbox" value="${s.name}" ${s.name === "dual_ma" ? "checked" : ""}>
+      ${s.name}<span class="group-title">[${s.strategy_type === "cross_section" ? "截面" : "时序"}]</span>
+    </label>`).join("");
+  box.querySelectorAll("input").forEach((cb) =>
+    cb.addEventListener("change", renderParamInputs));
+  renderParamInputs();
+  $("#bt-submit").addEventListener("click", submitBacktest);
+}
+
+function selectedStrategies() {
+  return [...document.querySelectorAll("#bt-strategies input:checked")].map((c) => c.value);
+}
+
+function renderParamInputs() {
+  const names = selectedStrategies();
+  const rows = [];
+  for (const name of names) {
+    const meta = strategyMeta.find((s) => s.name === name);
+    for (const [key, val] of Object.entries(meta.default_params || {})) {
+      if (typeof val === "object") continue; // 字典参数(权重)走配置文件, 设计 DD-8
+      rows.push(`<label>${name}.${key}
+        <input data-strat="${name}" data-key="${key}" value="${val}" size="8"></label>`);
+    }
+  }
+  $("#bt-params").innerHTML = rows.join("");
+  const hasCross = names.some((n) =>
+    strategyMeta.find((s) => s.name === n)?.strategy_type === "cross_section");
+  $("#bt-hint").classList.toggle("hidden", !hasCross);
+  $("#bt-hint").textContent =
+    "截面策略需基本面通道（QMT 客户端在线，或配置 Tushare），且全市场回测耗时数分钟。";
+}
+
+async function submitBacktest() {
+  clearError();
+  const strategies = selectedStrategies();
+  if (!strategies.length) { showError("至少选择一个策略"); return; }
+  const payload = {
+    strategies,
+    start_date: $("#bt-start").value,
+    end_date: $("#bt-end").value,
+  };
+  const symbols = $("#bt-symbols").value.trim();
+  if (symbols) payload.symbols = symbols.split(",").map((s) => s.trim()).filter(Boolean);
+  const capital = Number($("#bt-capital").value);
+  if (capital > 0) payload.initial_capital = capital;
+  if ($("#bt-config").value) payload.config = $("#bt-config").value;
+  const params = {};
+  document.querySelectorAll("#bt-params input").forEach((inp) => {
+    const meta = strategyMeta.find((s) => s.name === inp.dataset.strat);
+    const dflt = String((meta.default_params || {})[inp.dataset.key]);
+    if (inp.value !== dflt) {
+      (params[inp.dataset.strat] ??= {})[inp.dataset.key] = inp.value;
+    }
+  });
+  if (Object.keys(params).length) payload.params = params;
+  try {
+    const job = await submitJob("backtest", payload);
+    attachJobCard($("#bt-job-area"), job.job_id, {
+      onDone: () => loadBacktests().catch((e) => showError(e.message)),
+    });
+  } catch (err) {
+    showError(err.message);
+  }
 }

@@ -6,7 +6,7 @@ import { resizeCharts } from "./charts.js";
 import { loadOverview } from "./pages/overview.js";
 import { loadVerdicts } from "./pages/verdicts.js";
 import { initExplorer } from "./pages/explorer.js";
-import { loadBacktests } from "./pages/backtests.js";
+import { loadBacktests, initBacktestForm } from "./pages/backtests.js";
 import { setLivePolling } from "./pages/live.js";
 
 const TABS = ["overview", "verdicts", "explorer", "backtests", "live", "jobs"];
@@ -39,6 +39,7 @@ setInterval(pollIndicator, 5000);
 
 (async function init() {
   initExplorer();
+  initBacktestForm().catch(() => {});
   const tab = location.hash.replace("#", "");
   if (tab && TABS.includes(tab)) {
     document.querySelector(`.tab[data-tab="${tab}"]`).click();
