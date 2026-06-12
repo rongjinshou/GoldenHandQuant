@@ -6,9 +6,10 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.infrastructure.jobs.job_manager import JobManager
 from src.interfaces.api.job_commands import (
@@ -26,14 +27,19 @@ from src.interfaces.api.job_commands import (
 
 router = APIRouter()
 
+# 单进程假设: dashboard 以 uvicorn 单 worker 绑 127.0.0.1 运行;
+# workers>1 会出现每进程独立注册表 + 多个 DuckDB 写者, 违反设计 DD-1。
 _manager: JobManager | None = None
+_manager_lock = threading.Lock()
 
 
 def get_job_manager() -> JobManager:
     global _manager
     if _manager is None:
-        log_dir = Path(os.environ.get("GHQ_JOB_LOG_DIR", "data/job_logs"))
-        _manager = JobManager(log_dir=log_dir)
+        with _manager_lock:  # 首请求并发进线程池时防双重构造
+            if _manager is None:
+                log_dir = Path(os.environ.get("GHQ_JOB_LOG_DIR", "data/job_logs"))
+                _manager = JobManager(log_dir=log_dir)
     return _manager
 
 
@@ -78,19 +84,19 @@ def submit_ml_evaluate(req: MlEvaluateJobRequest,
 
 
 @router.get("")
-def list_jobs(limit: int = 50,
+def list_jobs(limit: int = Query(default=50, ge=1, le=200),
               manager: JobManager = Depends(get_job_manager)) -> dict:
-    jobs = manager.list_jobs()[: min(limit, 200)]
+    jobs = manager.list_jobs()[:limit]
     return {"jobs": [j.to_dict() for j in jobs], "active": manager.has_active()}
 
 
 @router.get("/{job_id}")
-def job_detail(job_id: str, tail: int = 200,
+def job_detail(job_id: str, tail: int = Query(default=200, ge=0, le=400),
                manager: JobManager = Depends(get_job_manager)) -> dict:
     job = manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
-    return job.to_dict(tail=min(tail, 400))
+    return job.to_dict(tail=tail)
 
 
 @router.post("/{job_id}/cancel")

@@ -105,3 +105,20 @@ class TestQueryAndCancel:
         assert client.post(f"/api/jobs/{job.job_id}/cancel").json()["status"] == "canceled"
         assert client.post("/api/jobs/nope/cancel").status_code == 404
         assert client.post(f"/api/jobs/{job.job_id}/cancel").status_code == 409
+
+
+class TestFakeFidelity:
+    def test_fake_signatures_match_real_job_manager(self) -> None:
+        """FakeJobManager 与真 JobManager 的共享方法签名对账, 防鸭子型漂移。"""
+        import inspect
+
+        from src.infrastructure.jobs.job_manager import JobManager
+
+        for name in ("submit", "get", "list_jobs", "has_active", "cancel"):
+            real = inspect.signature(getattr(JobManager, name))
+            fake = inspect.signature(getattr(FakeJobManager, name))
+            assert real.parameters.keys() == fake.parameters.keys(), name
+            assert all(
+                real.parameters[p].kind == fake.parameters[p].kind
+                for p in real.parameters
+            ), name
