@@ -9,6 +9,7 @@ import { initExplorer } from "./pages/explorer.js";
 import { loadBacktests, initBacktestForm } from "./pages/backtests.js";
 import { setLivePolling, initLive } from "./pages/live.js";
 import { loadJobsPage, initMlForms } from "./jobs.js";
+import { applyGlossary } from "./glossary.js";
 
 const TABS = ["overview", "verdicts", "explorer", "backtests", "live", "jobs"];
 
@@ -40,6 +41,7 @@ async function pollIndicator() {
 setInterval(pollIndicator, 5000);
 
 (async function init() {
+  applyGlossary(); // 静态 HTML 的术语 tips（动态模板由各页渲染后自行调用）
   initExplorer();
   initBacktestForm().catch(() => {});
   initFactorForm().catch(() => {});

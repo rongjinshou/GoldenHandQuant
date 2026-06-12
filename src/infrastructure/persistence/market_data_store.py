@@ -180,11 +180,23 @@ class MarketDataStore:
         return [r[0] for r in rows]
 
     def search_instruments(self, query: str, limit: int = 50) -> list[dict]:
-        """按 symbol 前缀或名称模糊搜索（dashboard 选股框用）。"""
+        """按 symbol 前缀或名称模糊搜索（dashboard 选股框/回测 chips 联想用）。
+
+        instruments.name 历史上只存代码本身（QMT 股票列表接口无中文名），
+        中文名用 fundamental_snapshots 最新快照回填；无快照的标的回落原值。
+        """
         rows = self._conn.execute(
-            """SELECT DISTINCT symbol, name FROM instruments
-               WHERE symbol LIKE ? OR name LIKE ?
-               ORDER BY symbol LIMIT ?""",
+            """WITH latest_names AS (
+                   SELECT symbol, arg_max(name, date) AS name
+                   FROM fundamental_snapshots
+                   WHERE name IS NOT NULL
+                   GROUP BY symbol
+               )
+               SELECT DISTINCT i.symbol, COALESCE(n.name, i.name) AS name
+               FROM instruments i
+               LEFT JOIN latest_names n ON n.symbol = i.symbol
+               WHERE i.symbol LIKE ? OR COALESCE(n.name, i.name) LIKE ?
+               ORDER BY i.symbol LIMIT ?""",
             [f"{query}%", f"%{query}%", limit],
         ).fetchall()
         return [{"symbol": r[0], "name": r[1]} for r in rows]

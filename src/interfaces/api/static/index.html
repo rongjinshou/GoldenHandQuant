@@ -32,6 +32,7 @@
   <main>
     <!-- 数据资产 -->
     <section id="tab-overview" class="panel active">
+      <p class="page-guide">数据资产总览——本地行情库各表的行数与日期覆盖。下方表单可触发增量刷新（只补缺口，需 QMT 客户端在线）。带虚线下划线的术语都可悬停看解释。</p>
       <details class="form-card" id="dr-form">
         <summary>刷新市场数据（需 QMT 客户端在线）</summary>
         <div class="form-body">
@@ -52,6 +53,7 @@
 
     <!-- 因子判决 -->
     <section id="tab-verdicts" class="panel">
+      <p class="page-guide">因子研究流水线——勾选候选因子提交检验，结果自动入库成判决记录。<span data-gloss="verdict_badge">PASS</span> 表示通过全部硬性闸门，FAIL 行下方逐条给出原因。表头术语均可悬停看解释。</p>
       <details class="form-card" id="ft-form">
         <summary>新建因子检验</summary>
         <div class="form-body">
@@ -60,16 +62,16 @@
           <div class="form-row">
             <label>起 <input type="date" id="ft-start" value="2021-01-01"></label>
             <label>止 <input type="date" id="ft-end" value="2025-12-31"></label>
-            <label>IS/OOS 切分 <input type="date" id="ft-split" value="2024-06-30"></label>
-            <label>记分牌 <select id="ft-objective">
+            <label><span data-gloss="split_date">IS/OOS 切分</span> <input type="date" id="ft-split" value="2024-06-30"></label>
+            <label><span data-gloss="objective">记分牌</span> <select id="ft-objective">
               <option value="long_short">多空价差</option>
               <option value="long_only">Top层纯多头超额</option>
             </select></label>
           </div>
           <div class="form-row">
-            <label>分层 <input type="number" id="ft-layers" value="5" min="2" max="10" size="4"></label>
-            <label>调仓间隔(日) <input type="number" id="ft-rebalance" value="1" min="1" max="60" size="4"></label>
-            <label>成本率 <input type="number" id="ft-cost" value="0.003" step="0.001" min="0" size="6"></label>
+            <label><span data-gloss="layers">分层</span> <input type="number" id="ft-layers" value="5" min="2" max="10" size="4"></label>
+            <label><span data-gloss="rebalance">调仓间隔(日)</span> <input type="number" id="ft-rebalance" value="1" min="1" max="60" size="4"></label>
+            <label><span data-gloss="cost_rate">成本率</span> <input type="number" id="ft-cost" value="0.003" step="0.001" min="0" size="6"></label>
             <button class="btn-primary" id="ft-submit">提交检验</button>
           </div>
           <div class="form-hint hidden" id="ft-hint"></div>
@@ -86,9 +88,9 @@
         <thead>
           <tr>
             <th>ID</th><th>因子</th><th>表达式</th>
-            <th>IC</th><th id="th-stability">IR</th><th id="th-posrate">IC正率</th><th>单调性</th>
-            <th id="th-realize-is">多空(IS)</th><th>OOS IC</th><th>OOS IR</th><th id="th-realize-oos">多空(OOS)</th>
-            <th>评分</th><th>判决</th>
+            <th data-gloss="ic">IC</th><th id="th-stability" data-gloss="ir">IR</th><th id="th-posrate" data-gloss="ic_posrate">IC正率</th><th data-gloss="monotonicity">单调性</th>
+            <th id="th-realize-is" data-gloss="ls_is">多空(IS)</th><th data-gloss="oos_ic">OOS IC</th><th data-gloss="oos_ir">OOS IR</th><th id="th-realize-oos" data-gloss="ls_oos">多空(OOS)</th>
+            <th data-gloss="score">评分</th><th data-gloss="verdict_badge">判决</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -100,6 +102,7 @@
 
     <!-- 个股查看 -->
     <section id="tab-explorer" class="panel">
+      <p class="page-guide">单只标的的<span data-gloss="qfq">前复权</span> K 线与 <span data-gloss="t1">T-1 信息口径</span>特征曲线——做因子之前先用肉眼校验数据质量与因子原料。</p>
       <div class="toolbar">
         <label>标的
           <input id="symbol-input" list="symbol-list" placeholder="代码或名称, 如 000001 / 平安"
@@ -117,6 +120,7 @@
 
     <!-- 回测 -->
     <section id="tab-backtests" class="panel">
+      <p class="page-guide">把策略放回历史行情模拟交易。<span data-gloss="ts_strategy">时序策略</span>（如双均线）回测你填的标的；<span data-gloss="cs_strategy">截面策略</span>（如小市值）在全市场抽样池上选股，标的框不生效。提交后任务卡实时滚日志，完成自动刷新下方结果。</p>
       <details class="form-card" id="bt-form">
         <summary>新建回测 / 多策略对比</summary>
         <div class="form-body">
@@ -128,17 +132,23 @@
           <div class="form-row">
             <label>起 <input type="date" id="bt-start" value="2024-01-01"></label>
             <label>止 <input type="date" id="bt-end" value="2025-12-31"></label>
-            <label>初始资金 <input type="number" id="bt-capital" placeholder="配置默认" step="10000"></label>
-            <label>配置 <select id="bt-config">
+            <label><span data-gloss="initial_capital">初始资金</span> <input type="number" id="bt-capital" placeholder="配置默认" step="10000"></label>
+            <label><span data-gloss="bt_config">配置</span> <select id="bt-config">
               <option value="">resources/backtest.yaml（默认）</option>
               <option value="resources/backtest_multi_factor.yaml">backtest_multi_factor.yaml</option>
             </select></label>
           </div>
           <div class="form-row">
-            <label style="flex:1">标的（逗号分隔，留空=配置默认）
-              <input id="bt-symbols" style="flex:1" placeholder="000021.SZ,600000.SH"></label>
+            <label style="flex:1">标的（留空=配置默认）
+              <span id="bt-symbols-box" class="chips" style="flex:1">
+                <input id="bt-symbols-input" list="bt-symbol-list" autocomplete="off"
+                       placeholder="输入代码/名称联想，回车或点选添加">
+              </span>
+            </label>
+            <datalist id="bt-symbol-list"></datalist>
             <button class="btn-primary" id="bt-submit">提交回测</button>
           </div>
+          <div class="form-hint sym-err hidden" id="bt-symbols-err"></div>
           <div class="form-hint hidden" id="bt-hint"></div>
         </div>
       </details>
@@ -152,8 +162,8 @@
       <table id="bt-table" class="verdict-table">
         <thead>
           <tr>
-            <th>策略</th><th>区间</th><th>总收益</th><th>年化</th><th>最大回撤</th>
-            <th>夏普</th><th>索提诺</th><th>Calmar</th><th>胜率</th><th>交易数</th><th>换手</th>
+            <th>策略</th><th>区间</th><th data-gloss="total_return">总收益</th><th data-gloss="annualized">年化</th><th data-gloss="max_drawdown">最大回撤</th>
+            <th data-gloss="sharpe">夏普</th><th data-gloss="sortino">索提诺</th><th data-gloss="calmar">Calmar</th><th data-gloss="win_rate">胜率</th><th data-gloss="trade_count">交易数</th><th data-gloss="turnover">换手</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -166,6 +176,7 @@
 
     <!-- 实盘 / 纸面前向 -->
     <section id="tab-live" class="panel">
+      <p class="page-guide">auto-trade 交易留痕的只读视图——预算、守护活性、循环、执行、审计、ticket。<span data-gloss="dry_run">dry_run</span> 为纸面模式。网页永远无法下单或修改交易配置。</p>
       <div id="live-cards" class="cards" style="margin-bottom:14px"></div>
       <div id="live-ops-cards" class="cards" style="margin-bottom:14px"></div>
       <div id="live-equity-chart" class="chart" style="margin-bottom:14px"></div>
@@ -180,7 +191,7 @@
         <thead><tr><th>标的</th><th>总量</th><th>可用</th><th>成本价</th></tr></thead>
         <tbody></tbody>
       </table>
-      <h3 class="section-title">交易循环</h3>
+      <h3 class="section-title"><span data-gloss="cycle">交易循环</span></h3>
       <table id="live-cycles" class="verdict-table">
         <thead>
           <tr><th>时刻</th><th>模式</th><th>策略</th><th>信号</th><th>提交</th>
@@ -192,14 +203,14 @@
       <table id="live-executions" class="verdict-table">
         <thead>
           <tr><th>时间</th><th>标的</th><th>方向</th><th>限价</th><th>数量</th>
-              <th>金额</th><th>置信</th><th>状态</th><th>拒因</th></tr>
+              <th>金额</th><th data-gloss="confidence">置信</th><th>状态</th><th>拒因</th></tr>
         </thead>
         <tbody></tbody>
       </table>
       <p id="live-empty" class="empty hidden">
         暂无交易留痕 — 运行 <code>quant auto-trade --once --enable</code>（dry-run）后生成 data/trading.db。
       </p>
-      <h3 class="section-title">审计日志
+      <h3 class="section-title"><span data-gloss="audit">审计日志</span>
         <select id="audit-action" style="margin-left:8px">
           <option value="">全部动作</option>
           <option>cycle_start</option><option>cycle_end</option>
@@ -212,12 +223,13 @@
         <thead><tr><th>时间</th><th>动作</th><th>资源</th><th>明细</th></tr></thead>
         <tbody></tbody>
       </table>
-      <h3 class="section-title">单笔下单 Ticket（data/trade_logs）</h3>
+      <h3 class="section-title"><span data-gloss="ticket">单笔下单 Ticket</span>（data/trade_logs）</h3>
       <div id="live-tickets"></div>
     </section>
 
     <!-- 任务 -->
     <section id="tab-jobs" class="panel">
+      <p class="page-guide">网页触发的所有后台任务——点击行查看实时日志，排队/运行中可取消。<span data-gloss="ml_train">ML 训练</span>属高级功能，耗时可达数十分钟。</p>
       <details class="form-card">
         <summary>ML 模型训练 / 评估（高级）</summary>
         <div class="form-body">
@@ -225,8 +237,8 @@
             <label>训练起 <input type="date" id="ml-start" value="2021-01-01"></label>
             <label>训练止 <input type="date" id="ml-end" value="2024-12-31"></label>
             <label>标的 <input id="ml-symbols" value="000300.SH" size="12"></label>
-            <label>模型名 <input id="ml-model" value="lgbm_return_5d" size="14"></label>
-            <label>n-trials <input type="number" id="ml-trials" value="50" min="1" max="200" size="5"></label>
+            <label><span data-gloss="model_name">模型名</span> <input id="ml-model" value="lgbm_return_5d" size="14"></label>
+            <label><span data-gloss="n_trials">n-trials</span> <input type="number" id="ml-trials" value="50" min="1" max="200" size="5"></label>
             <button class="btn-primary" id="ml-train-submit">训练</button>
           </div>
           <div class="form-row">

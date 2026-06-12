@@ -130,7 +130,9 @@ def run_deep(page, out_dir: Path) -> dict:
     # dual_ma 默认勾选; 填短区间 + 单标的, 保证 1 分钟级跑完
     page.fill("#bt-start", "2024-01-01")
     page.fill("#bt-end", "2024-03-31")
-    page.fill("#bt-symbols", "000021.SZ")
+    # v2 chips: 填完整代码触发 input 事件即自动成 chip
+    page.fill("#bt-symbols-input", "000021.SZ")
+    page.wait_for_selector("#bt-symbols-box .chip", timeout=5_000)
     page.click("#bt-submit")
 
     card = page.wait_for_selector("#bt-job-area .job-card", timeout=10_000)

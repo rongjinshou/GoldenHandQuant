@@ -3,6 +3,7 @@
 
 import { $, API, fetchJSON, f4, f3, f2, pct, showError, clearError } from "../api.js";
 import { submitJob, attachJobCard } from "../jobs.js";
+import { applyGlossary } from "../glossary.js";
 
 const GATES = {
   ic_mean: (v) => v >= 0.02,
@@ -100,7 +101,7 @@ export async function initFactorForm() {
   const byId = Object.fromEntries(data.factors.map((f) => [f.factor_id, f]));
   const html = [];
   for (const [group, ids] of Object.entries(data.groups)) {
-    html.push(`<span class="group-title">${group}</span>`);
+    html.push(`<span class="group-title" data-gloss="factor_group">${group}</span>`);
     for (const id of ids) {
       const f = byId[id];
       const dis = f.field_ready === false;
@@ -111,6 +112,7 @@ export async function initFactorForm() {
     }
   }
   $("#ft-factors").innerHTML = html.join("");
+  applyGlossary($("#ft-factors"));
   $("#ft-factors").addEventListener("change", updateFtHint);
   $("#ft-split").addEventListener("change", updateFtHint);
   $("#ft-submit").addEventListener("click", submitFactorTest);

@@ -163,3 +163,69 @@ footer {
 .ticket-item summary { cursor: pointer; color: var(--accent); font-size: 13px; padding: 4px 0; }
 .ticket-pre { background: #0a0e13; padding: 8px 12px; border-radius: 6px;
   font-size: 12px; overflow: auto; }
+
+/* ==== v2: 术语 tips / 标的 chips / 页签导览 (设计 DD-9..DD-11) ==== */
+
+/* CSS-only 悬停气泡: data-tip 由 glossary.js applyGlossary 注入 */
+[data-tip] { border-bottom: 1px dotted #5b6b85; cursor: help; position: relative; }
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute; left: 50%; bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  width: max-content; max-width: 320px;
+  background: #1b2330; color: #d7e0f0;
+  border: 1px solid #31405a; border-radius: 7px;
+  padding: 8px 11px; font-size: 12px; font-weight: 400;
+  line-height: 1.6; text-align: left; white-space: normal;
+  z-index: 90; box-shadow: 0 6px 18px rgba(0, 0, 0, .5);
+  pointer-events: none;
+}
+/* 表格右缘两列的气泡右对齐, 防溢出视口 */
+th:last-child[data-tip]:hover::after,
+th:nth-last-child(2)[data-tip]:hover::after {
+  left: auto; right: 0; transform: none;
+}
+th:first-child[data-tip]:hover::after {
+  left: 0; transform: none;
+}
+
+.page-guide {
+  color: var(--text-dim); font-size: 12.5px; line-height: 1.7;
+  border-left: 3px solid #2a3245; padding-left: 10px; margin: 0 0 14px;
+}
+
+/* 标的 chips 输入 */
+.chips {
+  display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  background: #0e1218; border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px 8px; min-height: 32px;
+}
+.chips input {
+  background: transparent; border: none; outline: none;
+  color: var(--text); flex: 1; min-width: 180px; font-size: 13px;
+}
+.chips.disabled { opacity: .55; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #243049; border: 1px solid #31405a; border-radius: 12px;
+  padding: 1px 9px; font-size: 12px; white-space: nowrap;
+}
+.chip-x {
+  background: none; border: none; color: #8fa3c8;
+  cursor: pointer; font-size: 14px; padding: 0 1px; line-height: 1;
+}
+.chip-x:hover { color: var(--bad); }
+.chip-ro { padding: 1px 8px; }
+.run-target { margin-left: 8px; }
+
+/* v2 评审修复: 表头术语低对比下划线（border 被 th 规则覆盖, 用 text-decoration） */
+th[data-tip] {
+  border: 1px solid var(--border); /* 维持 .verdict-table th 的格线 */
+  text-decoration: underline dotted #44516a 1.5px;
+  text-underline-offset: 4px;
+}
+/* v2 评审修复: 禁用态 chips 可辨识 */
+.chips.disabled { opacity: .5; background: #0a0d12; border-style: dashed; }
+.chips.disabled input { cursor: not-allowed; }
+/* v2 评审修复: 标的非法 token 的就近内联报错 */
+.sym-err { color: var(--bad); font-size: 12px; }

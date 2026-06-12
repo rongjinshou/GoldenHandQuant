@@ -3,6 +3,7 @@
 
 import { $, fetchJSON, showError, num } from "../api.js";
 import { makeChart, resizeCharts } from "../charts.js";
+import { applyGlossary } from "../glossary.js";
 
 let liveEquityChart = null;
 let liveTimer = null;
@@ -48,20 +49,21 @@ function daemonBadge(cfg) {
 function renderOpsCards(budget, cfg) {
   const at = cfg.auto_trade || {};
   $("#live-ops-cards").innerHTML = `
-    <div class="card"><h3>今日预算（跨模式）</h3>
+    <div class="card"><h3><span data-gloss="budget">今日预算（跨模式）</span></h3>
       <div class="big">${num(budget.submitted_notional)}</div>
       <div class="dim">上限 ${num(budget.daily_notional_cap)} · 余 ${num(budget.remaining)}
         · 单笔顶 ${num(budget.per_order_notional_cap)}</div></div>
-    <div class="card"><h3>守护状态</h3>
+    <div class="card"><h3><span data-gloss="daemon">守护状态</span></h3>
       <div class="big" style="font-size:18px">${daemonBadge(cfg)}</div>
       <div class="dim">执行槽位 ${(cfg.today.expected_slots || []).join(" / ") || "-"}</div></div>
-    <div class="card"><h3>auto-trade 配置（只读）</h3>
+    <div class="card"><h3><span data-gloss="at_config">auto-trade 配置（只读）</span></h3>
       <div class="big" style="font-size:16px">
-        <span class="badge ${at.mode === "live" ? "fail" : "info"}">${at.mode || "?"}</span>
+        <span class="badge ${at.mode === "live" ? "fail" : "info"}"${at.mode === "dry_run" ? ' data-gloss="dry_run"' : ""}>${at.mode || "?"}</span>
         <span class="badge ${at.enabled ? "warn" : "info"}">${at.enabled ? "enabled" : "disabled"}</span>
       </div>
       <div class="dim">${at.strategy || ""} · ${(at.symbols || []).length} 标的
-        · 置信≥${at.min_confidence ?? "?"}</div></div>`;
+        · <span data-gloss="confidence">置信</span>≥${at.min_confidence ?? "?"}</div></div>`;
+  applyGlossary($("#live-ops-cards"));
 }
 
 async function loadLive() {

@@ -272,3 +272,36 @@ class TestInstruments:
             source="qmt",
         )
         assert store.load_symbols("qmt") == ["000001.SZ", "600000.SH"]
+
+class TestSearchInstruments:
+    """中文名联想 — instruments.name 历史只存代码, 以 fundamental_snapshots 回填。"""
+
+    def _inst(self, store, symbol: str):
+        store.upsert_instruments(
+            [{"symbol": symbol, "name": symbol,
+              "list_date": "2021-01-01", "delist_date": None}], source="qmt")
+
+    def test_name_falls_back_to_fundamentals(self, store):
+        self._inst(store, "001217.SZ")
+        store.upsert_fundamentals(
+            [FundamentalSnapshot(
+                symbol="001217.SZ", date=datetime(2024, 1, 2), name="华尔泰",
+                list_date=datetime(2021, 1, 1), market_cap=1e9)], source="qmt")
+
+        assert store.search_instruments("华尔") == [
+            {"symbol": "001217.SZ", "name": "华尔泰"}]
+        assert store.search_instruments("001217")[0]["name"] == "华尔泰"
+
+    def test_no_fundamental_keeps_instrument_name(self, store):
+        self._inst(store, "000001.SZ")
+        assert store.search_instruments("000001") == [
+            {"symbol": "000001.SZ", "name": "000001.SZ"}]
+
+    def test_latest_snapshot_name_wins(self, store):
+        self._inst(store, "600000.SH")
+        for date, name in [(datetime(2023, 1, 2), "旧名"), (datetime(2024, 1, 2), "新名")]:
+            store.upsert_fundamentals(
+                [FundamentalSnapshot(
+                    symbol="600000.SH", date=date, name=name,
+                    list_date=datetime(2010, 1, 1), market_cap=1e9)], source="qmt")
+        assert store.search_instruments("600000")[0]["name"] == "新名"

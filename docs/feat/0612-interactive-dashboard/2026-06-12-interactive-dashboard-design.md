@@ -160,3 +160,21 @@ JobManager 经 `Depends(get_job_manager)` 注入（模块级单例 + 测试 depe
 
 - 新增 `scripts/ui_smoke.py`：Playwright（装于 Windows conda env, 渲染与用户浏览器同构）无头打开驾驶舱, 6 页签截图至 `data/ui_screenshots/` + 收集 console 错误/页面异常/失败请求, 产出机读 `smoke_report.json`；`--deep` 附加真提交小回测并等任务卡终态。WSL mirrored 网络使 Claude 可在 WSL 内直连 Windows 服务并读图自查。
 - 首轮读图自查战果：① live 页无权益快照时 ECharts 渲染 ~600px 空黑框 → 改为隐藏图容器（恢复显示时 resizeCharts 防 0 尺寸）；② overview 股票池卡"无数据"歧义文案 → "—"。复跑冒烟 PASS（0 console 错误, deep 回测 succeeded, run_id=20260612-222634）, 修复均经截图二次确认。
+
+## 8. v2 迭代：标的 chips + 时序/截面编排 + 术语 tips（2026-06-12）
+
+用户三诉求：① 回测标的输入升级 chips+联想；② 回测结果看不到测的是什么标的，时序/截面/混合策略的编排需要在交互中讲清楚；③ 全界面专业术语零解释，无法指导学习。
+
+- **DD-9 标的 chips**：纯前端组件（payload 仍是 `symbols: list[str]`，后端零改动）。联想复用 `/api/research/symbols?q=`（代码/名称双通道）；完整代码（点选联想/粘贴/回车）即时成 chip；粘贴逗号串自动拆分；Backspace 空输入退删末 chip；正则 `\d{6}\.(SH|SZ|BJ)` 客户端校验，非法 token 留在输入框并报错提示。
+- **DD-10 时序/截面编排**（与 `compare_strategies` 真实语义对齐：`backtest_symbols = stock_universe if stock_universe else symbols`，含任一截面策略时用户标的不参与回测）：勾选含截面策略 → 标的 chips 整体禁用 + placeholder 说明"回测对象=全市场抽样池"；结果区 run meta 显示每策略 [时序]/[截面] 类型徽章 + 时序 run 的标的只读 chips（>8 只折叠 +N, title 全量）/ 截面 run 的"全市场抽样"说明。任务卡/任务列表 paramsSummary 同步加 symbols 摘要。
+- **DD-11 术语 tips**：单一来源 `js/glossary.js`（GLOSSARY 字典 + `applyGlossary(root)` 装饰器）；HTML/模板只标 `data-gloss="key"`，装饰器注入 `data-tip` 文案 + CSS-only 悬停气泡（`[data-tip]:hover::after`, 无 JS 定位库）；动态渲染容器各自 applyGlossary。文案教学口径：一句定义 + 一句好坏方向/落地提醒。每页签顶部加一行 `.page-guide` 用途导览。verdicts 表头 objective 切换只换 textContent，data-tip 落在 th 上不受影响（文案覆盖双口径）。
+
+### 8.1 实施记录（2026-06-12 夜）
+
+- 实现即闭环验证：每步改动经 `scripts/ui_interact_shot.py`（新增的交互截图 DSL 小工具: tab/fill/type/press/hover/shot）真浏览器截图读图确认；全页冒烟 + deep（chips 路径真提交回测 succeeded）PASS。
+- **对抗评审战果（3 视角 Workflow: 量化内容/JS 边界/视觉, 14 条发现全数修复）**：
+  - 量化内容 6 条：`ir` 两口径混淆（多空 ICIR 闸 0.3 vs 长多年化超额 IR 闸 0.5, 量纲不同）、`monotonicity` 漏说已定向（完全递减≠1.0）、`layers` 第几层最优写反（Top=因子值最高的最后一层）、`cost_rate` 单边 vs 往返写错（引擎按换手×往返合计扣, 教成单边会让成本少算一半直接影响 PASS/FAIL）、`ic` 补带符号闸门口径、`ls_is` 基准是覆盖池等权非全市场。**全部对照 layer_backtest.py/verdict.py 实测口径改正。**
+  - JS 3 条 important：Enter 取过期联想候选（加 `list.dataset.q` 配对校验）、分支 A/B 不清防抖 timer + 在途 fetch 回填已清空的 datalist（clearTimeout + 响应时比对 input 当前值丢弃过期）、≥2 非法 token 时逐键重拆光标跳尾（拆分收窄为 粘贴/尾分隔符 触发）；3 条 minor：`p.source` 漏 esc、策略复选框变更重置已改参数（暂存回填）、内联报错就近显示（#bt-symbols-err）。
+  - 视觉 3 条：th 下划线被表格 border 规则吃掉（text-decoration 实现低对比下划线）、禁用 chips 不可辨识（压暗+虚线边+not-allowed）、错误横幅离表单太远（内联 sym-err）。
+- **顺手修复数据层真缺口**：标的名称联想此前不可用——instruments.name 历史只存代码。`search_instruments` 改为 LEFT JOIN fundamental_snapshots `arg_max(name, date)` 回填中文名（5207 只全覆盖, TDD 3 用例），个股页与回测 chips 的"输名称→回车/点选"全链路打通（实测 平安→000001.SZ 平安银行）。
+- 验证：全量 pytest 0 失败、ruff 干净、冒烟 PASS、修复均经截图二次确认。遗留观察：拖拽文本入框（insertFromDrop）不触发即时拆分, 回车/提交时兜底拆分, 不影响正确性。

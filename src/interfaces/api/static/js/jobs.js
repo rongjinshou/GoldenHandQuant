@@ -25,9 +25,13 @@ export function paramsSummary(job) {
   if (p.strategies) parts.push(p.strategies.join(","));
   if (p.factors) parts.push(p.factors);
   if (p.model_name) parts.push(p.model_name);
+  if (p.symbols) {
+    const arr = Array.isArray(p.symbols) ? p.symbols : String(p.symbols).split(",");
+    parts.push(arr.length <= 2 ? arr.join(",") : `${arr.slice(0, 2).join(",")}等${arr.length}只`);
+  }
   if (p.start_date) parts.push(`${p.start_date}~${p.end_date || ""}`);
   if (p.objective) parts.push(p.objective);
-  return parts.join(" · ").slice(0, 80);
+  return parts.join(" · ").slice(0, 90);
 }
 
 /* 在 container 内渲染一张实时刷新的任务卡; 终态后停轮询并回调 onDone(job) */
