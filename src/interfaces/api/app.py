@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.interfaces.api.routes import account_routes, backtest_routes, dashboard, jobs, live, research
+from src.interfaces.api.routes import account_routes, backtest_routes, dashboard, jobs, live, meta, research
 
 app = FastAPI(title="GoldenHandQuant API", version="0.1.0")
 app.include_router(backtest_routes.router, prefix="/api/backtest", tags=["backtest"])
@@ -13,6 +13,7 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"]
 app.include_router(research.router, prefix="/api/research", tags=["research"])
 app.include_router(live.router, prefix="/api/live", tags=["live"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(meta.router, prefix="/api/meta", tags=["meta"])
 
 _STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/ui", StaticFiles(directory=str(_STATIC_DIR), html=True), name="ui")
