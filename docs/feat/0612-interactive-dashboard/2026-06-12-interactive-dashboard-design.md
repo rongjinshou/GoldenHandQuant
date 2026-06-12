@@ -178,3 +178,12 @@ JobManager 经 `Depends(get_job_manager)` 注入（模块级单例 + 测试 depe
   - 视觉 3 条：th 下划线被表格 border 规则吃掉（text-decoration 实现低对比下划线）、禁用 chips 不可辨识（压暗+虚线边+not-allowed）、错误横幅离表单太远（内联 sym-err）。
 - **顺手修复数据层真缺口**：标的名称联想此前不可用——instruments.name 历史只存代码。`search_instruments` 改为 LEFT JOIN fundamental_snapshots `arg_max(name, date)` 回填中文名（5207 只全覆盖, TDD 3 用例），个股页与回测 chips 的"输名称→回车/点选"全链路打通（实测 平安→000001.SZ 平安银行）。
 - 验证：全量 pytest 0 失败、ruff 干净、冒烟 PASS、修复均经截图二次确认。遗留观察：拖拽文本入框（insertFromDrop）不触发即时拆分, 回车/提交时兜底拆分, 不影响正确性。
+
+### 8.2 Tippy 气泡 + 终端美学层（2026-06-12 深夜, frontend-design skill）
+
+用户反馈：悬停不出气泡（根因=浏览器强缓存旧 JS/CSS）+ 排版丑 + 要求用专业前端 skill。
+
+- **缓存根治**：app.py 中间件给 `/ui` 静态资源加 `Cache-Control: no-cache`（本机 ETag 协商 304 零成本, 无构建链改盘即生效）。
+- **气泡专业化**：vendor Popper 2.11.8 + Tippy 6.3.7（与 echarts 同方式落盘），`applyGlossary` 改挂 Tippy——自动定位/翻转、appendTo body 免裁切、术语标题+正文双段排版（ghq 暗色主题）、onShow 动态取最新表头文案；删除整套 CSS-only `::after` 气泡。
+- **终端美学层（安装并应用官方 frontend-design skill, 定位 industrial terminal）**：vendor Rajdhani（HUD 显示字: 品牌/气泡标题）+ JetBrains Mono（全部数字/代码/表格/页脚, 等宽对齐成列）共 5 个 woff2 ~90KB 本地加载；body 顶部冷光晕氛围；卡片渐变深度+发丝高光+悬停微抬；表格改圆角容器+内部发丝格线+大写字距表头+行悬停；section-title 延伸线、page-guide 渐变条、按钮渐变光、输入聚焦环、页签切换浮现动效。纯覆盖式追加层（style.css v3 段），可整段回滚。
+- 验证：冒烟 PASS（0 console 错误）、六页签+气泡+局部裁切读图逐一确认。skill 已装入 `~/.claude/skills/frontend-design` 供后续会话复用。

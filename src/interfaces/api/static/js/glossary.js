@@ -62,10 +62,31 @@ export const GLOSSARY = {
   ml_train: "训练流程：构建数据集 → Optuna 调参 → LightGBM 训练 → 持久化模型。耗时可达数十分钟。",
 };
 
-/* 给 root 内所有 [data-gloss] 注入 data-tip 气泡（CSS 渲染, 无 JS 定位） */
+/* 给 root 内所有 [data-gloss] 挂 Tippy 气泡（vendor/tippy.umd.min.js, 自动定位/翻转） */
 export function applyGlossary(root = document) {
+  if (typeof window.tippy !== "function") return; // vendor 缺失时静默退化为纯文本
+  const targets = [];
   root.querySelectorAll("[data-gloss]").forEach((el) => {
-    const text = GLOSSARY[el.dataset.gloss];
-    if (text) el.dataset.tip = text;
+    if (!GLOSSARY[el.dataset.gloss] || el._tippy) return; // 重复装饰幂等
+    el.classList.add("gloss");
+    targets.push(el);
+  });
+  if (!targets.length) return;
+  window.tippy(targets, {
+    theme: "ghq",
+    allowHTML: true,
+    placement: "top",
+    maxWidth: 360,
+    delay: [100, 50],
+    offset: [0, 10],
+    appendTo: () => document.body, // 不受表格/卡片溢出裁切
+    // 内容在每次显示时取最新: verdicts 表头随记分牌切换改 textContent, 标题需跟随
+    onShow(instance) {
+      const el = instance.reference;
+      const term = el.textContent.trim();
+      const body = GLOSSARY[el.dataset.gloss];
+      instance.setContent(
+        `<div class="tip-term">${term}</div><div class="tip-body">${body}</div>`);
+    },
   });
 }
