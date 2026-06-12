@@ -4,12 +4,9 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.interfaces.api.routes import account_routes, backtest_routes, dashboard, jobs, live, meta, research
+from src.interfaces.api.routes import jobs, live, meta, research
 
-app = FastAPI(title="GoldenHandQuant API", version="0.1.0")
-app.include_router(backtest_routes.router, prefix="/api/backtest", tags=["backtest"])
-app.include_router(account_routes.router, prefix="/api/account", tags=["account"])
-app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
+app = FastAPI(title="GoldenHandQuant API", version="0.2.0")
 app.include_router(research.router, prefix="/api/research", tags=["research"])
 app.include_router(live.router, prefix="/api/live", tags=["live"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
@@ -26,4 +23,4 @@ async def index_redirect():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}
