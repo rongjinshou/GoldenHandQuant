@@ -7,6 +7,9 @@ import { makeChart, resizeCharts } from "../charts.js";
 let liveEquityChart = null;
 let liveTimer = null;
 
+// Fix #1: 维护已展开行集合，防止 5s 轮询抹除钻取
+const expandedCycles = new Set();
+
 const STATUS_BADGE = {
   DRY_RUN: "info", SUBMITTED: "info", FILLED: "pass", PARTIAL: "warn",
   ALIVE: "warn", TIMEOUT_CANCELED: "warn", TIMEOUT_UNCANCELED: "fail",
@@ -132,19 +135,49 @@ async function loadLive() {
       <td style="text-align:left">${c.note || ""}</td></tr>`
   ).join("") || `<tr><td colspan="9" class="gate-na">暂无循环</td></tr>`;
 
+  // Fix #1: 提取展开逻辑为独立函数，供点击与轮询恢复共用
+  async function expandCycleRow(tr) {
+    // Fix #2: fetchJSON 失败加 catch，不产生 unhandled rejection
+    let d;
+    try {
+      d = await fetchJSON(`/api/live/cycles/${tr.dataset.cycle}/executions`);
+    } catch (e) {
+      showError(e.message);
+      return;
+    }
+    const rows = d.executions.map((e) =>
+      `<tr><td>${e.symbol}</td><td>${e.direction}</td><td>${e.status}</td>
+           <td>${num(e.notional)}</td><td>${e.reject_reason || ""}</td></tr>`).join("")
+      || `<tr><td colspan="5">该循环无执行记录</td></tr>`;
+    tr.insertAdjacentHTML("afterend",
+      `<tr class="row-detail"><td colspan="9"><table>${rows}</table></td></tr>`);
+  }
+
   $("#live-cycles tbody").querySelectorAll("tr.clickable").forEach((tr) => {
     tr.addEventListener("click", async () => {
       const next = tr.nextElementSibling;
-      if (next && next.classList.contains("row-detail")) { next.remove(); return; }
-      const d = await fetchJSON(`/api/live/cycles/${tr.dataset.cycle}/executions`);
-      const rows = d.executions.map((e) =>
-        `<tr><td>${e.symbol}</td><td>${e.direction}</td><td>${e.status}</td>
-             <td>${num(e.notional)}</td><td>${e.reject_reason || ""}</td></tr>`).join("")
-        || `<tr><td colspan="5">该循环无执行记录</td></tr>`;
-      tr.insertAdjacentHTML("afterend",
-        `<tr class="row-detail"><td colspan="9"><table>${rows}</table></td></tr>`);
+      if (next && next.classList.contains("row-detail")) {
+        next.remove();
+        // Fix #1: 收起时从集合删除
+        expandedCycles.delete(tr.dataset.cycle);
+        return;
+      }
+      // Fix #1: 展开时加入集合
+      expandedCycles.add(tr.dataset.cycle);
+      await expandCycleRow(tr);
     });
   });
+
+  // Fix #1: 轮询重渲染后恢复已展开行（fetch 失败静默）
+  for (const cycleId of expandedCycles) {
+    const tr = $("#live-cycles tbody").querySelector(`tr[data-cycle="${cycleId}"]`);
+    if (tr) {
+      try { await expandCycleRow(tr); } catch { /* 静默 */ }
+    } else {
+      // 该 cycle 已不在当前列表，清理集合
+      expandedCycles.delete(cycleId);
+    }
+  }
 
   $("#live-executions tbody").innerHTML = exe.executions.map((e) => `
     <tr><td>${e.submitted_at.slice(0, 19)}</td><td>${e.symbol}</td>
@@ -162,9 +195,11 @@ async function loadLive() {
         <td style="text-align:left"><code>${String(r.details || "").slice(0, 120)}</code></td></tr>`
   ).join("") || `<tr><td colspan="4" class="gate-na">暂无审计记录</td></tr>`;
 
+  // Fix #9: pre 内容做 HTML 转义防 XSS
+  function escHtml(s) { return s.replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   $("#live-tickets").innerHTML = tickets.tickets.map((t) => `
-    <details class="ticket-item"><summary>${t.file}</summary>
-      <pre class="ticket-pre">${JSON.stringify(t.content, null, 2)}</pre></details>`
+    <details class="ticket-item"><summary>${escHtml(String(t.file || ""))}</summary>
+      <pre class="ticket-pre">${escHtml(JSON.stringify(t.content, null, 2))}</pre></details>`
   ).join("") || `<p class="empty">暂无 ticket</p>`;
 
   resizeCharts();

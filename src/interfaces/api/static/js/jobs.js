@@ -1,7 +1,7 @@
 /* 任务提交与状态卡片 — 各页表单复用 */
 "use strict";
 
-import { $, fetchJSON, postJSON, showError } from "./api.js";
+import { $, fetchJSON, postJSON, showError, clearError } from "./api.js";
 
 export async function submitJob(type, payload) {
   return postJSON(`/api/jobs/${type}`, payload);
@@ -49,6 +49,8 @@ export function attachJobCard(container, jobId, { onDone } = {}) {
   const cancelBtn = card.querySelector(".job-cancel");
   let timer = null;
   let done = false;
+  // Fix #8: 连续失败计数器，达 5 次终止轮询
+  let failCount = 0;
 
   cancelBtn.addEventListener("click", async () => {
     try { await postJSON(`/api/jobs/${jobId}/cancel`); } catch { /* 已结束 */ }
@@ -58,7 +60,20 @@ export function attachJobCard(container, jobId, { onDone } = {}) {
     let job;
     try {
       job = await fetchJSON(`/api/jobs/${jobId}?tail=120`);
-    } catch { return; }
+      // Fix #8: 成功后清零计数器
+      failCount = 0;
+    } catch {
+      // Fix #8: 连续 5 次失败停止轮询
+      failCount += 1;
+      if (failCount >= 5) {
+        clearInterval(timer);
+        badge.className = "badge failed";
+        badge.textContent = "查询失败";
+        logEl.textContent = "查询失败（服务可能已重启）";
+        cancelBtn.remove();
+      }
+      return;
+    }
     badge.className = `badge ${job.status}`;
     badge.textContent = STATUS_LABEL[job.status] || job.status;
     meta.textContent = `${job.job_type} · ${paramsSummary(job)} · 耗时 ${durationOf(job)}`;
@@ -96,7 +111,8 @@ export async function loadJobsPage() {
     btn.addEventListener("click", async (ev) => {
       ev.stopPropagation();
       try { await postJSON(`/api/jobs/${btn.dataset.cancel}/cancel`); } catch { /* 已结束 */ }
-      loadJobsPage();
+      // Fix #5: 裸调用加 catch
+      loadJobsPage().catch(() => {});
     }));
   $("#jobs-table tbody").querySelectorAll("tr.clickable").forEach((tr) =>
     tr.addEventListener("click", () => showJobLog(tr.dataset.job)));
@@ -106,12 +122,26 @@ let logTimer = null;
 
 async function showJobLog(jobId) {
   clearInterval(logTimer);
+  // Fix #3: 连续失败计数器
+  let logFailCount = 0;
   async function tick() {
-    const job = await fetchJSON(`/api/jobs/${jobId}?tail=300`);
-    $("#job-log-title").textContent = `${jobId} · ${STATUS_LABEL[job.status] || job.status}`;
-    $("#job-log").textContent = (job.log_tail || []).join("\n") || "（无输出）";
-    $("#job-log").scrollTop = $("#job-log").scrollHeight;
-    if (["succeeded", "failed", "canceled"].includes(job.status)) clearInterval(logTimer);
+    try {
+      const job = await fetchJSON(`/api/jobs/${jobId}?tail=300`);
+      // Fix #3: 成功清零
+      logFailCount = 0;
+      $("#job-log-title").textContent = `${jobId} · ${STATUS_LABEL[job.status] || job.status}`;
+      $("#job-log").textContent = (job.log_tail || []).join("\n") || "（无输出）";
+      $("#job-log").scrollTop = $("#job-log").scrollHeight;
+      if (["succeeded", "failed", "canceled"].includes(job.status)) clearInterval(logTimer);
+    } catch {
+      // Fix #3: 连续 5 次失败停止轮询并提示
+      logFailCount += 1;
+      if (logFailCount >= 5) {
+        clearInterval(logTimer);
+        $("#job-log").textContent = "任务查询失败（服务可能已重启）";
+      }
+      // 未达阈值时静默 return
+    }
   }
   await tick();
   logTimer = setInterval(tick, 2000);
@@ -119,6 +149,8 @@ async function showJobLog(jobId) {
 
 export function initMlForms() {
   $("#ml-train-submit").addEventListener("click", async () => {
+    // Fix #5: 清空旧错误
+    clearError();
     try {
       const job = await submitJob("ml-train", {
         start_date: $("#ml-start").value, end_date: $("#ml-end").value,
@@ -126,16 +158,20 @@ export function initMlForms() {
         model_name: $("#ml-model").value.trim(),
         n_trials: Number($("#ml-trials").value),
       });
-      attachJobCard($("#ml-job-area"), job.job_id, { onDone: loadJobsPage });
+      // Fix #5: onDone 加 catch
+      attachJobCard($("#ml-job-area"), job.job_id, { onDone: () => loadJobsPage().catch(() => {}) });
     } catch (err) { showError(err.message); }
   });
   $("#ml-eval-submit").addEventListener("click", async () => {
+    // Fix #5: 清空旧错误
+    clearError();
     try {
       const job = await submitJob("ml-evaluate", {
         model_name: $("#ml-model").value.trim(),
         eval_start: $("#mle-start").value, eval_end: $("#mle-end").value,
       });
-      attachJobCard($("#ml-job-area"), job.job_id, { onDone: loadJobsPage });
+      // Fix #5: onDone 加 catch
+      attachJobCard($("#ml-job-area"), job.job_id, { onDone: () => loadJobsPage().catch(() => {}) });
     } catch (err) { showError(err.message); }
   });
 }

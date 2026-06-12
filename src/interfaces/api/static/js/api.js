@@ -24,8 +24,15 @@ export async function postJSON(url, payload) {
   });
   const body = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    const detail = typeof body.detail === "string"
-      ? body.detail : JSON.stringify(body.detail ?? body).slice(0, 300);
+    // Fix #7: 422 detail 为数组时提取 msg 字段可读化
+    let detail;
+    if (typeof body.detail === "string") {
+      detail = body.detail;
+    } else if (Array.isArray(body.detail)) {
+      detail = body.detail.map((d) => d.msg || JSON.stringify(d)).join("; ").slice(0, 300);
+    } else {
+      detail = JSON.stringify(body.detail ?? body).slice(0, 300);
+    }
     throw new Error(`${resp.status}: ${detail}`);
   }
   return body;

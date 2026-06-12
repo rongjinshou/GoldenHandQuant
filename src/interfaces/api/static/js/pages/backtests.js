@@ -150,6 +150,9 @@ async function submitBacktest() {
   clearError();
   const strategies = selectedStrategies();
   if (!strategies.length) { showError("至少选择一个策略"); return; }
+  // Fix #6: 非法初始资金提示
+  const raw = $("#bt-capital").value.trim();
+  if (raw !== "" && !(Number(raw) > 0)) { showError("初始资金须为正数"); return; }
   const payload = {
     strategies,
     start_date: $("#bt-start").value,
@@ -157,7 +160,7 @@ async function submitBacktest() {
   };
   const symbols = $("#bt-symbols").value.trim();
   if (symbols) payload.symbols = symbols.split(",").map((s) => s.trim()).filter(Boolean);
-  const capital = Number($("#bt-capital").value);
+  const capital = Number(raw);
   if (capital > 0) payload.initial_capital = capital;
   if ($("#bt-config").value) payload.config = $("#bt-config").value;
   const params = {};
