@@ -144,8 +144,9 @@ function chartTooltipFormatter(params) {
   return lines.join("<br>");
 }
 
-/* 固定配色: overlay/基准插队不许漂移调色板 (策略线与其回撤同色) */
-const STRAT_PALETTE = ["#4d9fff", "#3fb950", "#d29922", "#bc8cff", "#39c5cf"];
+/* 固定配色: overlay/基准插队不许漂移调色板 (策略线与其回撤同色)。
+   主策略走品牌金做主角线, 其余用与红绿(好坏)/灰(基准)隔离的中性序列色。 */
+const STRAT_PALETTE = ["#e9b949", "#46b3c9", "#b48ce6", "#d98a4a", "#5fa8ff"];
 const OVERLAY_PALETTE = ["#8957e5", "#db6d28", "#6e7681"];
 
 /* 渲染代号: 三个 onchange + 任务回调并发触发 async 渲染, 旧渲染过期即弃 (评审 blocker) */

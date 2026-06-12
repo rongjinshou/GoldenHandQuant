@@ -198,3 +198,13 @@ JobManager 经 `Depends(get_job_manager)` 注入（模块级单例 + 测试 depe
 - **轮次叠加**：任选另一轮 run 重定基（进入当前轴首个可见点对齐当前初始资金）后虚线叠加, 区间无重叠时明示。
 - **对抗评审（量化口径+JS 两视角, 11 条全修）**：blocker=async 渲染竞态串台（renderSeq 过期弃渲染）；同窗超额错配（基准晚于回测起点时策略收益重算到同一子窗口）；叠加重定基防窗口外收益误读；截断 2000 笔明示；tooltip HTML 路径 esc 收口；全 null 假基准 0.00% 拦截；多策略日期轴不一致按自身日期对齐（曲线/回撤/标记）；调色板固定（策略线与其回撤同色, overlay 插队不漂移）；价格指数不含股息已在 glossary 注明。
 - 验证：E2E 真回测 4 笔交易入库→API→图上标记落点全对; 基准揭示 000021.SZ 同期 -13.11% vs 策略 +0.45%（超额 +13.56%）; 全量 pytest 0 失败、冒烟 PASS。
+
+## 9. 视觉系统重构 v4：refined gold-leaf quant terminal（2026-06-13, frontend-design skill）
+
+用户反馈"太乱太丑"——根因是 style.css 已是三层叠加（base/v2/v3）相互打架 + 重复规则 + 通用 Bootstrap 蓝 + 无间距节奏 + 层次扁平 + 内容贴边铺满空白。
+
+- **方向（frontend-design skill 强制先定调）**：refined gold-leaf quant terminal。产品名 GoldenHand → 签名色定为暖金 `#e9b949`，**金专属品牌/导航/动作/焦点，与数据语义色（绿=好/红=差）严格隔离**，金永不与涨跌/盈亏配色冲突。深墨底 + 暖金氛围光 + JetBrains Mono 贯穿数据 + 间距刻度（--s1..s7）+ 三级层次。
+- **单一来源重写**：style.css 三层叠加 → 一份连贯系统（token / 字体 / 顶栏 / 页签 / 卡片 / 表格 / 徽章 / 表单 / chips / 任务卡 / 图表 / tippy / footer），所有 class hook 保留，删尽重复规则。内容用 `padding-inline: max(gutter, (100%-maxw)/2)` 居中到 1660px 不再贴边沿。
+- **细节**：金色 logo 辉光、金下划线+辉光的激活页签、金填充主按钮（深字=高级感）、卡片渐变+顶缘金线悬停点亮+错峰浮现入场、表格圆角容器+大写金调表头+等宽数据+行悬停、分区标题金竖线+延伸发丝、金焦点环、自定义滚动条、金选区色。
+- **对抗评审（视觉总监+量化用户双视角, 10 条）**：修 blocker=实盘页残留蓝（badge.info 改中性静音灰、running 改金, 一处 CSS 全站清蓝）；important=空态副信息对比度提亮；KPI tabular-nums；**回测主净值线改品牌金做主角**（gray 基准/红绿标记/金回撤, 移除最显眼的 UI 蓝）。量化用户视角判 ship。遗留 minor（评分等级着色、ticket 键值面板化、因子勾选密度）记为后续 polish。
+- 验证：全量 pytest 0 失败、deep 冒烟 PASS（0 console 错误）、六页签+图表+局部裁切逐张读图二次确认。
