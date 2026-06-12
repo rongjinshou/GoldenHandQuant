@@ -1,11 +1,11 @@
 """StrategyComparisonAppService 单元测试。"""
-import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.application.strategy_comparison_app import StrategyComparisonAppService
 from src.domain.backtest.entities.backtest_report import BacktestReport
-from src.domain.market.value_objects.timeframe import Timeframe
 
 
 def _make_report(name: str) -> BacktestReport:
@@ -95,3 +95,27 @@ class TestStrategyComparisonAppService:
         )
 
         mock_create.assert_called_once_with("multi_factor", {"top_n": 20})
+
+    @patch("src.application.strategy_comparison_app.create_strategy")
+    def test_single_strategy_comparison_does_not_raise(self, mock_create):
+        """单策略对比不崩溃：metric_table 有 1 行，strategy_name 正确。"""
+        from src.domain.backtest.services.comparison_report_service import ComparisonReportService
+
+        mock_strategy = MagicMock()
+        mock_strategy.name = "dual_ma"
+        mock_create.return_value = mock_strategy
+
+        mock_backtest = MagicMock()
+        mock_backtest.run_backtest.return_value = [_make_report("dual_ma")]
+
+        comparison_service = ComparisonReportService()
+        app = StrategyComparisonAppService(mock_backtest, comparison_service)
+        report = app.run_comparison(
+            strategy_names=["dual_ma"],
+            symbols=["000001.SZ"],
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 12, 31),
+        )
+
+        assert len(report.metric_table) == 1
+        assert report.reports[0].strategy_name == "dual_ma"

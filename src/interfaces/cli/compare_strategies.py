@@ -30,7 +30,7 @@ from src.infrastructure.visualization.comparison_plotter import ComparisonPlotte
 from src.infrastructure.visualization.comparison_printer import ComparisonRichPrinter
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Strategy Comparison Tool")
     parser.add_argument("--strategies", type=str, required=True,
                         help="Comma-separated strategy names")
@@ -46,7 +46,9 @@ def parse_args() -> argparse.Namespace:
                         help="YAML config file path")
     parser.add_argument("--params", type=str, default=None,
                         help="Strategy params override (key=value format)")
-    return parser.parse_args()
+    parser.add_argument("--initial-capital", type=float, default=None,
+                        help="初始资金覆盖（默认用配置文件值）")
+    return parser.parse_args(argv)
 
 
 def main() -> None:
@@ -54,7 +56,8 @@ def main() -> None:
 
     # 加载配置
     try:
-        settings = load_backtest_config()
+        settings = (load_backtest_config(args.config) if args.config
+                    else load_backtest_config())
         default_symbols = settings.backtest.symbols
         default_start = settings.backtest.start_date
         default_end = settings.backtest.end_date
@@ -68,6 +71,9 @@ def main() -> None:
         initial_capital = 1_000_000.0
         history_fetcher_type = "TushareHistoryDataFetcher"
         tushare_token = None
+
+    if args.initial_capital:
+        initial_capital = args.initial_capital
 
     strategy_names = [s.strip() for s in args.strategies.split(",")]
     symbols = [s.strip() for s in args.symbols.split(",")] if args.symbols else default_symbols
