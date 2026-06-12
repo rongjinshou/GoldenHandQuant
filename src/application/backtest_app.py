@@ -261,6 +261,16 @@ class BacktestAppService:
             strategy_name=strategy.name,
         )
 
+        # 零成交可诊断: 全零报告必须给出原因, 不许哑巴 (2026-06-13 用户实测踩坑)
+        unaffordable = getattr(runner, "unaffordable_buys", 0)
+        if unaffordable:
+            print(f"\n[警告] {strategy.name}: {unaffordable} 个买入信号因资金"
+                  f"买不起一手(100股)被跳过（{runner.unaffordable_example}）。"
+                  "请加大初始资金或更换低价标的。")
+        elif report.trade_count == 0:
+            print(f"\n[提示] {strategy.name}: 全程零成交 — 策略在该区间未产生"
+                  "可执行信号（可检查: 信号条件 / 数据覆盖 / 标的停牌状态）。")
+
         if plot:
             try:
                 from src.infrastructure.visualization.plotter import BacktestPlotter

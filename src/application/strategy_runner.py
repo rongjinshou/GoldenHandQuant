@@ -64,6 +64,10 @@ class SingleStrategyRunner(StrategyRunner):
         self.trade_gateway = trade_gateway
         self.status_registry = status_registry
         self.circuit_breaker = circuit_breaker
+        # 诊断留痕: 买入信号因资金买不起一手(100股)被归零的次数与示例
+        # (高价股+小资金会全程零成交, 不留痕用户只看到一张全零报告)
+        self.unaffordable_buys = 0
+        self.unaffordable_example = ""
 
     def evaluate(self, context: DayContext) -> tuple[list[OrderTarget], dict[str, float]]:
         # 熔断器检查: TRIGGERED 时直接返回空
@@ -110,6 +114,15 @@ class SingleStrategyRunner(StrategyRunner):
                     price=price,
                     strategy_name=signal.strategy_name
                 ))
+            elif (OrderDirection(signal.direction.value) == OrderDirection.BUY
+                  and (position is None or position.total_volume == 0)
+                  and price * 100 > asset.available_cash):
+                # 空仓买入被归零且现金连一手都不够 → 确定性"买不起", 留痕
+                self.unaffordable_buys += 1
+                if not self.unaffordable_example:
+                    self.unaffordable_example = (
+                        f"{signal.symbol} 一手≈¥{price * 100:,.0f}"
+                        f" > 可用 ¥{asset.available_cash:,.0f}")
 
         return targets, current_prices
 
