@@ -12,7 +12,10 @@
       <span class="logo">🜚</span>
       <h1>GoldenHandQuant <span class="sub">投研驾驶舱</span></h1>
     </div>
-    <div id="meta" class="meta">加载中…</div>
+    <div class="header-right">
+      <span id="job-indicator" class="job-indicator hidden"><span class="pulse"></span><span id="job-count">0</span></span>
+      <div id="meta" class="meta">加载中…</div>
+    </div>
   </header>
 
   <div id="error-banner" class="error-banner hidden"></div>
@@ -23,11 +26,13 @@
     <button class="tab" data-tab="explorer">个股查看</button>
     <button class="tab" data-tab="backtests">回测</button>
     <button class="tab" data-tab="live">实盘</button>
+    <button class="tab" data-tab="jobs">任务</button>
   </nav>
 
   <main>
     <!-- 数据资产 -->
     <section id="tab-overview" class="panel active">
+      <div id="refresh-form-slot"></div>
       <div id="overview-cards" class="cards"></div>
       <p id="overview-empty" class="empty hidden">
         数据库为空 — 先在终端运行 <code>quant data refresh</code> 灌入市场数据。
@@ -36,6 +41,7 @@
 
     <!-- 因子判决 -->
     <section id="tab-verdicts" class="panel">
+      <div id="factor-form-slot"></div>
       <div class="toolbar">
         <label>判决轮次
           <select id="run-select"></select>
@@ -74,8 +80,10 @@
       <div class="toolbar feature-picker" id="feature-picker"></div>
       <div id="feature-chart" class="chart"></div>
     </section>
+
     <!-- 回测 -->
     <section id="tab-backtests" class="panel">
+      <div id="bt-form-slot"></div>
       <div class="toolbar">
         <label>回测轮次
           <select id="bt-run-select"></select>
@@ -100,6 +108,7 @@
     <!-- 实盘 / 纸面前向 -->
     <section id="tab-live" class="panel">
       <div id="live-cards" class="cards" style="margin-bottom:14px"></div>
+      <div id="live-ops-cards" class="cards" style="margin-bottom:14px"></div>
       <div id="live-equity-chart" class="chart" style="margin-bottom:14px"></div>
       <h3 class="section-title">当前持仓 <span id="live-pos-time" class="run-params"></span></h3>
       <table id="live-positions" class="verdict-table">
@@ -125,6 +134,21 @@
       <p id="live-empty" class="empty hidden">
         暂无交易留痕 — 运行 <code>quant auto-trade --once --enable</code>（dry-run）后生成 data/trading.db。
       </p>
+      <div id="live-ext-slot"></div>
+    </section>
+
+    <!-- 任务 -->
+    <section id="tab-jobs" class="panel">
+      <div id="ml-forms-slot"></div>
+      <h3 class="section-title">任务列表</h3>
+      <table id="jobs-table" class="verdict-table">
+        <thead><tr><th>ID</th><th>类型</th><th>参数</th><th>状态</th>
+                   <th>创建</th><th>耗时</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="jobs-empty" class="empty hidden">暂无任务 — 在各页签提交回测/因子检验/数据刷新。</p>
+      <h3 class="section-title">任务日志 <span id="job-log-title" class="run-params"></span></h3>
+      <pre id="job-log" class="job-log">选择任务查看日志</pre>
     </section>
   </main>
 
@@ -133,6 +157,6 @@
   </footer>
 
   <script src="vendor/echarts.min.js"></script>
-  <script src="app.js"></script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
