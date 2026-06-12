@@ -12,6 +12,7 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
+import yaml
 from fastapi import APIRouter, Depends
 
 router = APIRouter()
@@ -111,3 +112,105 @@ def equity(limit: int = 500,
         return {"series": rows}
     finally:
         conn.close()
+
+
+# ---- 交互驾驶舱扩展: 审计/预算/配置只读视角（设计 0612 §3.4）----
+
+# 镜像 src/infrastructure/persistence/trading_store.py::_BUDGET_STATUSES —
+# 预算口径跨 mode 统计(dry/live 同一真实账户), REJECTED/FAILED 不计
+_BUDGET_STATUSES = ("DRY_RUN", "SUBMITTED", "FILLED", "PARTIAL", "CANCELED",
+                    "TIMEOUT_CANCELED", "TIMEOUT_UNCANCELED", "ALIVE")
+
+
+def get_trading_config_path() -> str:
+    return os.environ.get("GHQ_TRADING_CONFIG", "resources/trading.yaml")
+
+
+def get_trade_logs_dir() -> str:
+    return os.environ.get("GHQ_TRADE_LOGS_DIR", "data/trade_logs")
+
+
+def _load_auto_trade_section(path: str) -> dict:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return {}
+    section = data.get("auto_trade") or {}
+    keys = ("enabled", "mode", "strategy", "symbols", "execution_times",
+            "min_confidence", "max_orders_per_cycle", "per_order_notional_cap",
+            "daily_notional_cap", "daily_loss_limit_ratio")
+    return {k: section[k] for k in keys if k in section}
+
+
+@router.get("/audit")
+def audit(limit: int = 100, action: str = "",
+          db_path: str = Depends(get_trading_db_path)) -> dict:
+    conn = _connect_ro(db_path)
+    if conn is None:
+        return {"logs": []}
+    try:
+        sql = "SELECT * FROM audit_logs"
+        params: tuple = ()
+        if action:
+            sql += " WHERE action=?"
+            params = (action,)
+        sql += " ORDER BY timestamp DESC LIMIT ?"
+        try:
+            return {"logs": _rows(conn, sql, (*params, min(limit, 500)))}
+        except sqlite3.OperationalError:  # 旧库无 audit_logs 表
+            return {"logs": []}
+    finally:
+        conn.close()
+
+
+@router.get("/budget")
+def budget(db_path: str = Depends(get_trading_db_path),
+           cfg_path: str = Depends(get_trading_config_path)) -> dict:
+    cfg = _load_auto_trade_section(cfg_path)
+    today = date.today().isoformat()
+    submitted = 0.0
+    conn = _connect_ro(db_path)
+    if conn is not None:
+        try:
+            placeholders = ", ".join("?" for _ in _BUDGET_STATUSES)
+            try:
+                cur = conn.execute(
+                    f"SELECT COALESCE(SUM(notional), 0) FROM execution_records "
+                    f"WHERE date(submitted_at)=? AND status IN ({placeholders})",
+                    (today, *_BUDGET_STATUSES))
+                submitted = float(cur.fetchone()[0])
+            except sqlite3.OperationalError:
+                pass
+        finally:
+            conn.close()
+    daily_cap = cfg.get("daily_notional_cap")
+    remaining = (float(daily_cap) - submitted
+                 if isinstance(daily_cap, (int, float)) else None)
+    return {"date": today, "submitted_notional": submitted,
+            "daily_notional_cap": daily_cap,
+            "per_order_notional_cap": cfg.get("per_order_notional_cap"),
+            "remaining": remaining}
+
+
+@router.get("/config")
+def config(db_path: str = Depends(get_trading_db_path),
+           cfg_path: str = Depends(get_trading_config_path)) -> dict:
+    cfg = _load_auto_trade_section(cfg_path)
+    cycles_today = 0
+    conn = _connect_ro(db_path)
+    if conn is not None:
+        try:
+            try:
+                cycles_today = conn.execute(
+                    "SELECT COUNT(*) FROM trading_cycles WHERE date(cycle_time)=?",
+                    (date.today().isoformat(),)).fetchone()[0]
+            except sqlite3.OperationalError:
+                pass
+        finally:
+            conn.close()
+    return {"config_exists": bool(cfg), "auto_trade": cfg,
+            "today": {"expected_slots": cfg.get("execution_times") or [],
+                      "cycles_today": cycles_today}}
