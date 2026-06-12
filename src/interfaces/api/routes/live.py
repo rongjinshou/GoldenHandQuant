@@ -2,7 +2,10 @@
 
 驾驶舱实盘页消费; 不触 QMT、不做写操作。库文件不存在时显式空态。
 处理器为同步 def: FastAPI 自动丢线程池执行, sqlite I/O 不阻塞事件循环。
+除 trading.db 外现还只读 trading.yaml（auto_trade 段摘要，经 _load_auto_trade_section
+提取白名单键）与 data/trade_logs/*.json（ticket 留痕文件）。
 设计: docs/feat/0611-closed-loop/2026-06-11-closed-loop-design.md DD-6
+     docs/feat/0612-interactive-dashboard/2026-06-12-interactive-dashboard-design.md §3.4
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from datetime import date
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 router = APIRouter()
 
@@ -58,28 +61,29 @@ def overview(db_path: str = Depends(get_trading_db_path)) -> dict:
 
 
 @router.get("/cycles")
-def cycles(limit: int = 50, db_path: str = Depends(get_trading_db_path)) -> dict:
+def cycles(limit: int = Query(default=50, ge=1, le=500),
+           db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
         return {"cycles": []}
     try:
         return {"cycles": _rows(
             conn, "SELECT * FROM trading_cycles ORDER BY cycle_time DESC LIMIT ?",
-            (min(limit, 500),))}
+            (limit,))}
     finally:
         conn.close()
 
 
 @router.get("/executions")
-def executions(limit: int = 200,
-                     db_path: str = Depends(get_trading_db_path)) -> dict:
+def executions(limit: int = Query(default=200, ge=1, le=1000),
+               db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
         return {"executions": []}
     try:
         return {"executions": _rows(
             conn, "SELECT * FROM execution_records "
-                  "ORDER BY submitted_at DESC LIMIT ?", (min(limit, 1000),))}
+                  "ORDER BY submitted_at DESC LIMIT ?", (limit,))}
     finally:
         conn.close()
 
@@ -107,7 +111,7 @@ def positions(mode: str = "", db_path: str = Depends(get_trading_db_path)) -> di
 
 
 @router.get("/equity")
-def equity(limit: int = 500, mode: str = "",
+def equity(limit: int = Query(default=500, ge=1, le=2000), mode: str = "",
            db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
@@ -118,12 +122,12 @@ def equity(limit: int = 500, mode: str = "",
                                     SELECT * FROM account_snapshots WHERE mode=?
                                     ORDER BY snapshot_time DESC LIMIT ?
                                   ) ORDER BY snapshot_time ASC""",
-                         (mode, min(limit, 2000)))
+                         (mode, limit))
         else:
             rows = _rows(conn, """SELECT * FROM (
                                     SELECT * FROM account_snapshots
                                     ORDER BY snapshot_time DESC LIMIT ?
-                                  ) ORDER BY snapshot_time ASC""", (min(limit, 2000),))
+                                  ) ORDER BY snapshot_time ASC""", (limit,))
         return {"series": rows}
     finally:
         conn.close()
@@ -150,10 +154,14 @@ def _load_auto_trade_section(path: str) -> dict:
     if not p.exists():
         return {}
     try:
-        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
     except yaml.YAMLError:
         return {}
+    if not isinstance(data, dict):
+        return {}
     section = data.get("auto_trade") or {}
+    if not isinstance(section, dict):
+        return {}
     keys = ("enabled", "mode", "strategy", "symbols", "execution_times",
             "min_confidence", "max_orders_per_cycle", "per_order_notional_cap",
             "daily_notional_cap", "daily_loss_limit_ratio")
@@ -161,7 +169,7 @@ def _load_auto_trade_section(path: str) -> dict:
 
 
 @router.get("/audit")
-def audit(limit: int = 100, action: str = "",
+def audit(limit: int = Query(default=100, ge=1, le=500), action: str = "",
           db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
@@ -174,7 +182,7 @@ def audit(limit: int = 100, action: str = "",
             params = (action,)
         sql += " ORDER BY timestamp DESC LIMIT ?"
         try:
-            return {"logs": _rows(conn, sql, (*params, min(limit, 500)))}
+            return {"logs": _rows(conn, sql, (*params, limit))}
         except sqlite3.OperationalError:  # 旧库无 audit_logs 表
             return {"logs": []}
     finally:
@@ -246,13 +254,13 @@ def cycle_executions(cycle_id: str,
 
 
 @router.get("/tickets")
-def tickets(limit: int = 50,
+def tickets(limit: int = Query(default=50, ge=1, le=200),
             logs_dir: str = Depends(get_trade_logs_dir)) -> dict:
     root = Path(logs_dir)
     if not root.is_dir():
         return {"tickets": []}
     out = []
-    for fp in sorted(root.glob("*.json"), reverse=True)[: min(limit, 200)]:
+    for fp in sorted(root.glob("*.json"), reverse=True)[:limit]:
         try:
             content = json.loads(fp.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):

@@ -178,3 +178,75 @@ class TestTickets:
     def test_missing_dir_empty(self, client) -> None:
         app.dependency_overrides[get_trade_logs_dir] = lambda: "/nope/dir"
         assert client.get("/api/live/tickets").json() == {"tickets": []}
+
+
+class TestLimitBoundaryValidation:
+    def test_audit_negative_limit_422(self, client) -> None:
+        assert client.get("/api/live/audit?limit=-1").status_code == 422
+
+    def test_equity_zero_limit_422(self, client) -> None:
+        assert client.get("/api/live/equity?limit=0").status_code == 422
+
+
+def test_budget_statuses_mirror_trading_store() -> None:
+    from src.infrastructure.persistence.trading_store import _BUDGET_STATUSES as REAL
+    from src.interfaces.api.routes.live import _BUDGET_STATUSES as MIRRORED
+
+    assert MIRRORED == REAL
+
+
+class TestYamlTypeGuard:
+    def test_yaml_string_content_returns_config_exists_false(
+        self, db_path: str, tmp_path: Path
+    ) -> None:
+        bad_yaml = tmp_path / "bad_trading.yaml"
+        bad_yaml.write_text("just a string", encoding="utf-8")
+        app.dependency_overrides[get_trading_db_path] = lambda: db_path
+        app.dependency_overrides[get_trading_config_path] = lambda: str(bad_yaml)
+        try:
+            resp = TestClient(app).get("/api/live/config")
+            assert resp.status_code == 200
+            assert resp.json()["config_exists"] is False
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestAuditMissingTable:
+    def test_missing_audit_logs_table_returns_empty(self, tmp_path: Path) -> None:
+        # DB with other tables but no audit_logs
+        db = tmp_path / "no_audit.db"
+        conn = sqlite3.connect(db)
+        conn.executescript(
+            "CREATE TABLE trading_cycles (cycle_id TEXT PRIMARY KEY, cycle_time TEXT);"
+        )
+        conn.commit()
+        conn.close()
+        app.dependency_overrides[get_trading_db_path] = lambda: str(db)
+        try:
+            resp = TestClient(app).get("/api/live/audit")
+            assert resp.status_code == 200
+            assert resp.json() == {"logs": []}
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestBadJsonTicket:
+    def test_bad_json_ticket_content_is_none_no_500(self, db_path: str,
+                                                     tmp_path: Path) -> None:
+        logs_dir = tmp_path / "trade_logs"
+        logs_dir.mkdir()
+        # bad.json sorts BEFORE 2026... files in reverse lexicographic order
+        (logs_dir / "bad.json").write_text("{not json", encoding="utf-8")
+        (logs_dir / "20260611-130232-601006.SH.json").write_text(
+            '{"symbol": "601006.SH"}', encoding="utf-8"
+        )
+        app.dependency_overrides[get_trading_db_path] = lambda: db_path
+        app.dependency_overrides[get_trade_logs_dir] = lambda: str(logs_dir)
+        try:
+            resp = TestClient(app).get("/api/live/tickets")
+            assert resp.status_code == 200
+            tickets = resp.json()["tickets"]
+            bad_entry = next(t for t in tickets if t["file"] == "bad.json")
+            assert bad_entry["content"] is None
+        finally:
+            app.dependency_overrides.clear()
