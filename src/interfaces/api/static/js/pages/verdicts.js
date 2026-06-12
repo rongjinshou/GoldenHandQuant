@@ -1,7 +1,8 @@
 /* 因子判决页 */
 "use strict";
 
-import { $, API, fetchJSON, f4, f3, f2, pct } from "../api.js";
+import { $, API, fetchJSON, f4, f3, f2, pct, showError, clearError } from "../api.js";
+import { submitJob, attachJobCard } from "../jobs.js";
 
 const GATES = {
   ic_mean: (v) => v >= 0.02,
@@ -91,5 +92,64 @@ function renderRun(run) {
        </tr>
        <tr class="reasons-row"><td colspan="13">${(f.reasons || []).join(" ｜ ")}</td></tr>`
     );
+  }
+}
+
+export async function initFactorForm() {
+  const data = await fetchJSON("/api/meta/factors");
+  const byId = Object.fromEntries(data.factors.map((f) => [f.factor_id, f]));
+  const html = [];
+  for (const [group, ids] of Object.entries(data.groups)) {
+    html.push(`<span class="group-title">${group}</span>`);
+    for (const id of ids) {
+      const f = byId[id];
+      const dis = f.field_ready === false;
+      html.push(`<label class="${dis ? "disabled" : ""}"
+        title="${f.expression}${dis ? "（数据管道缺字段，禁用）" : ""}">
+        <input type="checkbox" value="${id}" ${dis ? "disabled" : ""}
+               ${group === "P0" && !dis ? "checked" : ""}>${id} ${f.name}</label>`);
+    }
+  }
+  $("#ft-factors").innerHTML = html.join("");
+  $("#ft-factors").addEventListener("change", updateFtHint);
+  $("#ft-split").addEventListener("change", updateFtHint);
+  $("#ft-submit").addEventListener("click", submitFactorTest);
+  updateFtHint();
+}
+
+function ftSelected() {
+  return [...document.querySelectorAll("#ft-factors input:checked")].map((c) => c.value);
+}
+
+function updateFtHint() {
+  const many = ftSelected().length > 1;
+  const noSplit = !$("#ft-split").value;
+  const show = many && noSplit;
+  $("#ft-hint").classList.toggle("hidden", !show);
+  if (show) $("#ft-hint").textContent =
+    "多因子批量检验未设 IS/OOS 切分——存在多重检验风险，建议保留切分日期。";
+}
+
+async function submitFactorTest() {
+  clearError();
+  const ids = ftSelected();
+  if (!ids.length) { showError("至少勾选一个因子"); return; }
+  const payload = {
+    factors: ids.join(","),
+    start_date: $("#ft-start").value,
+    end_date: $("#ft-end").value,
+    objective: $("#ft-objective").value,
+    num_layers: Number($("#ft-layers").value),
+    rebalance_days: Number($("#ft-rebalance").value),
+    cost_rate: Number($("#ft-cost").value),
+  };
+  if ($("#ft-split").value) payload.split_date = $("#ft-split").value;
+  try {
+    const job = await submitJob("factor-test", payload);
+    attachJobCard($("#ft-job-area"), job.job_id, {
+      onDone: () => loadVerdicts().catch((e) => showError(e.message)),
+    });
+  } catch (err) {
+    showError(err.message);
   }
 }

@@ -1,7 +1,8 @@
 /* 数据资产总览页 */
 "use strict";
 
-import { $, API, fetchJSON } from "../api.js";
+import { $, API, fetchJSON, showError, clearError } from "../api.js";
+import { submitJob, attachJobCard } from "../jobs.js";
 
 const TABLE_LABELS = {
   instruments: "股票池",
@@ -34,4 +35,19 @@ export async function loadOverview() {
     );
   }
   $("#overview-empty").classList.toggle("hidden", totalRows > 0);
+}
+
+export function initRefreshForm() {
+  $("#dr-submit").addEventListener("click", async () => {
+    clearError();
+    try {
+      const job = await submitJob("data-refresh", {
+        start_date: $("#dr-start").value, end_date: $("#dr-end").value });
+      attachJobCard($("#dr-job-area"), job.job_id, {
+        onDone: () => loadOverview().catch((e) => showError(e.message)),
+      });
+    } catch (err) {
+      showError(err.message);
+    }
+  });
 }

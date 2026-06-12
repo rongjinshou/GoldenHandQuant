@@ -3,8 +3,8 @@
 
 import { $, fetchJSON, showError } from "./api.js";
 import { resizeCharts } from "./charts.js";
-import { loadOverview } from "./pages/overview.js";
-import { loadVerdicts } from "./pages/verdicts.js";
+import { loadOverview, initRefreshForm } from "./pages/overview.js";
+import { loadVerdicts, initFactorForm } from "./pages/verdicts.js";
 import { initExplorer } from "./pages/explorer.js";
 import { loadBacktests, initBacktestForm } from "./pages/backtests.js";
 import { setLivePolling } from "./pages/live.js";
@@ -40,6 +40,8 @@ setInterval(pollIndicator, 5000);
 (async function init() {
   initExplorer();
   initBacktestForm().catch(() => {});
+  initFactorForm().catch(() => {});
+  initRefreshForm();
   const tab = location.hash.replace("#", "");
   if (tab && TABS.includes(tab)) {
     document.querySelector(`.tab[data-tab="${tab}"]`).click();

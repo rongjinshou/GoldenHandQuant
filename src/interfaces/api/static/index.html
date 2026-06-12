@@ -32,7 +32,18 @@
   <main>
     <!-- 数据资产 -->
     <section id="tab-overview" class="panel active">
-      <div id="refresh-form-slot"></div>
+      <details class="form-card" id="dr-form">
+        <summary>刷新市场数据（需 QMT 客户端在线）</summary>
+        <div class="form-body">
+          <div class="form-row">
+            <label>起 <input type="date" id="dr-start" value="2021-01-01"></label>
+            <label>止 <input type="date" id="dr-end" value="2025-12-31"></label>
+            <button class="btn-primary" id="dr-submit">开始刷新</button>
+            <span class="form-hint">只补缺口；刷新期间持 DuckDB 写锁，查询暂不可用。</span>
+          </div>
+        </div>
+      </details>
+      <div id="dr-job-area"></div>
       <div id="overview-cards" class="cards"></div>
       <p id="overview-empty" class="empty hidden">
         数据库为空 — 先在终端运行 <code>quant data refresh</code> 灌入市场数据。
@@ -41,7 +52,30 @@
 
     <!-- 因子判决 -->
     <section id="tab-verdicts" class="panel">
-      <div id="factor-form-slot"></div>
+      <details class="form-card" id="ft-form">
+        <summary>新建因子检验</summary>
+        <div class="form-body">
+          <div class="form-row"><span class="group-title">因子</span>
+            <span class="check-group" id="ft-factors"></span></div>
+          <div class="form-row">
+            <label>起 <input type="date" id="ft-start" value="2021-01-01"></label>
+            <label>止 <input type="date" id="ft-end" value="2025-12-31"></label>
+            <label>IS/OOS 切分 <input type="date" id="ft-split" value="2024-06-30"></label>
+            <label>记分牌 <select id="ft-objective">
+              <option value="long_short">多空价差</option>
+              <option value="long_only">Top层纯多头超额</option>
+            </select></label>
+          </div>
+          <div class="form-row">
+            <label>分层 <input type="number" id="ft-layers" value="5" min="2" max="10" size="4"></label>
+            <label>调仓间隔(日) <input type="number" id="ft-rebalance" value="1" min="1" max="60" size="4"></label>
+            <label>成本率 <input type="number" id="ft-cost" value="0.003" step="0.001" min="0" size="6"></label>
+            <button class="btn-primary" id="ft-submit">提交检验</button>
+          </div>
+          <div class="form-hint hidden" id="ft-hint"></div>
+        </div>
+      </details>
+      <div id="ft-job-area"></div>
       <div class="toolbar">
         <label>判决轮次
           <select id="run-select"></select>
