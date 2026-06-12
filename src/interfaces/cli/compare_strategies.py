@@ -30,6 +30,13 @@ from src.infrastructure.visualization.comparison_plotter import ComparisonPlotte
 from src.infrastructure.visualization.comparison_printer import ComparisonRichPrinter
 
 
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(f"必须为正数: {value}")
+    return parsed
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Strategy Comparison Tool")
     parser.add_argument("--strategies", type=str, required=True,
@@ -46,15 +53,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="YAML config file path")
     parser.add_argument("--params", type=str, default=None,
                         help="Strategy params override (key=value format)")
-    parser.add_argument("--initial-capital", type=float, default=None,
-                        help="初始资金覆盖（默认用配置文件值）")
+    parser.add_argument("--initial-capital", type=_positive_float, default=None,
+                        help="初始资金覆盖（正数; 默认用配置文件值）")
     return parser.parse_args(argv)
 
 
 def main() -> None:
     args = parse_args()
 
-    # 加载配置
+    # 加载配置（显式传入的 --config 路径不存在时响亮报错, 不许静默回落默认值）
+    if args.config and not os.path.exists(args.config):
+        sys.exit(f"配置文件不存在: {args.config}")
     try:
         settings = (load_backtest_config(args.config) if args.config
                     else load_backtest_config())
@@ -72,7 +81,7 @@ def main() -> None:
         history_fetcher_type = "TushareHistoryDataFetcher"
         tushare_token = None
 
-    if args.initial_capital:
+    if args.initial_capital is not None:
         initial_capital = args.initial_capital
 
     strategy_names = [s.strip() for s in args.strategies.split(",")]
