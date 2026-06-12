@@ -8,6 +8,7 @@ import { loadVerdicts, initFactorForm } from "./pages/verdicts.js";
 import { initExplorer } from "./pages/explorer.js";
 import { loadBacktests, initBacktestForm } from "./pages/backtests.js";
 import { setLivePolling, initLive } from "./pages/live.js";
+import { loadJobsPage, initMlForms } from "./jobs.js";
 
 const TABS = ["overview", "verdicts", "explorer", "backtests", "live", "jobs"];
 
@@ -20,6 +21,7 @@ document.querySelectorAll(".tab").forEach((btn) => {
     location.hash = btn.dataset.tab;
     if (btn.dataset.tab === "explorer") resizeCharts();
     if (btn.dataset.tab === "backtests") loadBacktests().catch((e) => showError(e.message));
+    if (btn.dataset.tab === "jobs") loadJobsPage().catch((e) => showError(e.message));
     setLivePolling(btn.dataset.tab === "live");
   });
 });
@@ -43,6 +45,7 @@ setInterval(pollIndicator, 5000);
   initFactorForm().catch(() => {});
   initRefreshForm();
   initLive();
+  initMlForms();
   const tab = location.hash.replace("#", "");
   if (tab && TABS.includes(tab)) {
     document.querySelector(`.tab[data-tab="${tab}"]`).click();

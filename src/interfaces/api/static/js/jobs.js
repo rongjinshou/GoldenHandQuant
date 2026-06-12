@@ -1,7 +1,7 @@
 /* 任务提交与状态卡片 — 各页表单复用 */
 "use strict";
 
-import { $, fetchJSON, postJSON } from "./api.js";
+import { $, fetchJSON, postJSON, showError } from "./api.js";
 
 export async function submitJob(type, payload) {
   return postJSON(`/api/jobs/${type}`, payload);
@@ -77,4 +77,65 @@ export function attachJobCard(container, jobId, { onDone } = {}) {
   tick();
   timer = setInterval(tick, 2000);
   return card;
+}
+
+export async function loadJobsPage() {
+  const data = await fetchJSON("/api/jobs?limit=100");
+  $("#jobs-empty").classList.toggle("hidden", data.jobs.length > 0);
+  $("#jobs-table tbody").innerHTML = data.jobs.map((j) => `
+    <tr class="clickable" data-job="${j.job_id}">
+      <td><code>${j.job_id}</code></td><td>${j.job_type}</td>
+      <td style="text-align:left">${paramsSummary(j)}</td>
+      <td><span class="badge ${j.status}">${STATUS_LABEL[j.status] || j.status}</span></td>
+      <td>${(j.created_at || "").slice(5, 19)}</td>
+      <td>${durationOf(j)}</td>
+      <td>${["queued", "running"].includes(j.status)
+            ? `<button class="btn-danger" data-cancel="${j.job_id}">取消</button>` : ""}</td>
+    </tr>`).join("");
+  $("#jobs-table tbody").querySelectorAll("[data-cancel]").forEach((btn) =>
+    btn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      try { await postJSON(`/api/jobs/${btn.dataset.cancel}/cancel`); } catch { /* 已结束 */ }
+      loadJobsPage();
+    }));
+  $("#jobs-table tbody").querySelectorAll("tr.clickable").forEach((tr) =>
+    tr.addEventListener("click", () => showJobLog(tr.dataset.job)));
+}
+
+let logTimer = null;
+
+async function showJobLog(jobId) {
+  clearInterval(logTimer);
+  async function tick() {
+    const job = await fetchJSON(`/api/jobs/${jobId}?tail=300`);
+    $("#job-log-title").textContent = `${jobId} · ${STATUS_LABEL[job.status] || job.status}`;
+    $("#job-log").textContent = (job.log_tail || []).join("\n") || "（无输出）";
+    $("#job-log").scrollTop = $("#job-log").scrollHeight;
+    if (["succeeded", "failed", "canceled"].includes(job.status)) clearInterval(logTimer);
+  }
+  await tick();
+  logTimer = setInterval(tick, 2000);
+}
+
+export function initMlForms() {
+  $("#ml-train-submit").addEventListener("click", async () => {
+    try {
+      const job = await submitJob("ml-train", {
+        start_date: $("#ml-start").value, end_date: $("#ml-end").value,
+        symbols: $("#ml-symbols").value.trim(),
+        model_name: $("#ml-model").value.trim(),
+        n_trials: Number($("#ml-trials").value),
+      });
+      attachJobCard($("#ml-job-area"), job.job_id, { onDone: loadJobsPage });
+    } catch (err) { showError(err.message); }
+  });
+  $("#ml-eval-submit").addEventListener("click", async () => {
+    try {
+      const job = await submitJob("ml-evaluate", {
+        model_name: $("#ml-model").value.trim(),
+        eval_start: $("#mle-start").value, eval_end: $("#mle-end").value,
+      });
+      attachJobCard($("#ml-job-area"), job.job_id, { onDone: loadJobsPage });
+    } catch (err) { showError(err.message); }
+  });
 }

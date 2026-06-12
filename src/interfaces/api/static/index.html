@@ -218,7 +218,25 @@
 
     <!-- 任务 -->
     <section id="tab-jobs" class="panel">
-      <div id="ml-forms-slot"></div>
+      <details class="form-card">
+        <summary>ML 模型训练 / 评估（高级）</summary>
+        <div class="form-body">
+          <div class="form-row">
+            <label>训练起 <input type="date" id="ml-start" value="2021-01-01"></label>
+            <label>训练止 <input type="date" id="ml-end" value="2024-12-31"></label>
+            <label>标的 <input id="ml-symbols" value="000300.SH" size="12"></label>
+            <label>模型名 <input id="ml-model" value="lgbm_return_5d" size="14"></label>
+            <label>n-trials <input type="number" id="ml-trials" value="50" min="1" max="200" size="5"></label>
+            <button class="btn-primary" id="ml-train-submit">训练</button>
+          </div>
+          <div class="form-row">
+            <label>评估起 <input type="date" id="mle-start" value="2025-01-01"></label>
+            <label>评估止 <input type="date" id="mle-end" value="2025-12-31"></label>
+            <button class="btn-primary" id="ml-eval-submit">评估</button>
+          </div>
+        </div>
+      </details>
+      <div id="ml-job-area"></div>
       <h3 class="section-title">任务列表</h3>
       <table id="jobs-table" class="verdict-table">
         <thead><tr><th>ID</th><th>类型</th><th>参数</th><th>状态</th>
