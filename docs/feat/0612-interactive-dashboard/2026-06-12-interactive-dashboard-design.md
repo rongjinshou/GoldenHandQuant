@@ -154,4 +154,4 @@ JobManager 经 `Depends(get_job_manager)` 注入（模块级单例 + 测试 depe
 - 前端：app.js 拆 9 个 ES modules（搬运保真审查 100%）、五页签交互表单 + 通用任务卡 + 任务中心页（评审修复：钻取抗轮询/错误兜底统一/任务卡 404 终止/pre 转义）。
 - 配置：`backtest.yaml` history_fetcher 切 `DuckDBHistoryDataFetcher`（本地快路径, 缺数回退 QMT）。
 - 验证：E2E 经 Web API 真跑 dual_ma 回测成功入库（run_id=20260612-093431）并由 /api/research/backtests 读回；全量 pytest 绿、ruff 干净。
-- 遗留债（低优先）：任务页 logTimer 切页签不清（终态自清）；live 子进程树 POSIX 强杀未做进程组（生产为 Windows TerminateProcess，已缓解）；uvicorn 单 worker 假设已注释。
+- 遗留债（低优先）：任务页 logTimer 切页签不清（终态自清）；live 子进程树 POSIX 强杀未做进程组（生产为 Windows TerminateProcess，已缓解）；uvicorn 单 worker 假设已注释；回测表单标的输入为逗号文本框（设计写的 chips+联想，可复用 explorer 的 /symbols datalist 补齐）；ml 策略 model_dir 参数本不该出现在表单（含 `/` 修改会被 422 护栏拦下）；503 柔化文案首屏 5s 内有竞态窗口。
