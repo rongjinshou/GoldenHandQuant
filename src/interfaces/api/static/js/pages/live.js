@@ -24,13 +24,57 @@ export function setLivePolling(on) {
   }
 }
 
+export function initLive() {
+  const modeEl = $("#live-mode");
+  const auditEl = $("#audit-action");
+  if (modeEl) modeEl.addEventListener("change", () => loadLive().catch((e) => showError(e.message)));
+  if (auditEl) auditEl.addEventListener("change", () => loadLive().catch((e) => showError(e.message)));
+}
+
+function daemonBadge(cfg) {
+  const slots = cfg.today.expected_slots || [];
+  const now = new Date().toTimeString().slice(0, 5);
+  const due = slots.filter((s) => s <= now).length;
+  const n = cfg.today.cycles_today;
+  if (!slots.length) return `<span class="badge info">未配置槽位</span>`;
+  if (due === 0) return `<span class="badge info">今日未到执行时刻</span>`;
+  if (n >= due) return `<span class="badge pass">槽位已覆盖 ${n}/${due}</span>`;
+  return `<span class="badge warn">槽位缺口 ${n}/${due} — 守护可能未运行</span>`;
+}
+
+function renderOpsCards(budget, cfg) {
+  const at = cfg.auto_trade || {};
+  $("#live-ops-cards").innerHTML = `
+    <div class="card"><h3>今日预算（跨模式）</h3>
+      <div class="big">${num(budget.submitted_notional)}</div>
+      <div class="dim">上限 ${num(budget.daily_notional_cap)} · 余 ${num(budget.remaining)}
+        · 单笔顶 ${num(budget.per_order_notional_cap)}</div></div>
+    <div class="card"><h3>守护状态</h3>
+      <div class="big" style="font-size:18px">${daemonBadge(cfg)}</div>
+      <div class="dim">执行槽位 ${(cfg.today.expected_slots || []).join(" / ") || "-"}</div></div>
+    <div class="card"><h3>auto-trade 配置（只读）</h3>
+      <div class="big" style="font-size:16px">
+        <span class="badge ${at.mode === "live" ? "fail" : "info"}">${at.mode || "?"}</span>
+        <span class="badge ${at.enabled ? "warn" : "info"}">${at.enabled ? "enabled" : "disabled"}</span>
+      </div>
+      <div class="dim">${at.strategy || ""} · ${(at.symbols || []).length} 标的
+        · 置信≥${at.min_confidence ?? "?"}</div></div>`;
+}
+
 async function loadLive() {
-  const [ov, cyc, exe, pos, eq] = await Promise.all([
+  const mode = $("#live-mode")?.value || "";
+  const modeQ = mode ? `?mode=${mode}` : "";
+  const auditAction = $("#audit-action")?.value || "";
+  const [ov, cyc, exe, pos, eq, budget, cfg, audit, tickets] = await Promise.all([
     fetchJSON("/api/live/overview"),
     fetchJSON("/api/live/cycles"),
     fetchJSON("/api/live/executions"),
-    fetchJSON("/api/live/positions"),
-    fetchJSON("/api/live/equity"),
+    fetchJSON(`/api/live/positions${modeQ}`),
+    fetchJSON(`/api/live/equity${modeQ}`),
+    fetchJSON("/api/live/budget"),
+    fetchJSON("/api/live/config"),
+    fetchJSON(`/api/live/audit?limit=50${auditAction ? `&action=${auditAction}` : ""}`),
+    fetchJSON("/api/live/tickets"),
   ]);
 
   $("#live-empty").classList.toggle("hidden", ov.db_exists);
@@ -45,6 +89,8 @@ async function loadLive() {
       <div class="dim">执行时刻命中次数</div></div>
     <div class="card"><h3>今日执行</h3><div class="big">${ov.executions_today}</div>
       <div class="dim">含拒单/失败留痕</div></div>`;
+
+  renderOpsCards(budget, cfg);
 
   if (!liveEquityChart) liveEquityChart = makeChart($("#live-equity-chart"));
   // dry_run 与 live 是两条独立曲线, 混排成一条会出现锯齿假象
@@ -77,13 +123,28 @@ async function loadLive() {
   ).join("") || `<tr><td colspan="4" class="gate-na">无持仓快照</td></tr>`;
 
   $("#live-cycles tbody").innerHTML = cyc.cycles.map((c) => `
-    <tr><td>${c.cycle_time.slice(0, 19)}</td>
-        <td><span class="badge ${c.mode === "live" ? "fail" : "info"}">${c.mode}</span></td>
-        <td>${c.strategy}</td><td>${c.signals_generated}</td><td>${c.orders_submitted}</td>
-        <td>${c.orders_rejected}</td><td>${c.orders_failed}</td>
-        <td>${num(c.notional_submitted)}</td>
-        <td style="text-align:left">${c.note || ""}</td></tr>`
+    <tr class="clickable" data-cycle="${c.cycle_id}">
+      <td>${c.cycle_time.slice(0, 19)}</td>
+      <td><span class="badge ${c.mode === "live" ? "fail" : "info"}">${c.mode}</span></td>
+      <td>${c.strategy}</td><td>${c.signals_generated}</td><td>${c.orders_submitted}</td>
+      <td>${c.orders_rejected}</td><td>${c.orders_failed}</td>
+      <td>${num(c.notional_submitted)}</td>
+      <td style="text-align:left">${c.note || ""}</td></tr>`
   ).join("") || `<tr><td colspan="9" class="gate-na">暂无循环</td></tr>`;
+
+  $("#live-cycles tbody").querySelectorAll("tr.clickable").forEach((tr) => {
+    tr.addEventListener("click", async () => {
+      const next = tr.nextElementSibling;
+      if (next && next.classList.contains("row-detail")) { next.remove(); return; }
+      const d = await fetchJSON(`/api/live/cycles/${tr.dataset.cycle}/executions`);
+      const rows = d.executions.map((e) =>
+        `<tr><td>${e.symbol}</td><td>${e.direction}</td><td>${e.status}</td>
+             <td>${num(e.notional)}</td><td>${e.reject_reason || ""}</td></tr>`).join("")
+        || `<tr><td colspan="5">该循环无执行记录</td></tr>`;
+      tr.insertAdjacentHTML("afterend",
+        `<tr class="row-detail"><td colspan="9"><table>${rows}</table></td></tr>`);
+    });
+  });
 
   $("#live-executions tbody").innerHTML = exe.executions.map((e) => `
     <tr><td>${e.submitted_at.slice(0, 19)}</td><td>${e.symbol}</td>
@@ -94,6 +155,17 @@ async function loadLive() {
         <td><span class="badge ${STATUS_BADGE[e.status] || "info"}">${e.status}</span></td>
         <td style="text-align:left">${e.reject_reason || ""}</td></tr>`
   ).join("") || `<tr><td colspan="9" class="gate-na">暂无执行记录</td></tr>`;
+
+  $("#live-audit tbody").innerHTML = audit.logs.map((r) => `
+    <tr><td>${(r.timestamp || "").slice(0, 19)}</td><td>${r.action}</td>
+        <td>${r.resource_type || ""}:${r.resource_id || ""}</td>
+        <td style="text-align:left"><code>${String(r.details || "").slice(0, 120)}</code></td></tr>`
+  ).join("") || `<tr><td colspan="4" class="gate-na">暂无审计记录</td></tr>`;
+
+  $("#live-tickets").innerHTML = tickets.tickets.map((t) => `
+    <details class="ticket-item"><summary>${t.file}</summary>
+      <pre class="ticket-pre">${JSON.stringify(t.content, null, 2)}</pre></details>`
+  ).join("") || `<p class="empty">暂无 ticket</p>`;
 
   resizeCharts();
 }

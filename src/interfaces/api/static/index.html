@@ -169,7 +169,13 @@
       <div id="live-cards" class="cards" style="margin-bottom:14px"></div>
       <div id="live-ops-cards" class="cards" style="margin-bottom:14px"></div>
       <div id="live-equity-chart" class="chart" style="margin-bottom:14px"></div>
-      <h3 class="section-title">当前持仓 <span id="live-pos-time" class="run-params"></span></h3>
+      <h3 class="section-title">当前持仓 <span id="live-pos-time" class="run-params"></span>
+        <select id="live-mode" style="margin-left:8px">
+          <option value="">全部模式</option>
+          <option value="dry_run">纸面 dry_run</option>
+          <option value="live">实盘 live</option>
+        </select>
+      </h3>
       <table id="live-positions" class="verdict-table">
         <thead><tr><th>标的</th><th>总量</th><th>可用</th><th>成本价</th></tr></thead>
         <tbody></tbody>
@@ -193,7 +199,21 @@
       <p id="live-empty" class="empty hidden">
         暂无交易留痕 — 运行 <code>quant auto-trade --once --enable</code>（dry-run）后生成 data/trading.db。
       </p>
-      <div id="live-ext-slot"></div>
+      <h3 class="section-title">审计日志
+        <select id="audit-action" style="margin-left:8px">
+          <option value="">全部动作</option>
+          <option>cycle_start</option><option>cycle_end</option>
+          <option>place_order</option><option>reject_order</option>
+          <option>place_order_failed</option><option>execute_failed</option>
+          <option>cancel_order</option>
+        </select>
+      </h3>
+      <table id="live-audit" class="verdict-table">
+        <thead><tr><th>时间</th><th>动作</th><th>资源</th><th>明细</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <h3 class="section-title">单笔下单 Ticket（data/trade_logs）</h3>
+      <div id="live-tickets"></div>
     </section>
 
     <!-- 任务 -->
