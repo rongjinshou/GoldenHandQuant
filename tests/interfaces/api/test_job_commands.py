@@ -102,3 +102,171 @@ class TestOthers:
             model_name="lgbm_return_5d", eval_start="2025-01-01", eval_end="2025-06-01"))
         assert argv[3] == "ml-evaluate"
         assert argv[argv.index("--model-name") + 1] == "lgbm_return_5d"
+
+
+# ── 修复 1：model_name 正则（路径汇点防护）────────────────────────────────
+class TestModelNamePattern:
+    def test_ml_train_path_traversal_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlTrainJobRequest(
+                start_date="2024-01-01", end_date="2024-12-31", model_name="../../x"
+            )
+
+    def test_ml_train_slash_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlTrainJobRequest(
+                start_date="2024-01-01", end_date="2024-12-31", model_name="a/b"
+            )
+
+    def test_ml_evaluate_path_traversal_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlEvaluateJobRequest(
+                model_name="../../x", eval_start="2024-01-01", eval_end="2024-12-31"
+            )
+
+    def test_ml_evaluate_slash_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlEvaluateJobRequest(
+                model_name="a/b", eval_start="2024-01-01", eval_end="2024-12-31"
+            )
+
+    def test_ml_train_valid_model_name_accepted(self) -> None:
+        req = MlTrainJobRequest(
+            start_date="2024-01-01", end_date="2024-12-31",
+            model_name="lgbm_return-5d",
+        )
+        assert req.model_name == "lgbm_return-5d"
+
+    def test_ml_evaluate_valid_model_name_accepted(self) -> None:
+        req = MlEvaluateJobRequest(
+            model_name="lgbm_return_5d", eval_start="2024-01-01", eval_end="2024-12-31"
+        )
+        assert req.model_name == "lgbm_return_5d"
+
+
+# ── 修复 2：params 注入收口 ───────────────────────────────────────────────
+class TestParamsValidation:
+    def test_params_key_not_in_strategies_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="params 引用未选策略"):
+            BacktestJobRequest(
+                strategies=["dual_ma"],
+                start_date="2024-01-01", end_date="2024-12-31",
+                params={"micro_value": {"top_n": 5}},
+            )
+
+    def test_params_value_with_comma_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            BacktestJobRequest(
+                strategies=["dual_ma"],
+                start_date="2024-01-01", end_date="2024-12-31",
+                params={"dual_ma": {"model_dir": "5,ml_return_prediction.model_dir=/tmp"}},
+            )
+
+    def test_params_name_with_equals_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            BacktestJobRequest(
+                strategies=["dual_ma"],
+                start_date="2024-01-01", end_date="2024-12-31",
+                params={"dual_ma": {"bad=key": 5}},
+            )
+
+    def test_params_valid_accepted(self) -> None:
+        req = BacktestJobRequest(
+            strategies=["dual_ma"],
+            start_date="2024-01-01", end_date="2024-12-31",
+            params={"dual_ma": {"top_n": 5, "threshold": 0.1}},
+        )
+        assert req.params is not None
+
+
+# ── 修复 3：symbols 逐项正则 ──────────────────────────────────────────────
+class TestSymbolsValidation:
+    def test_backtest_bad_symbol_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            BacktestJobRequest(
+                strategies=["dual_ma"],
+                start_date="2024-01-01", end_date="2024-12-31",
+                symbols=["-bad"],
+            )
+
+    def test_backtest_valid_symbol_accepted(self) -> None:
+        req = BacktestJobRequest(
+            strategies=["dual_ma"],
+            start_date="2024-01-01", end_date="2024-12-31",
+            symbols=["600000.SH"],
+        )
+        assert req.symbols == ["600000.SH"]
+
+    def test_ml_train_valid_symbols_accepted(self) -> None:
+        req = MlTrainJobRequest(
+            start_date="2021-01-01", end_date="2024-12-31",
+            symbols="000300.SH,600000.SH",
+        )
+        assert req.symbols == "000300.SH,600000.SH"
+
+    def test_ml_train_invalid_symbol_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlTrainJobRequest(
+                start_date="2021-01-01", end_date="2024-12-31",
+                symbols="x",
+            )
+
+
+# ── 修复 4：日期语义 ──────────────────────────────────────────────────────
+class TestDateSemantics:
+    def test_backtest_start_after_end_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            BacktestJobRequest(
+                strategies=["dual_ma"],
+                start_date="2024-12-31", end_date="2024-01-01",
+            )
+
+    def test_backtest_invalid_calendar_date_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            BacktestJobRequest(
+                strategies=["dual_ma"],
+                start_date="2024-13-40", end_date="2024-12-31",
+            )
+
+    def test_ml_evaluate_start_after_end_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlEvaluateJobRequest(
+                model_name="lgbm_return_5d",
+                eval_start="2025-06-01", eval_end="2025-01-01",
+            )
+
+    def test_ml_evaluate_invalid_calendar_date_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlEvaluateJobRequest(
+                model_name="lgbm_return_5d",
+                eval_start="2024-13-40", eval_end="2025-06-01",
+            )
+
+    def test_factor_test_invalid_split_date_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            FactorTestJobRequest(factors="P0", split_date="2024-13-40")
+
+    def test_data_refresh_start_after_end_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            DataRefreshJobRequest(start_date="2025-12-31", end_date="2025-01-01")
+
+    def test_ml_train_start_after_end_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlTrainJobRequest(
+                start_date="2025-12-31", end_date="2024-01-01",
+            )
+
+
+# ── 修复 5：ML 模型边界拒绝 ───────────────────────────────────────────────
+class TestMlBoundaries:
+    def test_n_trials_zero_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlTrainJobRequest(
+                start_date="2024-01-01", end_date="2024-12-31", n_trials=0
+            )
+
+    def test_label_horizon_21_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MlTrainJobRequest(
+                start_date="2024-01-01", end_date="2024-12-31", label_horizon=21
+            )

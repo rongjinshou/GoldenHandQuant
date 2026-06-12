@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
+import re
 import sys
+from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
 CONFIG_WHITELIST = (
@@ -17,6 +19,26 @@ CONFIG_WHITELIST = (
     "resources/backtest_multi_factor.yaml",
 )
 _QUANT = [sys.executable, "-m", "src.interfaces.cli.quant"]
+
+_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+_SYMBOL_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
+_PARAM_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_PARAM_STR_VALUE_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
+
+
+def _check_date_range(start: str, end: str) -> None:
+    """两端日历有效性 + start <= end；违例抛 ValueError。"""
+    fmt = "%Y-%m-%d"
+    try:
+        s = datetime.strptime(start, fmt)
+    except ValueError:
+        raise ValueError(f"无效日期: {start}") from None
+    try:
+        e = datetime.strptime(end, fmt)
+    except ValueError:
+        raise ValueError(f"无效日期: {end}") from None
+    if s > e:
+        raise ValueError(f"start_date ({start}) 不得晚于 end_date ({end})")
 
 
 class BacktestJobRequest(BaseModel):
@@ -47,6 +69,37 @@ class BacktestJobRequest(BaseModel):
             raise ValueError(f"config 仅允许: {CONFIG_WHITELIST}")
         return v
 
+    @model_validator(mode="after")
+    def _validate_symbols_and_params_and_dates(self) -> BacktestJobRequest:
+        # 日期语义
+        _check_date_range(self.start_date, self.end_date)
+
+        # symbols 逐项正则
+        if self.symbols is not None:
+            for sym in self.symbols:
+                if not _SYMBOL_RE.match(sym):
+                    raise ValueError(
+                        f"symbols 格式错误: {sym!r}，须匹配 NNNNNN.(SH|SZ|BJ)"
+                    )
+
+        # params 注入收口
+        if self.params is not None:
+            strategy_set = set(self.strategies)
+            for strat_key, kv in self.params.items():
+                if strat_key not in strategy_set:
+                    raise ValueError(f"params 引用未选策略: {strat_key}")
+                for param_name, param_val in kv.items():
+                    if not _PARAM_NAME_RE.match(param_name):
+                        raise ValueError(
+                            f"参数名格式错误: {param_name!r}，须匹配 ^[A-Za-z_][A-Za-z0-9_]*$"
+                        )
+                    if isinstance(param_val, str):
+                        if not _PARAM_STR_VALUE_RE.match(param_val):
+                            raise ValueError(
+                                f"参数值含非法字符: {param_val!r}（禁 ,/=/空串）"
+                            )
+        return self
+
 
 class FactorTestJobRequest(BaseModel):
     factors: str = Field(min_length=1)
@@ -66,25 +119,62 @@ class FactorTestJobRequest(BaseModel):
         resolve_factors(v)  # ValueError 自然冒泡 → 422
         return v
 
+    @model_validator(mode="after")
+    def _validate_dates(self) -> FactorTestJobRequest:
+        _check_date_range(self.start_date, self.end_date)
+        if self.split_date is not None:
+            # 校验 split_date 为合法日历日
+            try:
+                datetime.strptime(self.split_date, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError(f"split_date 非合法日历日: {self.split_date}") from None
+        return self
+
 
 class DataRefreshJobRequest(BaseModel):
     start_date: str = Field(pattern=DATE_PATTERN)
     end_date: str = Field(pattern=DATE_PATTERN)
+
+    @model_validator(mode="after")
+    def _validate_dates(self) -> DataRefreshJobRequest:
+        _check_date_range(self.start_date, self.end_date)
+        return self
 
 
 class MlTrainJobRequest(BaseModel):
     start_date: str = Field(pattern=DATE_PATTERN)
     end_date: str = Field(pattern=DATE_PATTERN)
     symbols: str = "000300.SH"
-    model_name: str = Field(default="lgbm_return_5d", min_length=1)
+    model_name: str = Field(default="lgbm_return_5d", pattern=r"^[A-Za-z0-9_\-]{1,64}$")
     label_horizon: int = Field(default=5, ge=1, le=20)
     n_trials: int = Field(default=50, ge=1, le=200)
 
+    @field_validator("symbols")
+    @classmethod
+    def _validate_symbols(cls, v: str) -> str:
+        for seg in v.split(","):
+            seg = seg.strip()
+            if not _SYMBOL_RE.match(seg):
+                raise ValueError(
+                    f"symbols 格式错误: {seg!r}，须匹配 NNNNNN.(SH|SZ|BJ)"
+                )
+        return v
+
+    @model_validator(mode="after")
+    def _validate_dates(self) -> MlTrainJobRequest:
+        _check_date_range(self.start_date, self.end_date)
+        return self
+
 
 class MlEvaluateJobRequest(BaseModel):
-    model_name: str = Field(min_length=1)
+    model_name: str = Field(pattern=r"^[A-Za-z0-9_\-]{1,64}$")
     eval_start: str = Field(pattern=DATE_PATTERN)
     eval_end: str = Field(pattern=DATE_PATTERN)
+
+    @model_validator(mode="after")
+    def _validate_dates(self) -> MlEvaluateJobRequest:
+        _check_date_range(self.eval_start, self.eval_end)
+        return self
 
 
 def build_backtest_argv(req: BacktestJobRequest) -> list[str]:
