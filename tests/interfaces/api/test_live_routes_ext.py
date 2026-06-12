@@ -135,3 +135,46 @@ class TestConfig:
         app.dependency_overrides[get_trading_config_path] = lambda: "/nope/y.yaml"
         body = client.get("/api/live/config").json()
         assert body["config_exists"] is False
+
+
+class TestCycleDrilldown:
+    def test_executions_of_cycle(self, client) -> None:
+        body = client.get("/api/live/cycles/c1/executions").json()
+        assert [e["order_id"] for e in body["executions"]] == ["o1", "o2"]
+
+    def test_unknown_cycle_empty(self, client) -> None:
+        assert client.get("/api/live/cycles/nope/executions").json() == {"executions": []}
+
+
+class TestModeFilter:
+    def test_positions_mode_filter(self, client) -> None:
+        all_rows = client.get("/api/live/positions").json()["positions"]
+        live_rows = client.get("/api/live/positions?mode=live").json()["positions"]
+        # 无 mode: 取全局最新快照(live 14:51); 有 mode: 取该 mode 最新快照
+        assert {r["symbol"] for r in all_rows} == {"000021.SZ"}
+        assert {r["symbol"] for r in live_rows} == {"000021.SZ"}
+        dry_rows = client.get("/api/live/positions?mode=dry_run").json()["positions"]
+        assert {r["symbol"] for r in dry_rows} == {"600000.SH"}
+
+    def test_equity_mode_filter(self, client, db_path) -> None:
+        conn = sqlite3.connect(db_path)
+        today = __import__("datetime").date.today().isoformat()
+        conn.executemany(
+            "INSERT INTO account_snapshots VALUES (?,?,?,?,?,?)",
+            [(f"{today} 09:36:00", "dry_run", 100000, 90000, 0, 10000),
+             (f"{today} 14:51:00", "live", 146000, 100000, 0, 46000)])
+        conn.commit()
+        conn.close()
+        series = client.get("/api/live/equity?mode=live").json()["series"]
+        assert len(series) == 1 and series[0]["mode"] == "live"
+
+
+class TestTickets:
+    def test_lists_ticket_json(self, client) -> None:
+        body = client.get("/api/live/tickets").json()
+        assert body["tickets"][0]["file"] == "20260611-130232-601006.SH.json"
+        assert body["tickets"][0]["content"]["symbol"] == "601006.SH"
+
+    def test_missing_dir_empty(self, client) -> None:
+        app.dependency_overrides[get_trade_logs_dir] = lambda: "/nope/dir"
+        assert client.get("/api/live/tickets").json() == {"tickets": []}

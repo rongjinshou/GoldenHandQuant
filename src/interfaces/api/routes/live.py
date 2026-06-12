@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from datetime import date
@@ -84,14 +85,21 @@ def executions(limit: int = 200,
 
 
 @router.get("/positions")
-def positions(db_path: str = Depends(get_trading_db_path)) -> dict:
+def positions(mode: str = "", db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
         return {"positions": [], "snapshot_time": None}
     try:
-        rows = _rows(conn, """SELECT * FROM position_snapshots WHERE snapshot_time=(
-                                SELECT MAX(snapshot_time) FROM position_snapshots)
-                              ORDER BY symbol""")
+        if mode:
+            rows = _rows(conn, """SELECT * FROM position_snapshots
+                                  WHERE mode=? AND snapshot_time=(
+                                    SELECT MAX(snapshot_time) FROM position_snapshots
+                                    WHERE mode=?)
+                                  ORDER BY symbol""", (mode, mode))
+        else:
+            rows = _rows(conn, """SELECT * FROM position_snapshots WHERE snapshot_time=(
+                                    SELECT MAX(snapshot_time) FROM position_snapshots)
+                                  ORDER BY symbol""")
         return {"positions": rows,
                 "snapshot_time": rows[0]["snapshot_time"] if rows else None}
     finally:
@@ -99,16 +107,23 @@ def positions(db_path: str = Depends(get_trading_db_path)) -> dict:
 
 
 @router.get("/equity")
-def equity(limit: int = 500,
-                 db_path: str = Depends(get_trading_db_path)) -> dict:
+def equity(limit: int = 500, mode: str = "",
+           db_path: str = Depends(get_trading_db_path)) -> dict:
     conn = _connect_ro(db_path)
     if conn is None:
         return {"series": []}
     try:
-        rows = _rows(conn, """SELECT * FROM (
-                                SELECT * FROM account_snapshots
-                                ORDER BY snapshot_time DESC LIMIT ?
-                              ) ORDER BY snapshot_time ASC""", (min(limit, 2000),))
+        if mode:
+            rows = _rows(conn, """SELECT * FROM (
+                                    SELECT * FROM account_snapshots WHERE mode=?
+                                    ORDER BY snapshot_time DESC LIMIT ?
+                                  ) ORDER BY snapshot_time ASC""",
+                         (mode, min(limit, 2000)))
+        else:
+            rows = _rows(conn, """SELECT * FROM (
+                                    SELECT * FROM account_snapshots
+                                    ORDER BY snapshot_time DESC LIMIT ?
+                                  ) ORDER BY snapshot_time ASC""", (min(limit, 2000),))
         return {"series": rows}
     finally:
         conn.close()
@@ -214,3 +229,33 @@ def config(db_path: str = Depends(get_trading_db_path),
     return {"config_exists": bool(cfg), "auto_trade": cfg,
             "today": {"expected_slots": cfg.get("execution_times") or [],
                       "cycles_today": cycles_today}}
+
+
+@router.get("/cycles/{cycle_id}/executions")
+def cycle_executions(cycle_id: str,
+                     db_path: str = Depends(get_trading_db_path)) -> dict:
+    conn = _connect_ro(db_path)
+    if conn is None:
+        return {"executions": []}
+    try:
+        return {"executions": _rows(
+            conn, "SELECT * FROM execution_records WHERE cycle_id=? "
+                  "ORDER BY submitted_at", (cycle_id,))}
+    finally:
+        conn.close()
+
+
+@router.get("/tickets")
+def tickets(limit: int = 50,
+            logs_dir: str = Depends(get_trade_logs_dir)) -> dict:
+    root = Path(logs_dir)
+    if not root.is_dir():
+        return {"tickets": []}
+    out = []
+    for fp in sorted(root.glob("*.json"), reverse=True)[: min(limit, 200)]:
+        try:
+            content = json.loads(fp.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            content = None
+        out.append({"file": fp.name, "content": content})
+    return {"tickets": out}
