@@ -9,21 +9,36 @@ import { applyGlossary } from "../glossary.js";
 let btChart = null;
 let btRuns = [];
 
+let currentBtRun = null;
+
 export async function loadBacktests() {
   const data = await fetchJSON(`${API}/backtests`);
   btRuns = data.runs;
   $("#bt-empty").classList.toggle("hidden", btRuns.length > 0);
   const select = $("#bt-run-select");
+  const overlay = $("#bt-overlay");
   select.innerHTML = "";
+  overlay.innerHTML = `<option value="">无</option>`;
   btRuns.forEach((run, i) => {
-    const names = run.strategies.map((s) => s.strategy).join(", ");
+    const names = esc(run.strategies.map((s) => s.strategy).join(", "));
     select.insertAdjacentHTML(
-      "beforeend",
-      `<option value="${i}">${run.run_id}（${names}）</option>`
-    );
+      "beforeend", `<option value="${i}">${run.run_id}（${names}）</option>`);
+    overlay.insertAdjacentHTML(
+      "beforeend", `<option value="${i}">${run.run_id}（${names}）</option>`);
   });
-  select.onchange = () => renderBtRun(btRuns[Number(select.value)]);
-  if (btRuns.length) renderBtRun(btRuns[0]);
+  const rerender = () => {
+    if (currentBtRun) renderBtRun(currentBtRun).catch((e) => showError(e.message));
+  };
+  select.onchange = () => {
+    currentBtRun = btRuns[Number(select.value)];
+    rerender();
+  };
+  $("#bt-benchmark").onchange = rerender;
+  overlay.onchange = rerender;
+  if (btRuns.length) {
+    currentBtRun = btRuns[0];
+    await renderBtRun(currentBtRun);
+  }
 }
 
 function typeOf(name) {
@@ -58,15 +73,104 @@ function runTargetHtml(p) {
       : "");
 }
 
-function renderBtRun(run) {
-  const first = run.strategies[0] || {};
+/* 基准: 同额资金买入持有 — 对齐净值日期, 取当日或之前最近收盘价折算 */
+async function fetchBenchmarkSeries(symbol, dates, initialCapital) {
+  if (!symbol || !dates.length) return null;
+  const bars = await fetchJSON(
+    `${API}/bars/${symbol}?start=${dates[0]}&end=${dates[dates.length - 1]}`);
+  if (!bars.dates.length) return null;
+  const closeByDate = new Map(
+    bars.dates.map((d, i) => [d, bars.ohlc[i][1]]));  // ECharts 约定 [o,c,l,h]
+  let base = null;
+  let last = null;
+  const values = dates.map((d) => {
+    if (closeByDate.has(d)) last = closeByDate.get(d);
+    if (last === null) return null;       // 基准晚于回测起点上市 → 前段空
+    if (base === null) base = last;
+    return +(initialCapital * (last / base)).toFixed(2);
+  });
+  // 评审: 基准日期与净值日期完全不相交 → 等同无行情, 不许显示 0.00% 假基准
+  if (values.every((v) => v === null)) return null;
+  return values;
+}
+
+/* 买卖事件 → 散点: 按 (日期,方向) 聚合 (截面策略调仓日几十笔不糊成一团);
+   y 取该策略自己日期轴上的净值 (评审: 多策略日期轴可能不一致); A股配色 买=红▲ 卖=绿▼ */
+function tradeScatter(s, axisIdx) {
+  const own = new Map((s.equity_curve.dates || []).map((d, i) => [d, i]));
+  const grouped = { BUY: new Map(), SELL: new Map() };
+  for (const t of s.trades || []) {
+    const g = grouped[t.direction];
+    if (!g || !axisIdx.has(t.date) || !own.has(t.date)) continue;
+    if (!g.has(t.date)) g.set(t.date, []);
+    g.get(t.date).push(t);
+  }
+  const mk = (dir, color, rotate) => ({
+    name: `${dir === "BUY" ? "买" : "卖"}·${s.strategy}`,
+    type: "scatter", xAxisIndex: 0, yAxisIndex: 0,
+    symbol: "triangle", symbolRotate: rotate, z: 12,
+    itemStyle: { color },
+    symbolSize: (_, q) => Math.min(9 + ((q.data.trades.length - 1) * 2), 16),
+    data: [...grouped[dir].entries()].map(([d, ts]) => ({
+      value: [d, s.equity_curve.values[own.get(d)]], trades: ts,
+    })),
+  });
+  const out = [];
+  if (grouped.BUY.size) out.push(mk("BUY", "#f85149", 0));
+  if (grouped.SELL.size) out.push(mk("SELL", "#3fb950", 180));
+  return out;
+}
+
+function chartTooltipFormatter(params) {
+  if (!params.length) return "";
+  const lines = [params[0].axisValueLabel];
+  for (const q of params) {
+    const ts = q.data && q.data.trades;
+    if (ts) {
+      // 评审: tooltip 走 HTML 渲染, DB 字符串一律 esc, 数值经 Number 收口
+      const head = ts.slice(0, 3).map((t) =>
+        `${t.direction === "BUY" ? "买入" : "卖出"} ${esc(t.symbol)} `
+        + `${Number(t.volume)}股@${Number(t.price)}`
+        + (t.direction === "SELL"
+          ? `（${t.pnl >= 0 ? "+" : ""}${Number(t.pnl).toFixed(2)}）` : ""));
+      lines.push(`${q.marker}${head.join("；")}`
+        + (ts.length > 3 ? ` 等${ts.length}笔` : ""));
+    } else if (q.value !== null && q.value !== undefined) {
+      const v = q.seriesName.startsWith("回撤")
+        ? `${q.value}%` : Math.round(q.value).toLocaleString();
+      lines.push(`${q.marker}${esc(q.seriesName)}: ${v}`);
+    }
+  }
+  return lines.join("<br>");
+}
+
+/* 固定配色: overlay/基准插队不许漂移调色板 (策略线与其回撤同色) */
+const STRAT_PALETTE = ["#4d9fff", "#3fb950", "#d29922", "#bc8cff", "#39c5cf"];
+const OVERLAY_PALETTE = ["#8957e5", "#db6d28", "#6e7681"];
+
+/* 渲染代号: 三个 onchange + 任务回调并发触发 async 渲染, 旧渲染过期即弃 (评审 blocker) */
+let renderSeq = 0;
+
+async function renderBtRun(run) {
+  const seq = ++renderSeq;
+  const withCurve = run.strategies.filter((s) => (s.equity_curve.dates || []).length);
+  // 评审: 旧 CLI 行可能无曲线, 基准/超额/缩放一律配对首个有曲线的策略
+  const first = withCurve[0] || run.strategies[0] || {};
   const p = first.params || {};
+  const dates = first.equity_curve?.dates || [];
   const metaEl = $("#bt-run-meta");
   metaEl.innerHTML =
     `入库 ${run.created_at.slice(0, 19)} · 来源 ${esc(p.source || "?")} · ` +
     `初始资金 ${first.initial_capital ? first.initial_capital.toLocaleString() : "?"}` +
     `<br>${runTargetHtml(p)}`;
   applyGlossary(metaEl);
+  // 评审: 截断的买卖留痕必须明示, 不许后段标记凭空消失
+  const cut = run.strategies.find(
+    (s) => (s.trades || []).length === 2000 && s.trade_count > 2000);
+  if (cut) {
+    metaEl.insertAdjacentHTML("beforeend",
+      ` <span class="run-target">｜ 买卖标记仅含前 2000 笔（共 ${cut.trade_count} 笔, 后段无标记）</span>`);
+  }
 
   const tbody = $("#bt-table tbody");
   tbody.innerHTML = "";
@@ -79,7 +183,7 @@ function renderBtRun(run) {
     tbody.insertAdjacentHTML(
       "beforeend",
       `<tr>
-         <td>${s.strategy}</td>
+         <td>${esc(s.strategy)}</td>
          <td>${s.start_date} ~ ${s.end_date}</td>
          ${signed(s.total_return, pct)}
          ${signed(s.annualized_return, pct)}
@@ -95,8 +199,13 @@ function renderBtRun(run) {
   }
 
   if (!btChart) btChart = makeChart($("#bt-chart"));
-  const withCurve = run.strategies.filter((s) => (s.equity_curve.dates || []).length);
-  const dates = (withCurve[0] || { equity_curve: { dates: [] } }).equity_curve.dates;
+  const axisIdx = new Map(dates.map((d, i) => [d, i]));
+  // 评审: 非首策略日期轴可能不一致, 一律按自身日期映射到共享轴
+  const alignToAxis = (s, values) => {
+    if (s === first) return values;
+    const own = new Map(s.equity_curve.dates.map((d, i) => [d, i]));
+    return dates.map((d) => (own.has(d) ? values[own.get(d)] : null));
+  };
   // 回撤序列: v / 历史峰值 - 1 (前端现算, 与净值同轴联动)
   const drawdown = (values) => {
     let peak = -Infinity;
@@ -105,11 +214,85 @@ function renderBtRun(run) {
       return peak > 0 ? +((v / peak - 1) * 100).toFixed(2) : 0;
     });
   };
+
+  // ---- 基准: 同额买入持有 (设计 §8.3, 不入库, /bars 现算) ----
+  const benchSel = $("#bt-benchmark").value;
+  const benchSym = benchSel === "first_symbol" ? (p.symbols || [])[0] : benchSel;
+  let benchSeries = null;
+  let benchNote = "";
+  if (benchSym && dates.length) {
+    try {
+      benchSeries = await fetchBenchmarkSeries(benchSym, dates, first.initial_capital);
+      if (!benchSeries) benchNote = `基准 ${esc(benchSym)} 无本地行情`;
+    } catch { benchNote = "基准行情加载失败"; }
+  }
+  if (seq !== renderSeq) return; // 评审 blocker: 过期渲染丢弃, 防 meta/图表串台
+  if (benchSeries) {
+    const k = benchSeries.findIndex((v) => v !== null);
+    const bv = benchSeries.filter((v) => v !== null);
+    if (bv.length < 2) {
+      benchSeries = null;
+      benchNote = `基准 ${esc(benchSym)} 区间内行情不足`;
+    } else {
+      const benchReturn = bv[bv.length - 1] / bv[0] - 1;
+      // 评审: 基准晚于回测起点时, 策略收益重算到同一子窗口再比, 不许窗口错配
+      const sv = first.equity_curve.values;
+      const stratReturn = sv[k] > 0 ? sv[sv.length - 1] / sv[k] - 1 : 0;
+      const alpha = stratReturn - benchReturn;
+      benchNote = `基准(${esc(benchSym)}买入持有) ${pct(benchReturn)} · `
+        + `<span class="${alpha >= 0 ? "gate-good" : "gate-bad"}">超额 ${pct(alpha)}</span>`
+        + (k > 0 ? `（自 ${dates[k]} 同窗口径）` : "");
+    }
+  }
+  if (benchNote) {
+    metaEl.insertAdjacentHTML("beforeend",
+      ` <span class="run-target" data-gloss="benchmark">｜ ${benchNote}</span>`);
+    applyGlossary(metaEl);
+  }
+
+  // ---- 叠加对比: 另一轮 run 重定基到相同起点资金 (设计 §8.3, 评审: 防窗口外收益误读) ----
+  const overlayIdx = $("#bt-overlay").value;
+  const overlaySeries = [];
+  if (overlayIdx !== "" && btRuns[Number(overlayIdx)]
+      && btRuns[Number(overlayIdx)].run_id !== run.run_id) {
+    const other = btRuns[Number(overlayIdx)];
+    let anyOverlap = false;
+    other.strategies.forEach((s, si) => {
+      const od = s.equity_curve.dates || [];
+      if (!od.length) return;
+      // 重定基: 以进入当前轴的首个可见点为锚, 锚点对齐当前 run 的初始资金
+      let anchor = null;
+      const data = new Array(dates.length).fill(null);
+      od.forEach((d, i) => {
+        const j = axisIdx.get(d);
+        if (j === undefined) return;
+        const v = s.equity_curve.values[i];
+        if (anchor === null && v > 0) anchor = v;
+        if (anchor) data[j] = +((first.initial_capital || 1) * (v / anchor)).toFixed(2);
+      });
+      if (anchor === null) return;
+      anyOverlap = true;
+      const rebased = s.start_date !== first.start_date;
+      overlaySeries.push({
+        name: `${other.run_id.slice(-6)}·${s.strategy}${rebased ? "(重定基)" : ""}`,
+        type: "line", data,
+        showSymbol: false, xAxisIndex: 0, yAxisIndex: 0, connectNulls: true,
+        lineStyle: { width: 1, type: "dashed", opacity: .85,
+                     color: OVERLAY_PALETTE[si % OVERLAY_PALETTE.length] },
+        itemStyle: { color: OVERLAY_PALETTE[si % OVERLAY_PALETTE.length] },
+      });
+    });
+    if (!anyOverlap) {
+      metaEl.insertAdjacentHTML("beforeend",
+        ` <span class="run-target">｜ 叠加轮与当前区间无重叠日期</span>`);
+    }
+  }
+
   btChart.setOption({
     backgroundColor: "transparent",
     animation: false,
     title: { text: `净值与回撤 · ${run.run_id}`, textStyle: { fontSize: 13 } },
-    tooltip: { trigger: "axis" },
+    tooltip: { trigger: "axis", formatter: chartTooltipFormatter },
     axisPointer: { link: [{ xAxisIndex: "all" }] },
     legend: { top: 4, right: 10, textStyle: { fontSize: 11 } },
     grid: [
@@ -127,15 +310,29 @@ function renderBtRun(run) {
     ],
     dataZoom: [{ type: "inside", xAxisIndex: [0, 1] }],
     series: [
-      ...withCurve.map((s) => ({
-        name: s.strategy, type: "line", data: s.equity_curve.values,
-        showSymbol: false, xAxisIndex: 0, yAxisIndex: 0,
+      // 固定配色: 策略线与其回撤同色, overlay/基准插队不漂移调色板
+      ...withCurve.map((s, si) => ({
+        name: s.strategy, type: "line",
+        data: alignToAxis(s, s.equity_curve.values),
+        showSymbol: false, xAxisIndex: 0, yAxisIndex: 0, connectNulls: true,
+        lineStyle: { color: STRAT_PALETTE[si % STRAT_PALETTE.length] },
+        itemStyle: { color: STRAT_PALETTE[si % STRAT_PALETTE.length] },
       })),
-      ...withCurve.map((s) => ({
+      ...(benchSeries ? [{
+        name: "基准买入持有", type: "line", data: benchSeries,
+        showSymbol: false, xAxisIndex: 0, yAxisIndex: 0, connectNulls: true,
+        lineStyle: { width: 1.5, type: "dashed", color: "#8b949e" },
+        itemStyle: { color: "#8b949e" }, z: 5,
+      }] : []),
+      ...overlaySeries,
+      ...withCurve.flatMap((s) => tradeScatter(s, axisIdx)),
+      ...withCurve.map((s, si) => ({
         name: `回撤 ${s.strategy}`, type: "line",
-        data: drawdown(s.equity_curve.values),
-        showSymbol: false, xAxisIndex: 1, yAxisIndex: 1,
-        areaStyle: { opacity: 0.25 }, lineStyle: { width: 1 },
+        data: alignToAxis(s, drawdown(s.equity_curve.values)),
+        showSymbol: false, xAxisIndex: 1, yAxisIndex: 1, connectNulls: true,
+        areaStyle: { opacity: 0.22 },
+        lineStyle: { width: 1, color: STRAT_PALETTE[si % STRAT_PALETTE.length] },
+        itemStyle: { color: STRAT_PALETTE[si % STRAT_PALETTE.length] },
       })),
     ],
   }, true);

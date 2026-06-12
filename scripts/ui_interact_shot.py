@@ -12,6 +12,7 @@ chips 输入 / 表单状态等截图验证）。
     tab:<name>            点页签 (overview/verdicts/explorer/backtests/live/jobs)
     open-details          展开当前页签所有 <details>
     fill:<sel>=<text>     填输入框 (触发 input 事件)
+    select:<sel>=<value>  下拉框选值 (触发 change 事件)
     type:<sel>=<text>     逐字符键入 (触发联想)
     press:<sel>=<key>     对元素按键 (Enter/Backspace/...)
     click:<sel>           点击
@@ -62,6 +63,9 @@ def run(base: str, out_dir: Path, steps: list[str]) -> int:
                     page.press(sel, key)
                 case "click":
                     page.click(arg)
+                case "select":
+                    sel, _, value = arg.partition("=")
+                    page.select_option(sel, value)
                 case "hover":
                     page.hover(arg)
                     time.sleep(0.3)

@@ -88,7 +88,7 @@ _DDL_STATEMENTS = (
         total_return DOUBLE, annualized_return DOUBLE, max_drawdown DOUBLE,
         sharpe_ratio DOUBLE, sortino_ratio DOUBLE, calmar_ratio DOUBLE,
         win_rate DOUBLE, trade_count INTEGER, turnover_rate DOUBLE,
-        equity_curve VARCHAR,
+        equity_curve VARCHAR, trades VARCHAR,
         PRIMARY KEY (run_id, strategy)
     )""",
 )
@@ -97,7 +97,7 @@ _BACKTEST_COLS = (
     "strategy", "start_date", "end_date", "initial_capital", "params",
     "total_return", "annualized_return", "max_drawdown", "sharpe_ratio",
     "sortino_ratio", "calmar_ratio", "win_rate", "trade_count",
-    "turnover_rate", "equity_curve",
+    "turnover_rate", "equity_curve", "trades",
 )
 
 _VERDICT_NUMERIC_COLS = (
@@ -133,6 +133,7 @@ class MarketDataStore:
             for stmt in _DDL_STATEMENTS:
                 self._conn.execute(stmt)
             self._migrate_verdict_columns()
+            self._migrate_backtest_columns()
 
     def _migrate_verdict_columns(self) -> None:
         """存量 factor_verdicts 表幂等加 long-only 记分牌列 (CREATE IF NOT EXISTS 不会加列)。"""
@@ -148,6 +149,12 @@ class MarketDataStore:
         # 存量 run 回填 objective=long_short (历史判决均为多空记分牌)
         self._conn.execute(
             "UPDATE factor_verdicts SET objective='long_short' WHERE objective IS NULL"
+        )
+
+    def _migrate_backtest_columns(self) -> None:
+        """存量 backtest_runs 幂等加 trades 列 (v3 回测可视: 买卖事件留痕)。"""
+        self._conn.execute(
+            "ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS trades VARCHAR"
         )
 
     def close(self) -> None:
@@ -475,11 +482,18 @@ class MarketDataStore:
         """按 run 分组, created_at 倒序。equity_curve/params 保持 JSON 字符串。
 
         read_only 打开的旧库可能尚无 backtest_runs 表(DDL 只在写模式执行),
-        缺表按空结果处理而非报错。
+        缺表按空结果处理而非报错; 后加的列(trades)按实际列集查询, 旧库缺列
+        时该字段回填 None (read_only 不能跑迁移, 不许因此 500)。
         """
         try:
+            present = {r[0] for r in self._conn.execute(
+                """SELECT column_name FROM information_schema.columns
+                   WHERE table_name = 'backtest_runs'""").fetchall()}
+            if not present:
+                return []
+            cols = [c for c in _BACKTEST_COLS if c in present]
             rows = self._conn.execute(
-                f"""SELECT run_id, created_at, {", ".join(_BACKTEST_COLS)}
+                f"""SELECT run_id, created_at, {", ".join(cols)}
                     FROM backtest_runs ORDER BY created_at DESC, strategy LIMIT ?""",
                 [limit],
             ).fetchall()
@@ -491,7 +505,9 @@ class MarketDataStore:
             if run_id not in runs:
                 runs[run_id] = {"run_id": run_id, "created_at": str(row[1]),
                                 "strategies": []}
-            strategy = dict(zip(_BACKTEST_COLS, row[2:], strict=True))
+            strategy = dict(zip(cols, row[2:], strict=True))
+            for missing in set(_BACKTEST_COLS) - set(cols):
+                strategy[missing] = None
             for col in ("start_date", "end_date"):
                 if strategy[col] is not None:
                     strategy[col] = str(strategy[col])

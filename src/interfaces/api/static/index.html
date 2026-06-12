@@ -158,6 +158,17 @@
         <label>回测轮次
           <select id="bt-run-select"></select>
         </label>
+        <label><span data-gloss="benchmark">基准</span>
+          <select id="bt-benchmark">
+            <option value="first_symbol">首标的买入持有</option>
+            <option value="000300.SH">沪深300</option>
+            <option value="000852.SH">中证1000</option>
+            <option value="">无</option>
+          </select>
+        </label>
+        <label><span data-gloss="overlay_run">叠加对比</span>
+          <select id="bt-overlay"><option value="">无</option></select>
+        </label>
         <span id="bt-run-meta" class="run-params"></span>
       </div>
       <table id="bt-table" class="verdict-table">

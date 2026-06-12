@@ -94,6 +94,8 @@ async def backtests(store: MarketDataStore | None = Depends(get_research_store))
         for s in run["strategies"]:
             s["equity_curve"] = json.loads(s["equity_curve"]) if s["equity_curve"] else {}
             s["params"] = json.loads(s["params"]) if s["params"] else {}
+            # 旧行无 trades 留痕 → 空列表 (前端不画买卖标记)
+            s["trades"] = json.loads(s["trades"]) if s.get("trades") else []
     return {"runs": runs}
 
 

@@ -9,6 +9,9 @@ import json
 
 from src.domain.backtest.entities.backtest_report import BacktestReport
 
+# 单行 JSON 防失控: 日频策略全年也就数百笔, 2000 已远超正常范围
+_TRADES_CAP = 2000
+
 
 def build_backtest_run_row(report: BacktestReport, *, run_id: str,
                            params: dict) -> dict:
@@ -16,6 +19,12 @@ def build_backtest_run_row(report: BacktestReport, *, run_id: str,
         "dates": [d.strftime("%Y-%m-%d") for d in report.dates],
         "values": list(report.equity_curve),
     }
+    trades = [
+        {"date": t.execute_at.strftime("%Y-%m-%d"), "symbol": t.symbol,
+         "direction": t.direction.value, "price": t.price, "volume": t.volume,
+         "pnl": t.realized_pnl}
+        for t in (report.trades or [])[:_TRADES_CAP]
+    ]
     return {
         "run_id": run_id,
         "strategy": report.strategy_name or "unknown",
@@ -33,4 +42,5 @@ def build_backtest_run_row(report: BacktestReport, *, run_id: str,
         "trade_count": report.trade_count,
         "turnover_rate": report.turnover_rate,
         "equity_curve": json.dumps(curve),
+        "trades": json.dumps(trades, ensure_ascii=False),
     }

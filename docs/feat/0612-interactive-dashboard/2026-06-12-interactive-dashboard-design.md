@@ -187,3 +187,14 @@ JobManager 经 `Depends(get_job_manager)` 注入（模块级单例 + 测试 depe
 - **气泡专业化**：vendor Popper 2.11.8 + Tippy 6.3.7（与 echarts 同方式落盘），`applyGlossary` 改挂 Tippy——自动定位/翻转、appendTo body 免裁切、术语标题+正文双段排版（ghq 暗色主题）、onShow 动态取最新表头文案；删除整套 CSS-only `::after` 气泡。
 - **终端美学层（安装并应用官方 frontend-design skill, 定位 industrial terminal）**：vendor Rajdhani（HUD 显示字: 品牌/气泡标题）+ JetBrains Mono（全部数字/代码/表格/页脚, 等宽对齐成列）共 5 个 woff2 ~90KB 本地加载；body 顶部冷光晕氛围；卡片渐变深度+发丝高光+悬停微抬；表格改圆角容器+内部发丝格线+大写字距表头+行悬停；section-title 延伸线、page-guide 渐变条、按钮渐变光、输入聚焦环、页签切换浮现动效。纯覆盖式追加层（style.css v3 段），可整段回滚。
 - 验证：冒烟 PASS（0 console 错误）、六页签+气泡+局部裁切读图逐一确认。skill 已装入 `~/.claude/skills/frontend-design` 供后续会话复用。
+
+## 8.3 专业回测可视：基准对照 + 买卖事件标记 + 轮次叠加（2026-06-13）
+
+用户诉求：回测曲线无基准参考（不知道跑赢还是跑输）、无买卖事件呈现（黑箱曲线）。
+
+- **数据底座**：backtest_runs 新增 `trades` 列（JSON: date/symbol/direction/price/volume/pnl, 头部截断 2000 笔），mapper 序列化 + 写模式幂等迁移 + read_only 旧库按 information_schema 实际列集查询优雅降级（缺列回 None, 不许 500）；API /backtests 解析为对象, 旧行回 []。
+- **基准（DD: 不入库, /bars 现算）**：默认"首标的买入持有"（前复权收盘折算=含分红再投资, 与策略侧口径对齐），可选沪深300/中证1000/无；按净值日期 carry-forward 对齐; meta 行显示基准收益+超额（绿/红）。
+- **买卖标记**：按 (日期,方向) 聚合的散点落在该策略净值线上（A股配色 买红▲ 卖绿▼, 笔数加权大小），tooltip 前3笔明细+等N笔。
+- **轮次叠加**：任选另一轮 run 重定基（进入当前轴首个可见点对齐当前初始资金）后虚线叠加, 区间无重叠时明示。
+- **对抗评审（量化口径+JS 两视角, 11 条全修）**：blocker=async 渲染竞态串台（renderSeq 过期弃渲染）；同窗超额错配（基准晚于回测起点时策略收益重算到同一子窗口）；叠加重定基防窗口外收益误读；截断 2000 笔明示；tooltip HTML 路径 esc 收口；全 null 假基准 0.00% 拦截；多策略日期轴不一致按自身日期对齐（曲线/回撤/标记）；调色板固定（策略线与其回撤同色, overlay 插队不漂移）；价格指数不含股息已在 glossary 注明。
+- 验证：E2E 真回测 4 笔交易入库→API→图上标记落点全对; 基准揭示 000021.SZ 同期 -13.11% vs 策略 +0.45%（超额 +13.56%）; 全量 pytest 0 失败、冒烟 PASS。
