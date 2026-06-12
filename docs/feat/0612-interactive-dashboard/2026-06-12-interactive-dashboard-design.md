@@ -154,4 +154,9 @@ JobManager 经 `Depends(get_job_manager)` 注入（模块级单例 + 测试 depe
 - 前端：app.js 拆 9 个 ES modules（搬运保真审查 100%）、五页签交互表单 + 通用任务卡 + 任务中心页（评审修复：钻取抗轮询/错误兜底统一/任务卡 404 终止/pre 转义）。
 - 配置：`backtest.yaml` history_fetcher 切 `DuckDBHistoryDataFetcher`（本地快路径, 缺数回退 QMT）。
 - 验证：E2E 经 Web API 真跑 dual_ma 回测成功入库（run_id=20260612-093431）并由 /api/research/backtests 读回；全量 pytest 绿、ruff 干净。
-- 遗留债（低优先）：任务页 logTimer 切页签不清（终态自清）；live 子进程树 POSIX 强杀未做进程组（生产为 Windows TerminateProcess，已缓解）；uvicorn 单 worker 假设已注释；回测表单标的输入为逗号文本框（设计写的 chips+联想，可复用 explorer 的 /symbols datalist 补齐）；ml 策略 model_dir 参数本不该出现在表单（含 `/` 修改会被 422 护栏拦下）；503 柔化文案首屏 5s 内有竞态窗口。
+- 遗留债（低优先）：任务页 logTimer 切页签不清（终态自清）；live 子进程树 POSIX 强杀未做进程组（生产为 Windows TerminateProcess，已缓解）；uvicorn 单 worker 假设已注释；回测表单标的输入为逗号文本框（设计写的 chips+联想，可复用 explorer 的 /symbols datalist 补齐）；ml 策略 model_dir 参数本不该出现在表单（含 `/` 修改会被 422 护栏拦下）；503 柔化文案首屏 5s 内有竞态窗口；dual_ma registry default_params 为空 → 回测表单无均线窗口可调参（registry 数据面缺口, 非前端 bug）。
+
+### 7.1 视觉自调试闭环（2026-06-12 追加）
+
+- 新增 `scripts/ui_smoke.py`：Playwright（装于 Windows conda env, 渲染与用户浏览器同构）无头打开驾驶舱, 6 页签截图至 `data/ui_screenshots/` + 收集 console 错误/页面异常/失败请求, 产出机读 `smoke_report.json`；`--deep` 附加真提交小回测并等任务卡终态。WSL mirrored 网络使 Claude 可在 WSL 内直连 Windows 服务并读图自查。
+- 首轮读图自查战果：① live 页无权益快照时 ECharts 渲染 ~600px 空黑框 → 改为隐藏图容器（恢复显示时 resizeCharts 防 0 尺寸）；② overview 股票池卡"无数据"歧义文案 → "—"。复跑冒烟 PASS（0 console 错误, deep 回测 succeeded, run_id=20260612-222634）, 修复均经截图二次确认。

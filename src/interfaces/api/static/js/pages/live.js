@@ -95,28 +95,37 @@ async function loadLive() {
 
   renderOpsCards(budget, cfg);
 
-  if (!liveEquityChart) liveEquityChart = makeChart($("#live-equity-chart"));
-  // dry_run 与 live 是两条独立曲线, 混排成一条会出现锯齿假象
-  const modes = [...new Set(eq.series.map((r) => r.mode))];
-  const timeline = [...new Set(eq.series.map((r) => r.snapshot_time))].sort();
-  const tsIndex = new Map(timeline.map((t, i) => [t, i]));
-  liveEquityChart.setOption({
-    backgroundColor: "transparent",
-    animation: false,
-    title: { text: "账户权益（循环快照）", textStyle: { fontSize: 13 } },
-    tooltip: { trigger: "axis" },
-    legend: { top: 4, right: 10, textStyle: { fontSize: 11 } },
-    grid: { left: 90, right: 20, top: 40, bottom: 40 },
-    xAxis: { type: "category", data: timeline.map((t) => t.slice(5, 16)) },
-    yAxis: { type: "value", scale: true },
-    series: modes.map((m) => {
-      const data = new Array(timeline.length).fill(null);
-      eq.series.filter((r) => r.mode === m)
-        .forEach((r) => { data[tsIndex.get(r.snapshot_time)] = r.total_asset; });
-      return { name: `总资产(${m})`, type: "line", showSymbol: false,
-               connectNulls: true, data };
-    }),
-  }, true);
+  // 无权益快照时整图隐藏, 不渲染空黑框（视觉自查发现）
+  const hasEquity = eq.series.length > 0;
+  $("#live-equity-chart").classList.toggle("hidden", !hasEquity);
+  if (hasEquity) {
+    if (!liveEquityChart) {
+      liveEquityChart = makeChart($("#live-equity-chart"));
+    } else {
+      resizeCharts(); // 从 hidden 恢复显示时尺寸可能为 0
+    }
+    // dry_run 与 live 是两条独立曲线, 混排成一条会出现锯齿假象
+    const modes = [...new Set(eq.series.map((r) => r.mode))];
+    const timeline = [...new Set(eq.series.map((r) => r.snapshot_time))].sort();
+    const tsIndex = new Map(timeline.map((t, i) => [t, i]));
+    liveEquityChart.setOption({
+      backgroundColor: "transparent",
+      animation: false,
+      title: { text: "账户权益（循环快照）", textStyle: { fontSize: 13 } },
+      tooltip: { trigger: "axis" },
+      legend: { top: 4, right: 10, textStyle: { fontSize: 11 } },
+      grid: { left: 90, right: 20, top: 40, bottom: 40 },
+      xAxis: { type: "category", data: timeline.map((t) => t.slice(5, 16)) },
+      yAxis: { type: "value", scale: true },
+      series: modes.map((m) => {
+        const data = new Array(timeline.length).fill(null);
+        eq.series.filter((r) => r.mode === m)
+          .forEach((r) => { data[tsIndex.get(r.snapshot_time)] = r.total_asset; });
+        return { name: `总资产(${m})`, type: "line", showSymbol: false,
+                 connectNulls: true, data };
+      }),
+    }, true);
+  }
 
   $("#live-pos-time").textContent = pos.snapshot_time
     ? `快照 ${pos.snapshot_time.slice(0, 19)}` : "";

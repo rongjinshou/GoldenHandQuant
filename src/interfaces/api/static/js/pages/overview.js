@@ -24,7 +24,8 @@ export async function loadOverview() {
   let totalRows = 0;
   for (const [table, s] of Object.entries(data.tables)) {
     totalRows += s.rows;
-    const range = s.min_date ? `${s.min_date} ~ ${s.max_date}` : "无数据";
+    // 股票池等静态表没有日期区间, 显示 "—" 而非误导性的 "无数据"
+    const range = s.min_date ? `${s.min_date} ~ ${s.max_date}` : "—";
     cards.insertAdjacentHTML(
       "beforeend",
       `<div class="card">

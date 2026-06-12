@@ -68,6 +68,11 @@ $WIN_PYTHON -m src.interfaces.cli.quant factor-test --factors P0 --split-date 20
 # 任务页看实时日志; 交易侧保持只读, Web 永不下单）
 $WIN_PYTHON -m src.interfaces.cli.quant dashboard
 
+# 驾驶舱 UI 冒烟 + 截图（Playwright 无头浏览器; 6 页签截图到 data/ui_screenshots/ 供
+# Claude 读图自查; --deep 附加真提交一个小回测走完任务卡闭环; 需先起 dashboard）
+# WSL 为 mirrored 网络, WSL 内 Claude 可直接 curl http://127.0.0.1:8501 打到 Windows 服务
+$WIN_PYTHON scripts/ui_smoke.py --deep
+
 # 自动交易循环（dry-run 默认=纸面前向; 留痕入 data/trading.db; 需 QMT 客户端）
 $WIN_PYTHON -m src.interfaces.cli.quant auto-trade --once --enable
 # live 真单需三重确认: 配置 mode:live + enabled:true + CLI --live（运行手册:
