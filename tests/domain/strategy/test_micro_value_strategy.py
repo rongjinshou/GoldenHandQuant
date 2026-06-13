@@ -1,4 +1,5 @@
 from datetime import datetime
+from src.domain.account.entities.position import Position
 from src.domain.strategy.services.strategies.micro_value_strategy import MicroValueStrategy
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
@@ -26,12 +27,36 @@ class TestMicroValueStrategy:
         signals = strategy.generate_cross_sectional_signals(universe, [], apr_date)
         assert signals == []
 
-    def test_non_tuesday_returns_empty(self):
+    def test_non_tuesday_no_positions_returns_empty(self):
+        # 非调仓日且无持仓 → 空(无可维持的持仓)
         strategy = MicroValueStrategy(top_n=5)
         universe = [_snap("A", 1e9) for _ in range(10)]
         monday = datetime(2024, 6, 10)  # Monday
         signals = strategy.generate_cross_sectional_signals(universe, [], monday)
         assert signals == []
+
+    def test_non_tuesday_holds_existing_positions(self):
+        # 非调仓日维持现有持仓(返回持仓为 BUY 目标), 而非空目标——
+        # 否则等权 sizer 把空目标当清仓信号 → 买周二、卖周三的 1 日 churn。
+        strategy = MicroValueStrategy(top_n=5)
+        universe = [_snap("A", 1e9) for _ in range(10)]
+        positions = [
+            Position(account_id="BT", ticker="X", total_volume=100, available_volume=100),
+            Position(account_id="BT", ticker="Y", total_volume=200, available_volume=200),
+        ]
+        monday = datetime(2024, 6, 10)  # Monday
+        signals = strategy.generate_cross_sectional_signals(universe, positions, monday)
+        assert {s.symbol for s in signals} == {"X", "Y"}
+        assert all(s.direction == SignalDirection.BUY for s in signals)
+
+    def test_non_tuesday_does_not_rebalance_to_smallest(self):
+        # 非调仓日只维持现有持仓, 不切换到当前最小 top_n(只有周二才调仓)。
+        strategy = MicroValueStrategy(top_n=2)
+        universe = [_snap("A", 1e9), _snap("B", 2e9), _snap("C", 3e9)]  # 最小是 A,B
+        positions = [Position(account_id="BT", ticker="C", total_volume=100, available_volume=100)]
+        monday = datetime(2024, 6, 10)  # Monday
+        signals = strategy.generate_cross_sectional_signals(universe, positions, monday)
+        assert {s.symbol for s in signals} == {"C"}  # 维持 C, 不换成 A/B
 
     def test_tuesday_produces_top_n_buy_signals(self):
         strategy = MicroValueStrategy(top_n=3)
