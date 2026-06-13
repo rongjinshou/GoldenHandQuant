@@ -101,42 +101,12 @@ def run_backtest(args: argparse.Namespace) -> None:
     fundamental_registry = None
     stock_universe: list[str] = []
     if config.strategy_type == "cross_section":
-        from src.domain.market.services.fundamental_registry import FundamentalRegistry
+        from src.interfaces.cli._backtest_wiring import build_backtest_cross_section
 
-        fundamental_registry = FundamentalRegistry()
-
-        if history_fetcher_type == "TushareHistoryDataFetcher":
-            from src.infrastructure.gateway.tushare_fundamental_fetcher import TushareFundamentalFetcher
-
-            fund_fetcher = TushareFundamentalFetcher(token=tushare_token)
-            snapshots = fund_fetcher.fetch_by_range(start_date, end_date)
-            fundamental_registry.load_snapshots(snapshots)
-        else:
-            from src.infrastructure.gateway.qmt_fundamental_fetcher import QmtFundamentalFetcher
-
-            fund_fetcher = QmtFundamentalFetcher()
-            from src.infrastructure.gateway.xtquant_client import xtdata as _xt
-
-            for sector in ["沪深A股"]:
-                try:
-                    stock_universe.extend(_xt.get_stock_list_in_sector(sector))
-                except Exception:
-                    pass
-            stock_universe = sorted(set(stock_universe))
-            max_stocks = 500
-            if len(stock_universe) > max_stocks:
-                import random
-
-                random.seed(42)
-                stock_universe = sorted(random.sample(stock_universe, max_stocks))
-                print(f"Stock universe: limited to {max_stocks} stocks")
-            else:
-                print(f"Stock universe: {len(stock_universe)} stocks")
-            snapshots = fund_fetcher.fetch_by_range(start_date, end_date, symbols=stock_universe)
-            fundamental_registry.load_snapshots(snapshots)
-
-        stock_universe = sorted({s.symbol for s in snapshots})
-        print(f"Stocks with fundamental data: {len(stock_universe)}")
+        fundamental_registry, stock_universe = build_backtest_cross_section(
+            history_fetcher_type, start_date, end_date,
+            tushare_token=tushare_token, config_symbols=symbols,
+        )
 
     evaluator = PerformanceEvaluator()
     app = BacktestAppService(

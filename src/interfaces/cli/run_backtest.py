@@ -94,35 +94,11 @@ def main():
     fundamental_registry = None
     stock_universe: list[str] = []
     if config.strategy_type == "cross_section":
-        from src.domain.market.services.fundamental_registry import FundamentalRegistry
-        fundamental_registry = FundamentalRegistry()
-
-        # 加载基本面数据
-        if history_fetcher_type == "TushareHistoryDataFetcher":
-            from src.infrastructure.gateway.tushare_fundamental_fetcher import TushareFundamentalFetcher
-            fund_fetcher = TushareFundamentalFetcher(token=tushare_token)
-            snapshots = fund_fetcher.fetch_by_range(start_date, end_date)
-            fundamental_registry.load_snapshots(snapshots)
-        else:
-            from src.infrastructure.gateway.qmt_fundamental_fetcher import QmtFundamentalFetcher
-            fund_fetcher = QmtFundamentalFetcher()
-            # 获取沪深 A 股列表作为回测股票池
-            from src.infrastructure.gateway.xtquant_client import xtdata as _xt
-            for sector in ['沪深A股']:
-                try:
-                    stock_universe.extend(_xt.get_stock_list_in_sector(sector))
-                except Exception:
-                    pass
-            stock_universe = sorted(set(stock_universe))
-            # 全市场股票池（已移除沙盒期 random 500 限速）。
-            # 提示: 全市场首次回测会逐只补全历史, 建议先跑一次 batch_download 预热 QMT 本地库。
-            print(f"Stock universe: {len(stock_universe)} stocks (full market)")
-            snapshots = fund_fetcher.fetch_by_range(start_date, end_date, symbols=stock_universe)
-            fundamental_registry.load_snapshots(snapshots)
-
-        # 从 registry 提取实际有数据的股票
-        stock_universe = sorted({s.symbol for s in snapshots})
-        print(f"Stocks with fundamental data: {len(stock_universe)}")
+        from src.interfaces.cli._backtest_wiring import build_backtest_cross_section
+        fundamental_registry, stock_universe = build_backtest_cross_section(
+            history_fetcher_type, start_date, end_date,
+            tushare_token=tushare_token, config_symbols=symbols,
+        )
 
     evaluator = PerformanceEvaluator()
 
