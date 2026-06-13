@@ -207,6 +207,7 @@
       <div class="live-view active" id="lv-overview">
         <div id="live-ops-cards" class="cards"></div>
         <div id="live-equity-chart" class="chart"></div>
+        <p id="live-equity-hint" class="empty hidden"></p>
       </div>
 
       <!-- 持仓 -->
@@ -222,7 +223,8 @@
           <span id="live-pos-time" class="run-params"></span>
         </div>
         <table id="live-positions" class="verdict-table">
-          <thead><tr><th>标的</th><th>总量</th><th>可用</th><th>成本价</th><th>市值(成本)</th></tr></thead>
+          <thead><tr><th>标的</th><th>总量</th><th>可用</th><th>成本价</th><th>现价</th>
+              <th>市值</th><th data-gloss="float_pnl">浮动盈亏</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>

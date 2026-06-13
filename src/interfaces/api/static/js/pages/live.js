@@ -71,12 +71,15 @@ function renderKpis(ov, eq, posCount) {
   const series = eq.series || [];
   const first = series.length ? series[0].total_asset : null;
   const lastTotal = acct.total_asset ?? (series.length ? series[series.length - 1].total_asset : null);
-  let cumHtml = `<div class="big">—</div><div class="dim">暂无权益快照</div>`;
-  if (first && lastTotal != null && first > 0) {
+  // 累计收益 = 自首条快照以来的权益变化; 单条快照无从谈"累计", 显示占位
+  let cumHtml = series.length === 1
+    ? `<div class="big">—</div><div class="dim">需多次快照累计</div>`
+    : `<div class="big">—</div><div class="dim">暂无权益快照</div>`;
+  if (series.length >= 2 && first && lastTotal != null && first > 0) {
     const ret = lastTotal / first - 1;
     const cls = ret >= 0 ? "gate-bad" : "gate-good"; // A股: 涨=红 跌=绿
     cumHtml = `<div class="big ${cls}">${ret >= 0 ? "+" : ""}${(ret * 100).toFixed(2)}%</div>`
-      + `<div class="dim">本金 ${num(first)}</div>`;
+      + `<div class="dim">起点 ${num(first)}</div>`;
   }
   $("#live-cards").innerHTML = `
     <div class="card"><h3>总资产</h3><div class="big">${num(acct.total_asset)}</div>
@@ -164,9 +167,16 @@ async function loadLive() {
   $("#lv-cnt-aud").textContent = audit.logs.length;
   $("#lv-cnt-tk").textContent = tickets.tickets.length;
 
-  // ---- 权益曲线 (无快照时隐藏整图, 不渲染空黑框) ----
-  const hasEquity = eq.series.length > 0;
+  // ---- 权益曲线 (需 ≥2 个快照才成曲线; 单点显示提示而非空图框) ----
+  const hasEquity = eq.series.length >= 2;
   $("#live-equity-chart").classList.toggle("hidden", !hasEquity);
+  const eqHint = $("#live-equity-hint");
+  if (eqHint) {
+    eqHint.classList.toggle("hidden", hasEquity);
+    eqHint.textContent = eq.series.length === 1
+      ? "已有 1 条权益快照——多次同步后将绘制权益曲线（scripts/sync_live_account.py --watch 30 持续采样）。"
+      : "暂无权益快照。";
+  }
   if (hasEquity) {
     if (!liveEquityChart) {
       liveEquityChart = makeChart($("#live-equity-chart"));
@@ -210,11 +220,21 @@ async function loadLive() {
   // ---- 持仓 ----
   $("#live-pos-time").textContent = pos.snapshot_time
     ? `快照 ${pos.snapshot_time.slice(0, 19)}` : "";
-  $("#live-positions tbody").innerHTML = pos.positions.map((r) => `
-    <tr><td>${r.symbol}</td><td>${r.total_volume}</td>
-        <td>${r.available_volume}</td><td>${(r.average_cost ?? 0).toFixed(3)}</td>
-        <td>${num((r.total_volume || 0) * (r.average_cost ?? 0))}</td></tr>`
-  ).join("") || `<tr><td colspan="5" class="gate-na">无持仓快照</td></tr>`;
+  $("#live-positions tbody").innerHTML = pos.positions.map((r) => {
+    const vol = r.total_volume || 0;
+    const cost = r.average_cost ?? 0;
+    const last = r.last_price; // 同步脚本填; 无则回退成本
+    const mktPx = (last != null && last > 0) ? last : cost;
+    const mktVal = vol * mktPx;
+    const pnl = (last != null && last > 0) ? (last - cost) * vol : null;
+    const pnlCls = pnl == null ? "" : pnl >= 0 ? "gate-bad" : "gate-good"; // A股 涨红跌绿
+    const pnlTxt = pnl == null ? "-"
+      : `${pnl >= 0 ? "+" : ""}${num(pnl)}${cost > 0 ? ` (${pnl >= 0 ? "+" : ""}${((mktPx / cost - 1) * 100).toFixed(1)}%)` : ""}`;
+    return `<tr><td>${r.symbol}</td><td>${vol}</td>
+        <td>${r.available_volume}</td><td>${cost.toFixed(3)}</td>
+        <td>${last != null && last > 0 ? last.toFixed(3) : "-"}</td>
+        <td>${num(mktVal)}</td><td class="${pnlCls}">${pnlTxt}</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="gate-na">无持仓快照</td></tr>`;
 
   // ---- 循环 (分页 + 行内钻取) ----
   const cycleRows = cyc.cycles.map((c) => `

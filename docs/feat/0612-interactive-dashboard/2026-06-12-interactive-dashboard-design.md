@@ -241,3 +241,15 @@ JobManager 经 `Depends(get_job_manager)` 注入（模块级单例 + 测试 depe
   - **长表分页（`renderBounded`）**：循环/执行/审计默认只渲染最近 50 行，余下点"显示全部 N 条 ▾"展开（轮询持久化展开态）。
   - **KPI 条统一**：原 4+3 两排卡 → 主排 4 张有意义派生值（总资产 / **累计收益 since-inception**(equity limit=2000 取全程，颜色 A 股涨红跌绿) / 可用资金 / 持仓市值)，运维卡(今日活动/预算/守护/配置)收入概览页。持仓表加"市值(成本)"列。
 - 验证：全量 pytest 0 失败、ruff 0、冒烟 PASS（0 console 错误）、六子视图 + 双主题逐张读图确认。
+
+## 12. 纠偏：实盘页接**真实** QMT 账户（2026-06-13）
+
+§11 的纸面种子是模拟数据（¥80k 虚拟账户重放），放进**实盘**页冒充账户信息属判断失误——用户当即质疑"凭空造的吗、账户信息全错"。纠偏：
+
+- **诊断**：QMT **行情**(xtdata)能连(127.0.0.1:58610)，但**交易端**(XtQuantTrader) `connect()` 失败="请确认 QMT 以极简模式登录"——所以从未有真账户读取权。即"能连 QMT"只对一半：行情通、账户不通。
+- **清模拟**：删 data/trading.db(纸面种子)，实盘页回到诚实空态(`db_exists:false`)。trade_logs 预存真实 ticket 保留。
+- **只读真账户同步（`scripts/sync_live_account.py`）**：Windows 侧 CLI，`resolve_account_id`(env→配置→交易端枚举) → `QmtTradeGateway` **只读** `get_asset`/`get_positions` → 落一条 `account_snapshot` + `position_snapshots`(mode=live, last_price 取实时 tick)。**绝不下单/撤单、不跑循环**。`--watch N` 周期采样攒真实权益曲线。架构守恒：Web 进程仍不碰 xtquant，真数据由该 CLI 落 trading.db、网页只读。
+  - 实测：交易端登录后账号自枚举 `50****55`，读到真账户 总资产 ¥154,108 / 可用 ¥27,116 / 持仓市值 ¥126,992 / 7 持仓，实盘页即显真账户。
+- **持仓表盯市升级**：拿到真 last_price 后，持仓表 `市值(成本)` → `现价 / 市值(盯市) / 浮动盈亏`（(现价−成本)×量，A 股涨红跌绿，现价缺失回退成本不显盈亏）。`累计收益`卡：<2 条快照显"—　需多次快照累计"；权益图 <2 点显提示而非空框。
+- **种子 vs 同步 区分**（CLAUDE.md 已标注）：`sync_live_account.py`=真账户(只读, mode=live)；`seed_paper_trading.py`=纸面演示(dry_run, 无需 QMT, 仅 UI 用, **非真账户**)。
+- 验证：全量 pytest 0 失败、我的两脚本 ruff 0（`test_qmt_connection.py` 的 N806 为既有文件、非本次改动）、冒烟 PASS（0 console 错误）、真账户概览/持仓逐张读图确认。
