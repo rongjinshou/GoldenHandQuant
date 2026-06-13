@@ -34,6 +34,12 @@ class MicroValueStrategy(CrossSectionalStrategy):
     def name(self) -> str:
         return "MicroValueStrategy"
 
+    @property
+    def uses_bar_history(self) -> bool:
+        # 只用 market_cap + 过滤字段(name/list_date/close/volume/roe/ocf), 不需要技术指标 →
+        # 跳过逐股指标重算(stock_features 已预计算, 此处重复且 MicroValue 未用)。
+        return False
+
     def generate_cross_sectional_signals(
         self,
         universe: list[StockSnapshot],

@@ -56,6 +56,48 @@ def test_cross_sectional_runner_feeds_only_past_bars_to_factor(monkeypatch):
     assert all(b.timestamp < t for b in captured["history"])
 
 
+class _NoHistCS(CrossSectionalStrategy):
+    @property
+    def name(self) -> str:
+        return "NoHistCS"
+
+    @property
+    def uses_bar_history(self) -> bool:
+        return False
+
+    def generate_cross_sectional_signals(self, universe, current_positions, current_date):
+        return []
+
+
+def test_cross_sectional_runner_skips_bar_history_when_strategy_opts_out(monkeypatch):
+    # uses_bar_history=False 的策略 → runner 传 bar_history=None →
+    # build_cross_section 跳过昂贵的逐股指标重算(MicroValue 等无需技术指标的策略避免 O(n²) 重算)。
+    sym = "000001.SZ"
+    t_minus_1 = datetime(2024, 6, 3)
+    t = datetime(2024, 6, 4)
+    market = MockMarketGateway()
+    market.add_bars(sym, [_bar(sym, t_minus_1, 10.0), _bar(sym, t, 99.0)])
+    market.set_current_time(t)
+
+    captured = {}
+
+    def fake_build_cross_section(date, bars, registry, bar_history=None):
+        captured["history"] = bar_history
+        return []
+
+    monkeypatch.setattr(CrossSectionBuilder, "build_cross_section",
+                        staticmethod(fake_build_cross_section))
+
+    runner = CrossSectionalStrategyRunner(
+        strategy=_NoHistCS(), sizer=EqualWeightSizer(n_symbols=1),
+        market_gateway=market, trade_gateway=MockTradeGateway(market, initial_capital=1_000_000),
+        fundamental_registry=FundamentalRegistry(),
+    )
+    runner.evaluate(DayContext(current_time=t, symbols=[sym], base_timeframe=Timeframe.DAY_1))
+
+    assert captured["history"] is None  # 未传 bar 历史 → build_cross_section 跳过指标重算
+
+
 def test_single_runner_feeds_only_past_bars_to_strategy():
     from src.application.strategy_runner import SingleStrategyRunner
     from src.domain.strategy.services.base_strategy import BaseStrategy

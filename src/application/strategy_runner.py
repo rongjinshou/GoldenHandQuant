@@ -183,8 +183,10 @@ class CrossSectionalStrategyRunner(StrategyRunner):
 
         universe = []
         if self.fundamental_registry:
+            # 策略不需技术指标时不传 bar_history → 跳过逐股指标重算(性能, 见 uses_bar_history)
+            hist = bar_history if self.strategy.uses_bar_history else None
             universe = CrossSectionBuilder.build_cross_section(
-                context.current_time, bars, self.fundamental_registry, bar_history
+                context.current_time, bars, self.fundamental_registry, hist
             )
 
         gate = self.system_gate.check_gate(context.current_time)

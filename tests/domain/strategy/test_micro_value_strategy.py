@@ -91,3 +91,8 @@ class TestMicroValueStrategy:
 
     def test_name_property(self):
         assert MicroValueStrategy().name == "MicroValueStrategy"
+
+    def test_does_not_use_bar_history(self):
+        # MicroValue 只用 market_cap + 过滤字段, 不需要技术指标 →
+        # 声明 uses_bar_history=False, 让回测跳过逐股指标重算(避免 stock_features 已有的重复 O(n²) 计算)。
+        assert MicroValueStrategy().uses_bar_history is False
