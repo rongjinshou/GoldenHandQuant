@@ -1,5 +1,6 @@
 """分层回测引擎测试。"""
 
+import math
 from datetime import datetime
 
 import pytest
@@ -107,8 +108,12 @@ class TestLongOnlyExcess:
         snaps = [_make_snapshot(f"S{i}", float(i + 1)) for i in range(10)]
         snapshots_by_date = {"2024-01-01": snaps, "2024-01-02": snaps, "2024-01-03": snaps}
         ret = {f"S{i}": 0.01 * (i + 1) for i in range(10)}
+        # 各实现日同序、量级不同 → Top 持续跑赢但超额量级变化 → excess_ir 有意义(>0)。
+        # (对称扣成本后, 恒定收益会让超额恒定→IR=0; 故用变量级而非常量, 见 L4 修复)
         returns_by_date = {
-            "2024-01-02": dict(ret), "2024-01-03": dict(ret), "2024-01-04": dict(ret),
+            "2024-01-02": {k: v for k, v in ret.items()},
+            "2024-01-03": {k: v * 1.5 for k, v in ret.items()},
+            "2024-01-04": {k: v * 0.7 for k, v in ret.items()},
         }
         res = bt.run(expr, snapshots_by_date, returns_by_date, num_layers=5)
         assert res.top_layer_return > res.benchmark_return
@@ -219,3 +224,46 @@ class TestRebalanceDays:
                       num_layers=2, cost_rate=0.003, rebalance_days=3)
         assert hold.long_short_return == pytest.approx(daily.long_short_return)
         assert hold.layer_returns == pytest.approx(daily.layer_returns)
+
+
+class TestScorecardRefinement:
+    """L3: excess_ir 用非重叠块 IR(去持有期内日超额自相关高估); L4: 基准腿对称扣换手成本。"""
+
+    @staticmethod
+    def _excess(top_gross, top_turn, bench, bench_turn, cost, rebal):
+        # num_layers=2 → top=index 1; 底层填 0, 不影响超额
+        n = len(top_gross)
+        lg = [[0.0] * n, list(top_gross)]
+        lt = [[0.0] * n, list(top_turn)]
+        return LayerBacktester._top_excess_net(
+            lg, lt, list(bench), list(bench_turn),
+            num_layers=2, cost_rate=cost, trading_days_per_year=244,
+            layer_annual_returns=[0.0, 0.0], rebalance_days=rebal,
+        )
+
+    def test_excess_ir_daily_matches_naive_formula(self):
+        # rebalance_days=1 → 块大小 1 → IR 退化为日 mean/std×√244 (无回归)
+        e = [0.02, -0.01, 0.03, 0.0, 0.015]
+        n = len(e)
+        _, _, _, ir, _ = self._excess(e, [0.0] * n, [0.0] * n, [0.0] * n, cost=0.0, rebal=1)
+        mean = sum(e) / n
+        std = math.sqrt(sum((x - mean) ** 2 for x in e) / (n - 1))
+        assert ir == pytest.approx(mean / std * math.sqrt(244), rel=1e-9)
+
+    def test_excess_ir_block_lower_than_daily_when_autocorrelated(self):
+        # 正自相关序列(3 高 3 低): 日频 √244 高估 IR; 3 日块 IR 应更保守(更低)
+        e = [0.02, 0.02, 0.02, -0.01, -0.01, -0.01]
+        n = len(e)
+        _, _, _, ir_daily, _ = self._excess(e, [0.0] * n, [0.0] * n, [0.0] * n, cost=0.0, rebal=1)
+        _, _, _, ir_block, _ = self._excess(e, [0.0] * n, [0.0] * n, [0.0] * n, cost=0.0, rebal=3)
+        assert ir_daily > 0 and ir_block > 0
+        assert ir_block < ir_daily
+
+    def test_benchmark_charged_symmetric_turnover_cost(self):
+        # 基准腿有换手时对称扣成本 → 基准净收益低于 costless
+        n = 4
+        top = [0.0] * n
+        bench = [0.01] * n
+        _, bench_costless, _, _, _ = self._excess(top, [0.0] * n, bench, [0.0] * n, cost=0.01, rebal=1)
+        _, bench_charged, _, _, _ = self._excess(top, [0.0] * n, bench, [0.5, 0.0, 0.0, 0.0], cost=0.01, rebal=1)
+        assert bench_charged < bench_costless

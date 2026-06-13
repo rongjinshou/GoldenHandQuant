@@ -147,8 +147,11 @@ class TestFactorTestRunner:
             snapshots_by_date[date_str] = [_make_snapshot(f"S{i}", float(i + 1)) for i in range(10)]
             prices_by_date[date_str] = {f"S{i}": 10.0 for i in range(10)}
         # 高 pe 收益更高 → Top 层跑赢等权基准
+        # 各日同序、量级不同 → Top 持续跑赢但超额量级变化 → excess_ir 有意义(对称扣成本下
+        # 恒定收益会使超额恒定→IR=0, 见 L4 修复)
+        scales = [1.0, 1.4, 0.8, 1.2, 0.9, 1.3]
         for i in range(len(dates) - 1):
-            returns_by_date[dates[i]] = {f"S{j}": 0.005 * (j + 1) for j in range(10)}
+            returns_by_date[dates[i]] = {f"S{j}": 0.005 * (j + 1) * scales[i] for j in range(10)}
 
         scored = runner.run(
             expression_str="pe_ratio",
