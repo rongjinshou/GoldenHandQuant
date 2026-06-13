@@ -1,16 +1,18 @@
 backtest:
+  # 全市场截面回测的宇宙来自 market.duckdb(DuckDB 源, 见 build_backtest_cross_section)。
+  # 下列 symbols 仅供风控/对照指数; 个股宇宙不在此列。
   symbols:
-    - "000852.SH"
-  start_date: "2015-01-01"
-  end_date: "2025-01-01"
+    - "000852.SH"   # 中证1000: 系统风控闸 index + 次级对照(离线无指数bars时 inert, 设计 DD-3/DD-4)
+  start_date: "2021-01-01"
+  end_date: "2026-06-11"
   base_timeframe: "1d"
-  initial_capital: 1000000.0
-  plot: true
+  initial_capital: 146000.0     # 对齐真实账户, 检验 ¥146k 可投性
+  plot: false
   benchmark: "000852.SH"
 
 strategy:
   name: "MicroValueStrategy"
-  top_n: 9
+  top_n: 20                     # 可投档(¥146k/20≈¥7.3k/仓); 敏感性 {10,30} 见 run-driver
 
 position_sizing:
   type: "EqualWeightSizer"
@@ -21,39 +23,19 @@ risk:
     ma_period: 20
   stop_loss:
     max_loss_ratio: 0.03
-  circuit_breaker:
-    enabled: false
-    max_daily_loss: 0.03
-    max_total_drawdown: 0.20
-    cooldown_days: 1
-  notification:
-    console: true
-    wechat:
-      enabled: false
-      webhook_url: ""
-    email:
-      enabled: false
-      smtp_host: ""
-      smtp_port: 465
-      sender: ""
-      password: ""
-      receivers: []
   policies:
     - "limit_up_break"
     - "hard_stop_loss"
 
+# 成本由 MockTradeGateway 内置(佣金万2.5/印花0.5‰/过户/滑点±0.1%/流动性10%), 此处仅留档。
 costs:
-  commission_rate: 0.0002
-  tax_rate: 0.001
+  commission_rate: 0.00025
+  tax_rate: 0.0005
   min_commission: 5.0
-  slippage: 0.003
+  slippage: 0.001
 
 data:
-  cache_dir: "data/"
-  # DuckDB 快路径读本地 market.duckdb（已履约 2021-2025 全市场日线）;
-  # 库内缺数时自动回退 QMT（需客户端在线）。Web 回测任务与 CLI 共用此口径。
   history_fetcher: "DuckDBHistoryDataFetcher"
+  cache_dir: "data/"
   tushare:
-    # Tushare token - 从环境变量 TUSHARE_TOKEN 读取
-    # 后续主要使用 QMT 数据源，此 token 仅作备用
     token: "${TUSHARE_TOKEN}"
