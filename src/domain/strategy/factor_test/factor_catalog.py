@@ -96,7 +96,60 @@ P2_FACTORS: list[FactorHypothesis] = [
     ),
 ]
 
-ALL_FACTORS: list[FactorHypothesis] = P0_FACTORS + P1_FACTORS + P2_FACTORS
+# P3 因子: 第二-edge 研究候选(多因子交互/质量/价值×成长, 仅用已就绪字段)。
+# 全部 long_only + 中性化(剥离 size/reversal)检验是否为独立于 F01 的真 edge。2026-06-14 加入。
+P3_FACTORS: list[FactorHypothesis] = [
+    FactorHypothesis(
+        factor_id="F20", name="价值×成长(EP×净利增速)", category="价值",
+        expression="rank(1 / pe_ratio) * rank(earnings_growth)",
+        direction_note="高=便宜且高增=GARP, 预期跑赢; 交互避免低PE垃圾/高成长泡沫",
+        evidence_strength="中", field_ready=True, priority="P3",
+    ),
+    FactorHypothesis(
+        factor_id="F21", name="价值×成长(EP×营收增速)", category="价值",
+        expression="rank(1 / pe_ratio) * rank(revenue_growth)",
+        direction_note="高=便宜且营收扩张, 预期跑赢",
+        evidence_strength="中", field_ready=True, priority="P3",
+    ),
+    FactorHypothesis(
+        factor_id="F22", name="质量×低波", category="质量",
+        expression="rank(0 - volatility_20d) * rank(roe_ttm)",
+        direction_note="高=低波且高ROE=防御型质量, 预期跑赢; 给 F04 低波加质量过滤",
+        evidence_strength="中", field_ready=True, priority="P3",
+    ),
+    FactorHypothesis(
+        factor_id="F23", name="成长稳定性", category="成长",
+        expression="rank(earnings_growth) + rank(revenue_growth)",
+        direction_note="高=利润与营收双增=质量成长, 预期跑赢",
+        evidence_strength="中", field_ready=True, priority="P3",
+    ),
+    FactorHypothesis(
+        factor_id="F24", name="经营现金流收益率", category="价值",
+        expression="ocf_ttm / market_cap",
+        direction_note="高=现金流相对市值高=便宜且盈利质量真, 预期跑赢",
+        evidence_strength="中", field_ready=True, priority="P3",
+    ),
+    FactorHypothesis(
+        factor_id="F25", name="低偏度×低波", category="风险",
+        expression="zscore(skewness_20d) + zscore(0 - volatility_20d)",
+        direction_note="高=低尾部博彩且低波=抗风险, 预期跑赢(给 F05 加低波)",
+        evidence_strength="弱", field_ready=True, priority="P3",
+    ),
+    FactorHypothesis(
+        factor_id="F26", name="动量残差(季-月)", category="量价",
+        expression="return_60d - return_20d",
+        direction_note="高=季动量强而近月未透支, 期限结构残差",
+        evidence_strength="弱", field_ready=True, priority="P3",
+    ),
+    FactorHypothesis(
+        factor_id="F27", name="质量×价值(ROE×BP)", category="质量",
+        expression="rank(roe_ttm) * rank(1 / pb_ratio)",
+        direction_note="高=高ROE且破净便宜=GARP/隐藏价值, 预期跑赢",
+        evidence_strength="中", field_ready=True, priority="P3",
+    ),
+]
+
+ALL_FACTORS: list[FactorHypothesis] = P0_FACTORS + P1_FACTORS + P2_FACTORS + P3_FACTORS
 
 FACTOR_BY_ID: dict[str, FactorHypothesis] = {f.factor_id: f for f in ALL_FACTORS}
 FACTOR_BY_NAME: dict[str, FactorHypothesis] = {f.name: f for f in ALL_FACTORS}
@@ -113,7 +166,7 @@ def resolve_factors(factor_str: str) -> list[FactorHypothesis]:
     """
     if factor_str.strip().lower() == "all":
         return list(ALL_FACTORS)
-    if factor_str.strip().upper() in ("P0", "P1", "P2"):
+    if factor_str.strip().upper() in ("P0", "P1", "P2", "P3"):
         priority = factor_str.strip().upper()
         return [f for f in ALL_FACTORS if f.priority == priority]
 
