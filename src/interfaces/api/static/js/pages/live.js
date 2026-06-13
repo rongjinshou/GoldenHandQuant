@@ -1,4 +1,4 @@
-/* 实盘 / 纸面前向页 */
+/* 实盘 / 纸面前向页 — KPI 概览 + 分页(概览/持仓/循环/执行/审计/Ticket) */
 "use strict";
 
 import { $, fetchJSON, showError, num } from "../api.js";
@@ -8,8 +8,10 @@ import { applyGlossary } from "../glossary.js";
 let liveEquityChart = null;
 let liveTimer = null;
 
-// Fix #1: 维护已展开行集合，防止 5s 轮询抹除钻取
+// 5s 轮询不抹除钻取 / 不收起已展开的长表
 const expandedCycles = new Set();
+const fullView = { cycles: false, executions: false, audit: false };
+const ROW_LIMIT = 50; // 长表默认只显示最近 N 行, 余下折叠
 
 const STATUS_BADGE = {
   DRY_RUN: "info", SUBMITTED: "info", FILLED: "pass", PARTIAL: "warn",
@@ -33,6 +35,23 @@ export function initLive() {
   const auditEl = $("#audit-action");
   if (modeEl) modeEl.addEventListener("change", () => loadLive().catch((e) => showError(e.message)));
   if (auditEl) auditEl.addEventListener("change", () => loadLive().catch((e) => showError(e.message)));
+  initSubnav();
+}
+
+/* 子页签: 概览/持仓/循环/执行/审计/Ticket — 同一时刻只显示一个视图 */
+function initSubnav() {
+  const nav = $("#live-subnav");
+  if (!nav) return;
+  nav.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      nav.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll("#tab-live .live-view").forEach((v) => v.classList.remove("active"));
+      btn.classList.add("active");
+      const view = $(`#lv-${btn.dataset.lv}`);
+      if (view) view.classList.add("active");
+      if (btn.dataset.lv === "overview") resizeCharts();
+    });
+  });
 }
 
 function daemonBadge(cfg) {
@@ -46,9 +65,36 @@ function daemonBadge(cfg) {
   return `<span class="badge warn">槽位缺口 ${n}/${due} — 守护可能未运行</span>`;
 }
 
-function renderOpsCards(budget, cfg) {
+/* 顶部 KPI 条: 总资产 / 累计收益 / 可用资金 / 持仓市值 */
+function renderKpis(ov, eq, posCount) {
+  const acct = ov.latest_account || {};
+  const series = eq.series || [];
+  const first = series.length ? series[0].total_asset : null;
+  const lastTotal = acct.total_asset ?? (series.length ? series[series.length - 1].total_asset : null);
+  let cumHtml = `<div class="big">—</div><div class="dim">暂无权益快照</div>`;
+  if (first && lastTotal != null && first > 0) {
+    const ret = lastTotal / first - 1;
+    const cls = ret >= 0 ? "gate-bad" : "gate-good"; // A股: 涨=红 跌=绿
+    cumHtml = `<div class="big ${cls}">${ret >= 0 ? "+" : ""}${(ret * 100).toFixed(2)}%</div>`
+      + `<div class="dim">本金 ${num(first)}</div>`;
+  }
+  $("#live-cards").innerHTML = `
+    <div class="card"><h3>总资产</h3><div class="big">${num(acct.total_asset)}</div>
+      <div class="dim">${(acct.snapshot_time || "").slice(0, 19) || "无快照"} · ${acct.mode || ""}</div></div>
+    <div class="card"><h3>累计收益</h3>${cumHtml}</div>
+    <div class="card"><h3>可用资金</h3><div class="big">${num(acct.available_cash)}</div>
+      <div class="dim">冻结 ${num(acct.frozen_cash)}</div></div>
+    <div class="card"><h3>持仓市值</h3><div class="big">${num(acct.market_value)}</div>
+      <div class="dim">${posCount} 只持仓</div></div>`;
+}
+
+/* 概览页运维卡: 今日活动 / 预算 / 守护 / auto-trade 配置 */
+function renderOpsCards(ov, budget, cfg) {
   const at = cfg.auto_trade || {};
   $("#live-ops-cards").innerHTML = `
+    <div class="card"><h3>今日活动</h3>
+      <div class="big">${ov.cycles_today} <span class="unit">循环</span></div>
+      <div class="dim">执行 ${ov.executions_today} 笔（含拒单/失败留痕）</div></div>
     <div class="card"><h3><span data-gloss="budget">今日预算（跨模式）</span></h3>
       <div class="big">${num(budget.submitted_notional)}</div>
       <div class="dim">上限 ${num(budget.daily_notional_cap)} · 余 ${num(budget.remaining)}
@@ -66,47 +112,67 @@ function renderOpsCards(budget, cfg) {
   applyGlossary($("#live-ops-cards"));
 }
 
+/* 长表分页渲染: 默认最近 ROW_LIMIT 行, 余下点开 */
+function renderBounded(tbody, rows, key, colspan, emptyHtml) {
+  if (!rows.length) { tbody.innerHTML = emptyHtml; return; }
+  const expanded = fullView[key];
+  const shown = expanded ? rows : rows.slice(0, ROW_LIMIT);
+  let html = shown.join("");
+  if (!expanded && rows.length > ROW_LIMIT) {
+    html += `<tr class="more-row" data-more="${key}"><td colspan="${colspan}">`
+      + `显示全部 ${rows.length} 条 ▾</td></tr>`;
+  }
+  tbody.innerHTML = html;
+  const more = tbody.querySelector(".more-row");
+  if (more) more.addEventListener("click", () => {
+    fullView[key] = true;
+    loadLive().catch(() => {});
+  });
+}
+
 async function loadLive() {
   const mode = $("#live-mode")?.value || "";
   const modeQ = mode ? `?mode=${mode}` : "";
+  const eqQ = mode ? `?mode=${mode}&limit=2000` : "?limit=2000";
   const auditAction = $("#audit-action")?.value || "";
   const [ov, cyc, exe, pos, eq, budget, cfg, audit, tickets] = await Promise.all([
     fetchJSON("/api/live/overview"),
-    fetchJSON("/api/live/cycles"),
-    fetchJSON("/api/live/executions"),
+    fetchJSON("/api/live/cycles?limit=500"),
+    fetchJSON("/api/live/executions?limit=1000"),
     fetchJSON(`/api/live/positions${modeQ}`),
-    fetchJSON(`/api/live/equity${modeQ}`),
+    fetchJSON(`/api/live/equity${eqQ}`),
     fetchJSON("/api/live/budget"),
     fetchJSON("/api/live/config"),
-    fetchJSON(`/api/live/audit?limit=50${auditAction ? `&action=${auditAction}` : ""}`),
+    fetchJSON(`/api/live/audit?limit=500${auditAction ? `&action=${auditAction}` : ""}`),
     fetchJSON("/api/live/tickets"),
   ]);
 
-  $("#live-empty").classList.toggle("hidden", ov.db_exists);
+  // 空态: 无库时只显示 KPI 占位 + 空提示, 隐藏分页与各视图
+  const hasDb = ov.db_exists;
+  $("#live-empty").classList.toggle("hidden", hasDb);
+  $("#live-subnav").classList.toggle("hidden", !hasDb);
+  document.querySelectorAll("#tab-live .live-view").forEach(
+    (v) => v.classList.toggle("hidden", !hasDb));
 
-  const acct = ov.latest_account || {};
-  $("#live-cards").innerHTML = `
-    <div class="card"><h3>总资产</h3><div class="big">${num(acct.total_asset)}</div>
-      <div class="dim">${(acct.snapshot_time || "").slice(0, 19) || "无快照"} · ${acct.mode || ""}</div></div>
-    <div class="card"><h3>可用资金</h3><div class="big">${num(acct.available_cash)}</div>
-      <div class="dim">冻结 ${num(acct.frozen_cash)}</div></div>
-    <div class="card"><h3>今日循环</h3><div class="big">${ov.cycles_today}</div>
-      <div class="dim">执行时刻命中次数</div></div>
-    <div class="card"><h3>今日执行</h3><div class="big">${ov.executions_today}</div>
-      <div class="dim">含拒单/失败留痕</div></div>`;
+  renderKpis(ov, eq, pos.positions.length);
+  renderOpsCards(ov, budget, cfg);
 
-  renderOpsCards(budget, cfg);
+  // 子页签计数
+  $("#lv-cnt-pos").textContent = pos.positions.length;
+  $("#lv-cnt-cyc").textContent = cyc.cycles.length;
+  $("#lv-cnt-exe").textContent = exe.executions.length;
+  $("#lv-cnt-aud").textContent = audit.logs.length;
+  $("#lv-cnt-tk").textContent = tickets.tickets.length;
 
-  // 无权益快照时整图隐藏, 不渲染空黑框（视觉自查发现）
+  // ---- 权益曲线 (无快照时隐藏整图, 不渲染空黑框) ----
   const hasEquity = eq.series.length > 0;
   $("#live-equity-chart").classList.toggle("hidden", !hasEquity);
   if (hasEquity) {
     if (!liveEquityChart) {
       liveEquityChart = makeChart($("#live-equity-chart"));
     } else {
-      resizeCharts(); // 从 hidden 恢复显示时尺寸可能为 0
+      resizeCharts();
     }
-    // dry_run 与 live 是两条独立曲线, 混排成一条会出现锯齿假象
     const tc = chartTheme();
     const modes = [...new Set(eq.series.map((r) => r.mode))];
     const timeline = [...new Set(eq.series.map((r) => r.snapshot_time))].sort();
@@ -141,26 +207,28 @@ async function loadLive() {
     }, true);
   }
 
+  // ---- 持仓 ----
   $("#live-pos-time").textContent = pos.snapshot_time
     ? `快照 ${pos.snapshot_time.slice(0, 19)}` : "";
   $("#live-positions tbody").innerHTML = pos.positions.map((r) => `
     <tr><td>${r.symbol}</td><td>${r.total_volume}</td>
-        <td>${r.available_volume}</td><td>${(r.average_cost ?? 0).toFixed(3)}</td></tr>`
-  ).join("") || `<tr><td colspan="4" class="gate-na">无持仓快照</td></tr>`;
+        <td>${r.available_volume}</td><td>${(r.average_cost ?? 0).toFixed(3)}</td>
+        <td>${num((r.total_volume || 0) * (r.average_cost ?? 0))}</td></tr>`
+  ).join("") || `<tr><td colspan="5" class="gate-na">无持仓快照</td></tr>`;
 
-  $("#live-cycles tbody").innerHTML = cyc.cycles.map((c) => `
+  // ---- 循环 (分页 + 行内钻取) ----
+  const cycleRows = cyc.cycles.map((c) => `
     <tr class="clickable" data-cycle="${c.cycle_id}">
       <td>${c.cycle_time.slice(0, 19)}</td>
       <td><span class="badge ${c.mode === "live" ? "fail" : "info"}">${c.mode}</span></td>
       <td>${c.strategy}</td><td>${c.signals_generated}</td><td>${c.orders_submitted}</td>
       <td>${c.orders_rejected}</td><td>${c.orders_failed}</td>
       <td>${num(c.notional_submitted)}</td>
-      <td style="text-align:left">${c.note || ""}</td></tr>`
-  ).join("") || `<tr><td colspan="9" class="gate-na">暂无循环</td></tr>`;
+      <td style="text-align:left">${c.note || ""}</td></tr>`);
+  renderBounded($("#live-cycles tbody"), cycleRows, "cycles", 9,
+    `<tr><td colspan="9" class="gate-na">暂无循环</td></tr>`);
 
-  // Fix #1: 提取展开逻辑为独立函数，供点击与轮询恢复共用
   async function expandCycleRow(tr) {
-    // Fix #2: fetchJSON 失败加 catch，不产生 unhandled rejection
     let d;
     try {
       d = await fetchJSON(`/api/live/cycles/${tr.dataset.cycle}/executions`);
@@ -181,46 +249,44 @@ async function loadLive() {
       const next = tr.nextElementSibling;
       if (next && next.classList.contains("row-detail")) {
         next.remove();
-        // Fix #1: 收起时从集合删除
         expandedCycles.delete(tr.dataset.cycle);
         return;
       }
-      // Fix #1: 展开时加入集合
       expandedCycles.add(tr.dataset.cycle);
       await expandCycleRow(tr);
     });
   });
-
-  // Fix #1: 轮询重渲染后恢复已展开行（fetch 失败静默）
   for (const cycleId of expandedCycles) {
     const tr = $("#live-cycles tbody").querySelector(`tr[data-cycle="${cycleId}"]`);
     if (tr) {
       try { await expandCycleRow(tr); } catch { /* 静默 */ }
     } else {
-      // 该 cycle 已不在当前列表，清理集合
       expandedCycles.delete(cycleId);
     }
   }
 
-  $("#live-executions tbody").innerHTML = exe.executions.map((e) => `
+  // ---- 执行 (分页) ----
+  const exeRows = exe.executions.map((e) => `
     <tr><td>${e.submitted_at.slice(0, 19)}</td><td>${e.symbol}</td>
         <td class="${e.direction === "BUY" ? "gate-bad" : "gate-good"}">${e.direction}</td>
         <td>${e.exec_price != null ? e.exec_price.toFixed(2) : "-"}</td>
         <td>${e.volume ?? "-"}</td><td>${e.notional != null ? num(e.notional) : "-"}</td>
         <td>${e.confidence != null ? e.confidence.toFixed(2) : "-"}</td>
         <td><span class="badge ${STATUS_BADGE[e.status] || "info"}">${e.status}</span></td>
-        <td style="text-align:left">${e.reject_reason || ""}</td></tr>`
-  ).join("") || `<tr><td colspan="9" class="gate-na">暂无执行记录</td></tr>`;
+        <td style="text-align:left">${e.reject_reason || ""}</td></tr>`);
+  renderBounded($("#live-executions tbody"), exeRows, "executions", 9,
+    `<tr><td colspan="9" class="gate-na">暂无执行记录</td></tr>`);
 
-  $("#live-audit tbody").innerHTML = audit.logs.map((r) => `
+  // ---- 审计 (分页) ----
+  const auditRows = audit.logs.map((r) => `
     <tr><td>${(r.timestamp || "").slice(0, 19)}</td><td>${r.action}</td>
         <td>${r.resource_type || ""}:${r.resource_id || ""}</td>
-        <td style="text-align:left"><code>${String(r.details || "").slice(0, 120)}</code></td></tr>`
-  ).join("") || `<tr><td colspan="4" class="gate-na">暂无审计记录</td></tr>`;
+        <td style="text-align:left"><code>${escHtml(String(r.details || "")).slice(0, 120)}</code></td></tr>`);
+  renderBounded($("#live-audit tbody"), auditRows, "audit", 4,
+    `<tr><td colspan="4" class="gate-na">暂无审计记录</td></tr>`);
 
-  // Fix #9: HTML 转义防 XSS
+  // ---- Ticket ----
   function escHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
-  // ticket → 字段化键值面板 (方向 A股 买红卖绿); 原始 JSON 收进折叠供排障
   function kvTicket(c) {
     if (!c || typeof c !== "object") return `<div class="tk-empty">内容不可读</div>`;
     const dirCls = c.direction === "BUY" ? "gate-bad" : c.direction === "SELL" ? "gate-good" : "";

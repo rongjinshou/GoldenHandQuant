@@ -659,3 +659,53 @@ body, .card, .form-card, .verdict-table, .verdict-table th, .verdict-table td,
 :root[data-theme="light"] .fchip { border-color: #d4dae4; }
 :root[data-theme="light"] .fchip.disabled { opacity: .55; }
 :root[data-theme="light"] .reasons-row td { color: #5f6a78; }
+
+/* ===================== 实盘页: 子页签 + 分页视图 ===================== */
+/* 段控子导航: 同一页内分焦, 取代实盘页一杆到底的长滚动 */
+.subnav {
+  display: inline-flex; flex-wrap: wrap; gap: 3px; padding: 3px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r2); margin-bottom: var(--s5); box-shadow: var(--shadow-1);
+}
+.subnav button {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-3); font-family: var(--font-body);
+  font-size: 13px; letter-spacing: .04em; padding: 7px 16px;
+  border-radius: var(--r1);
+  transition: color .14s ease, background .14s ease, box-shadow .14s ease;
+}
+.subnav button:hover { color: var(--text); background: rgba(255,255,255,.03); }
+.subnav button.active {
+  color: var(--gold); background: rgba(233,185,73,.1);
+  box-shadow: inset 0 0 0 1px var(--gold-line); font-weight: 600;
+}
+.subnav .cnt {
+  font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums;
+  color: var(--text-3); background: rgba(255,255,255,.05);
+  padding: 1px 7px; border-radius: 10px; line-height: 1.5;
+}
+.subnav button.active .cnt { color: var(--gold-deep); background: rgba(233,185,73,.16); }
+
+.live-view { display: none; }
+.live-view.active { display: block; animation: panelRise .26s cubic-bezier(.2,.8,.3,1) both; }
+#live-ops-cards { margin-bottom: var(--s5); }
+
+/* KPI 卡里的小单位后缀 (今日活动) */
+.card .big .unit {
+  font-family: var(--font-body); font-size: 12px; font-weight: 400;
+  color: var(--text-3); margin-left: 3px;
+}
+
+/* 长表「显示全部」行 */
+.more-row td {
+  text-align: center !important; cursor: pointer;
+  color: var(--gold); font-family: var(--font-body); font-size: 12.5px;
+  letter-spacing: .03em; background: var(--surface-2);
+  transition: background .14s ease;
+}
+.more-row td:hover { background: rgba(233,185,73,.07); }
+
+:root[data-theme="light"] .subnav button:hover { background: rgba(0,0,0,.03); }
+:root[data-theme="light"] .subnav .cnt { background: rgba(0,0,0,.05); }
+:root[data-theme="light"] .more-row td:hover { background: rgba(191,138,30,.07); }

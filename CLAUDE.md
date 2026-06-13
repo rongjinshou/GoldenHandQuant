@@ -73,6 +73,10 @@ $WIN_PYTHON -m src.interfaces.cli.quant dashboard
 # WSL 为 mirrored 网络, WSL 内 Claude 可直接 curl http://127.0.0.1:8501 打到 Windows 服务
 $WIN_PYTHON scripts/ui_smoke.py --deep
 
+# 实盘页种子数据（离线重放真实 auto-trade 流水到 data/trading.db; 无需 QMT;
+# 用 market.duckdb 历史日线驱动 run_cycle, 全 dry_run, 与生产交易链完全隔离）
+$WIN_PYTHON scripts/seed_paper_trading.py
+
 # 自动交易循环（dry-run 默认=纸面前向; 留痕入 data/trading.db; 需 QMT 客户端）
 $WIN_PYTHON -m src.interfaces.cli.quant auto-trade --once --enable
 # live 真单需三重确认: 配置 mode:live + enabled:true + CLI --live（运行手册:
