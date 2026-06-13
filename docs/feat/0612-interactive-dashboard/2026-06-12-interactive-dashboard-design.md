@@ -216,3 +216,12 @@ JobManager 经 `Depends(get_job_manager)` 注入（模块级单例 + 测试 depe
 - **因子勾选 chip 化**：挤成一片的勾选行 → 按 P0/P1/P2 分组的可勾选 chip（选中=金填充, 禁用=虚线删除线, `:has(input:checked)` 驱动）, 扫读性大幅提升。
 - **ticket 键值面板**：裸 JSON `<pre>` → 字段化键值网格（标的/方向[买红卖绿]/委托价/数量/金额/状态[FILLED 绿]/委托号/时刻）, 原始 JSON 收进 `<details>` 折叠供排障。
 - 验证：node 语法检查通过、冒烟 PASS（0 console 错误）、四处逐张读图确认。
+
+## 10. 日夜双主题 + 图表精修（2026-06-13, frontend-design skill）
+
+用户诉求：回测曲线丑、红绿箭头难看、需支持日间(白)/夜间双主题切换。
+
+- **主题系统**：`charts.js` 升为主题权威（`chartTheme()` 返回随 `html[data-theme]` 切换的图表调色板 + `axisStyle`/`tooltipStyle`/`vGradient` 助手；`makeChart` 中性 init，颜色全由 setOption 显式控制以支持换肤）。新增 `theme.js`（持久化 localStorage + 顶栏 ☀/☾ 按钮 + 广播 `gh:theme`）；`index.html` `<head>` 内联脚本首屏防闪先落 `data-theme`。CSS 新增 `:root[data-theme="light"]` 全套浅色 token + 硬编码深色处浅色修正（表头/reason 行/日志/ticket/滚动条/error 条等）+ 0.25s 换肤过渡。三个图表页监听 `gh:theme` 用缓存数据重渲染换肤。
+- **图表精修**：净值线平滑(smooth .25)+主策略品牌金**渐变面积填充**；基准灰虚线；**买卖标记重做**——path 字形(▲买/▼卖, 图例也正确区分形状)+同底色描边光环+阴影+偏移(买在线下/卖在线上不挡线)+笔数加权；回撤子图策略色渐变面积；坐标轴/网格/图例/标题/tooltip 全主题化(万 单位、毛玻璃浮层)。K线(红涨绿跌)/特征/实盘权益同步主题化。
+- **对抗评审（图表专家+视觉总监双视角, 7 条）**：修 important=图例卖出图标 ▲→▼(path 字形根治)；important=日间 reason 行/卡片副信息/禁用 chip 对比度不足(浅色 --text-3 加深至 #5f6a78 + 专项覆盖)；dark 买入红加亮(#ff6f61)增halo。买=红/卖=绿 保持(A股委托方向惯例, 非涨跌色)。
+- 验证：双主题逐张读图（回测图/K线/总览/判决/实盘）、冒烟 PASS（0 console 错误）、切换无闪烁。

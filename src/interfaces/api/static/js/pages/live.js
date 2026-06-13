@@ -2,7 +2,7 @@
 "use strict";
 
 import { $, fetchJSON, showError, num } from "../api.js";
-import { makeChart, resizeCharts } from "../charts.js";
+import { makeChart, resizeCharts, chartTheme, axisStyle, tooltipStyle, vGradient } from "../charts.js";
 import { applyGlossary } from "../glossary.js";
 
 let liveEquityChart = null;
@@ -107,24 +107,36 @@ async function loadLive() {
       resizeCharts(); // 从 hidden 恢复显示时尺寸可能为 0
     }
     // dry_run 与 live 是两条独立曲线, 混排成一条会出现锯齿假象
+    const tc = chartTheme();
     const modes = [...new Set(eq.series.map((r) => r.mode))];
     const timeline = [...new Set(eq.series.map((r) => r.snapshot_time))].sort();
     const tsIndex = new Map(timeline.map((t, i) => [t, i]));
+    const wan = (v) => (Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(1)}万` : `${v}`);
     liveEquityChart.setOption({
       backgroundColor: "transparent",
       animation: false,
-      title: { text: "账户权益（循环快照）", textStyle: { fontSize: 13 } },
-      tooltip: { trigger: "axis" },
-      legend: { top: 4, right: 10, textStyle: { fontSize: 11 } },
-      grid: { left: 90, right: 20, top: 40, bottom: 40 },
-      xAxis: { type: "category", data: timeline.map((t) => t.slice(5, 16)) },
-      yAxis: { type: "value", scale: true },
-      series: modes.map((m) => {
+      textStyle: { color: tc.text },
+      color: tc.series,
+      title: { text: "账户权益（循环快照）", left: 14, top: 10,
+        textStyle: { fontSize: 13, fontWeight: 600, color: tc.text } },
+      tooltip: { trigger: "axis", ...tooltipStyle(tc),
+        axisPointer: { type: "line", lineStyle: { color: tc.axis, type: "dashed" } } },
+      legend: { top: 9, right: 14, itemWidth: 16, itemHeight: 8,
+        textStyle: { color: tc.dim, fontSize: 11 } },
+      grid: { left: 70, right: 24, top: 46, bottom: 40 },
+      xAxis: { type: "category", boundaryGap: false,
+        data: timeline.map((t) => t.slice(5, 16)), ...axisStyle(tc), splitLine: { show: false } },
+      yAxis: { type: "value", scale: true, ...axisStyle(tc),
+        axisLabel: { color: tc.dim, fontSize: 11, formatter: wan } },
+      series: modes.map((m, i) => {
         const data = new Array(timeline.length).fill(null);
         eq.series.filter((r) => r.mode === m)
           .forEach((r) => { data[tsIndex.get(r.snapshot_time)] = r.total_asset; });
-        return { name: `总资产(${m})`, type: "line", showSymbol: false,
-                 connectNulls: true, data };
+        const col = tc.series[i % tc.series.length];
+        return { name: `总资产(${m})`, type: "line", smooth: 0.25, showSymbol: false,
+                 connectNulls: true, data, lineStyle: { color: col, width: 2.2 },
+                 itemStyle: { color: col },
+                 ...(i === 0 ? { areaStyle: { color: vGradient(tc.goldArea[0], tc.goldArea[1]) } } : {}) };
       }),
     }, true);
   }
@@ -241,3 +253,8 @@ async function loadLive() {
 
   resizeCharts();
 }
+
+// 主题切换 → 实盘页可见时重渲染权益图换肤
+window.addEventListener("gh:theme", () => {
+  if ($("#tab-live")?.classList.contains("active")) loadLive().catch(() => {});
+});

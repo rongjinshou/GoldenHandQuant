@@ -2,7 +2,7 @@
 "use strict";
 
 import { $, API, fetchJSON, pct, f3, showError, clearError } from "../api.js";
-import { makeChart, resizeCharts } from "../charts.js";
+import { makeChart, resizeCharts, chartTheme, axisStyle, tooltipStyle, vGradient } from "../charts.js";
 import { submitJob, attachJobCard } from "../jobs.js";
 import { applyGlossary } from "../glossary.js";
 
@@ -95,29 +95,37 @@ async function fetchBenchmarkSeries(symbol, dates, initialCapital) {
 }
 
 /* 买卖事件 → 散点: 按 (日期,方向) 聚合 (截面策略调仓日几十笔不糊成一团);
-   y 取该策略自己日期轴上的净值 (评审: 多策略日期轴可能不一致); A股配色 买=红▲ 卖=绿▼ */
-function tradeScatter(s, axisIdx) {
+   y 取该策略自己日期轴上的净值 (评审: 多策略日期轴可能不一致);
+   精修: 小三角 + 同底色描边光环(从线上分离) + 阴影 + 偏移(买在线下/卖在线上不挡线)。
+   A股配色 买=红▲ 卖=绿▼。 */
+function tradeScatter(s, axisIdx, t) {
   const own = new Map((s.equity_curve.dates || []).map((d, i) => [d, i]));
   const grouped = { BUY: new Map(), SELL: new Map() };
-  for (const t of s.trades || []) {
-    const g = grouped[t.direction];
-    if (!g || !axisIdx.has(t.date) || !own.has(t.date)) continue;
-    if (!g.has(t.date)) g.set(t.date, []);
-    g.get(t.date).push(t);
+  for (const tr of s.trades || []) {
+    const g = grouped[tr.direction];
+    if (!g || !axisIdx.has(tr.date) || !own.has(tr.date)) continue;
+    if (!g.has(tr.date)) g.set(tr.date, []);
+    g.get(tr.date).push(tr);
   }
-  const mk = (dir, color, rotate) => ({
+  // 用 path 字形 (而非 triangle+rotate): 图例也能正确显示 ▲买/▼卖 区分形状
+  const UP = "path://M0,-9 L9,7 L-9,7 Z";    // ▲ 顶点朝上
+  const DOWN = "path://M0,9 L9,-7 L-9,-7 Z"; // ▼ 顶点朝下
+  const mk = (dir, color, sym, offY) => ({
     name: `${dir === "BUY" ? "买" : "卖"}·${s.strategy}`,
     type: "scatter", xAxisIndex: 0, yAxisIndex: 0,
-    symbol: "triangle", symbolRotate: rotate, z: 12,
-    itemStyle: { color },
-    symbolSize: (_, q) => Math.min(9 + ((q.data.trades.length - 1) * 2), 16),
+    symbol: sym, symbolOffset: [0, offY], z: 14,
+    itemStyle: {
+      color, borderColor: t.panelBg, borderWidth: 2,
+      shadowBlur: 6, shadowColor: "rgba(0,0,0,.4)",
+    },
+    symbolSize: (_, q) => Math.min(9 + (q.data.trades.length - 1) * 1.6, 16),
     data: [...grouped[dir].entries()].map(([d, ts]) => ({
       value: [d, s.equity_curve.values[own.get(d)]], trades: ts,
     })),
   });
   const out = [];
-  if (grouped.BUY.size) out.push(mk("BUY", "#f85149", 0));
-  if (grouped.SELL.size) out.push(mk("SELL", "#3fb950", 180));
+  if (grouped.BUY.size) out.push(mk("BUY", t.up, UP, 11));      // 买 红▲ 落在线下方
+  if (grouped.SELL.size) out.push(mk("SELL", t.down, DOWN, -11)); // 卖 绿▼ 落在线上方
   return out;
 }
 
@@ -144,10 +152,7 @@ function chartTooltipFormatter(params) {
   return lines.join("<br>");
 }
 
-/* 固定配色: overlay/基准插队不许漂移调色板 (策略线与其回撤同色)。
-   主策略走品牌金做主角线, 其余用与红绿(好坏)/灰(基准)隔离的中性序列色。 */
-const STRAT_PALETTE = ["#e9b949", "#46b3c9", "#b48ce6", "#d98a4a", "#5fa8ff"];
-const OVERLAY_PALETTE = ["#8957e5", "#db6d28", "#6e7681"];
+/* 配色由 chartTheme() 提供 (主策略=品牌金主角线; overlay/基准独立色; 随日夜换肤)。 */
 
 /* 渲染代号: 三个 onchange + 任务回调并发触发 async 渲染, 旧渲染过期即弃 (评审 blocker) */
 let renderSeq = 0;
@@ -205,6 +210,7 @@ async function renderBtRun(run) {
   }
 
   if (!btChart) btChart = makeChart($("#bt-chart"));
+  const t = chartTheme();
   const axisIdx = new Map(dates.map((d, i) => [d, i]));
   // 评审: 非首策略日期轴可能不一致, 一律按自身日期映射到共享轴
   const alignToAxis = (s, values) => {
@@ -287,11 +293,11 @@ async function renderBtRun(run) {
       const rebased = s.start_date !== first.start_date;
       overlaySeries.push({
         name: `${other.run_id.slice(-6)}·${s.strategy}${rebased ? "(重定基)" : ""}`,
-        type: "line", data,
+        type: "line", data, smooth: 0.25,
         showSymbol: false, xAxisIndex: 0, yAxisIndex: 0, connectNulls: true,
-        lineStyle: { width: 1, type: "dashed", opacity: .85,
-                     color: OVERLAY_PALETTE[si % OVERLAY_PALETTE.length] },
-        itemStyle: { color: OVERLAY_PALETTE[si % OVERLAY_PALETTE.length] },
+        lineStyle: { width: 1.2, type: "dashed", opacity: .85,
+                     color: t.overlay[si % t.overlay.length] },
+        itemStyle: { color: t.overlay[si % t.overlay.length] },
       });
     });
     if (!anyOverlap) {
@@ -300,51 +306,62 @@ async function renderBtRun(run) {
     }
   }
 
+  const wan = (v) => (Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(1)}万` : `${v}`);
   btChart.setOption({
     backgroundColor: "transparent",
     animation: false,
-    title: { text: `净值与回撤 · ${run.run_id}`, textStyle: { fontSize: 13 } },
-    tooltip: { trigger: "axis", formatter: chartTooltipFormatter },
+    textStyle: { color: t.text },
+    color: t.series,
+    title: { text: `净值与回撤 · ${run.run_id}`, left: 14, top: 10,
+      textStyle: { fontSize: 13, fontWeight: 600, color: t.text } },
+    tooltip: { trigger: "axis", formatter: chartTooltipFormatter, ...tooltipStyle(t),
+      axisPointer: { type: "line", lineStyle: { color: t.axis, type: "dashed" } } },
     axisPointer: { link: [{ xAxisIndex: "all" }] },
-    legend: { top: 4, right: 10, textStyle: { fontSize: 11 } },
+    legend: { top: 9, right: 14, itemWidth: 16, itemHeight: 8, itemGap: 14,
+      textStyle: { color: t.dim, fontSize: 11 } },
     grid: [
-      { left: 80, right: 20, top: 40, height: "52%" },
-      { left: 80, right: 20, top: "70%", height: "22%" },
+      { left: 66, right: 26, top: 46, height: "50%" },
+      { left: 66, right: 26, top: "72%", height: "19%" },
     ],
     xAxis: [
-      { type: "category", data: dates, gridIndex: 0, axisLabel: { show: false } },
-      { type: "category", data: dates, gridIndex: 1 },
+      { type: "category", data: dates, gridIndex: 0, boundaryGap: false,
+        ...axisStyle(t), axisLabel: { show: false }, splitLine: { show: false } },
+      { type: "category", data: dates, gridIndex: 1, boundaryGap: false,
+        ...axisStyle(t), splitLine: { show: false } },
     ],
     yAxis: [
-      { type: "value", scale: true, gridIndex: 0 },
-      { type: "value", gridIndex: 1, axisLabel: { formatter: "{value}%" },
-        max: 0 },
+      { type: "value", scale: true, gridIndex: 0, ...axisStyle(t),
+        axisLabel: { color: t.dim, fontSize: 11, formatter: wan } },
+      { type: "value", gridIndex: 1, max: 0, ...axisStyle(t),
+        axisLabel: { color: t.dim, fontSize: 11, formatter: "{value}%" } },
     ],
     dataZoom: [{ type: "inside", xAxisIndex: [0, 1] }],
     series: [
-      // 固定配色: 策略线与其回撤同色, overlay/基准插队不漂移调色板
+      // 策略净值: 平滑 + 主策略金色渐变面积 (其余仅描线避免叠加糊面)
       ...withCurve.map((s, si) => ({
-        name: s.strategy, type: "line",
+        name: s.strategy, type: "line", smooth: 0.25,
         data: alignToAxis(s, s.equity_curve.values),
-        showSymbol: false, xAxisIndex: 0, yAxisIndex: 0, connectNulls: true,
-        lineStyle: { color: STRAT_PALETTE[si % STRAT_PALETTE.length] },
-        itemStyle: { color: STRAT_PALETTE[si % STRAT_PALETTE.length] },
+        showSymbol: false, xAxisIndex: 0, yAxisIndex: 0, connectNulls: true, z: 6 - si,
+        lineStyle: { color: t.series[si % t.series.length], width: si === 0 ? 2.4 : 1.6 },
+        itemStyle: { color: t.series[si % t.series.length] },
+        ...(si === 0 ? { areaStyle: { color: vGradient(t.goldArea[0], t.goldArea[1]) } } : {}),
       })),
       ...(benchSeries ? [{
-        name: "基准买入持有", type: "line", data: benchSeries,
+        name: "基准买入持有", type: "line", data: benchSeries, smooth: 0.25,
         showSymbol: false, xAxisIndex: 0, yAxisIndex: 0, connectNulls: true,
-        lineStyle: { width: 1.5, type: "dashed", color: "#8b949e" },
-        itemStyle: { color: "#8b949e" }, z: 5,
+        lineStyle: { width: 1.5, type: "dashed", color: t.benchmark },
+        itemStyle: { color: t.benchmark }, z: 4,
       }] : []),
       ...overlaySeries,
-      ...withCurve.flatMap((s) => tradeScatter(s, axisIdx)),
+      ...withCurve.flatMap((s) => tradeScatter(s, axisIdx, t)),
       ...withCurve.map((s, si) => ({
-        name: `回撤 ${s.strategy}`, type: "line",
+        name: `回撤 ${s.strategy}`, type: "line", smooth: 0.25,
         data: alignToAxis(s, drawdown(s.equity_curve.values)),
         showSymbol: false, xAxisIndex: 1, yAxisIndex: 1, connectNulls: true,
-        areaStyle: { opacity: 0.22 },
-        lineStyle: { width: 1, color: STRAT_PALETTE[si % STRAT_PALETTE.length] },
-        itemStyle: { color: STRAT_PALETTE[si % STRAT_PALETTE.length] },
+        areaStyle: { color: vGradient(
+          `${t.series[si % t.series.length]}33`, `${t.series[si % t.series.length]}00`) },
+        lineStyle: { width: 1, color: t.series[si % t.series.length] },
+        itemStyle: { color: t.series[si % t.series.length] },
       })),
     ],
   }, true);
@@ -575,3 +592,8 @@ async function submitBacktest() {
     showError(err.message);
   }
 }
+
+// 主题切换 → 当前回测图重渲染换肤 (数据已在 currentBtRun, 无需重新拉取)
+window.addEventListener("gh:theme", () => {
+  if (currentBtRun) renderBtRun(currentBtRun).catch(() => {});
+});

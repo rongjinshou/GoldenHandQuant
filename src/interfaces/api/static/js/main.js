@@ -10,6 +10,7 @@ import { loadBacktests, initBacktestForm } from "./pages/backtests.js";
 import { setLivePolling, initLive } from "./pages/live.js";
 import { loadJobsPage, initMlForms } from "./jobs.js";
 import { applyGlossary } from "./glossary.js";
+import { initTheme } from "./theme.js";
 
 const TABS = ["overview", "verdicts", "explorer", "backtests", "live", "jobs"];
 
@@ -41,6 +42,7 @@ async function pollIndicator() {
 setInterval(pollIndicator, 5000);
 
 (async function init() {
+  initTheme(); // 主题按钮接管（首屏 data-theme 已由 head 内联脚本落定）
   applyGlossary(); // 静态 HTML 的术语 tips（动态模板由各页渲染后自行调用）
   initExplorer();
   initBacktestForm().catch(() => {});

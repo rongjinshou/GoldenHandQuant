@@ -2,7 +2,7 @@
 "use strict";
 
 import { $, API, fetchJSON, showError, clearError } from "../api.js";
-import { makeChart } from "../charts.js";
+import { makeChart, chartTheme, axisStyle, tooltipStyle } from "../charts.js";
 
 const DEFAULT_FEATURES = ["return_20d", "volatility_20d"];
 const FEATURE_CHOICES = [
@@ -40,40 +40,54 @@ function rangeParams() {
   return params;
 }
 
+let lastKline = null;
+
+function renderKline(symbol, data) {
+  if (!klineChart) klineChart = makeChart($("#kline-chart"));
+  const t = chartTheme();
+  klineChart.setOption({
+    backgroundColor: "transparent",
+    animation: false,
+    textStyle: { color: t.text },
+    title: { text: `${symbol} 前复权日线`, left: 14, top: 10,
+      textStyle: { fontSize: 13, fontWeight: 600, color: t.text } },
+    tooltip: { trigger: "axis", axisPointer: { type: "cross", lineStyle: { color: t.axis } },
+      ...tooltipStyle(t) },
+    axisPointer: { link: [{ xAxisIndex: "all" }] },
+    grid: [
+      { left: 58, right: 22, top: 46, height: "54%" },
+      { left: 58, right: 22, top: "74%", height: "17%" },
+    ],
+    xAxis: [
+      { type: "category", data: data.dates, gridIndex: 0, ...axisStyle(t), splitLine: { show: false } },
+      { type: "category", data: data.dates, gridIndex: 1, ...axisStyle(t),
+        axisLabel: { show: false }, splitLine: { show: false } },
+    ],
+    yAxis: [
+      { scale: true, gridIndex: 0, ...axisStyle(t) },
+      { gridIndex: 1, ...axisStyle(t), axisLabel: { show: false }, splitLine: { show: false } },
+    ],
+    dataZoom: [{ type: "inside", xAxisIndex: [0, 1] }, { type: "slider", xAxisIndex: [0, 1],
+      height: 16, bottom: 8, borderColor: "transparent",
+      fillerColor: `${t.gold}22`, handleStyle: { color: t.gold },
+      textStyle: { color: t.dim } }],
+    series: [
+      {
+        name: symbol, type: "candlestick", data: data.ohlc,
+        itemStyle: { color: t.up, color0: t.down, borderColor: t.up, borderColor0: t.down },
+      },
+      { name: "成交量", type: "bar", data: data.volume, xAxisIndex: 1, yAxisIndex: 1,
+        itemStyle: { color: t.vol } },
+    ],
+  }, true);
+}
+
 async function loadKline() {
   const symbol = pickedSymbol();
   if (!symbol) return;
   const data = await fetchJSON(`${API}/bars/${symbol}?${rangeParams()}`);
-  if (!klineChart) klineChart = makeChart($("#kline-chart"));
-  klineChart.setOption({
-    backgroundColor: "transparent",
-    animation: false,
-    title: { text: `${symbol} 前复权日线`, textStyle: { fontSize: 13 } },
-    tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
-    axisPointer: { link: [{ xAxisIndex: "all" }] },
-    grid: [
-      { left: 60, right: 20, top: 40, height: "55%" },
-      { left: 60, right: 20, top: "72%", height: "18%" },
-    ],
-    xAxis: [
-      { type: "category", data: data.dates, gridIndex: 0 },
-      { type: "category", data: data.dates, gridIndex: 1, axisLabel: { show: false } },
-    ],
-    yAxis: [
-      { scale: true, gridIndex: 0 },
-      { gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false } },
-    ],
-    dataZoom: [{ type: "inside", xAxisIndex: [0, 1] }, { type: "slider", xAxisIndex: [0, 1] }],
-    series: [
-      {
-        name: symbol, type: "candlestick", data: data.ohlc,
-        itemStyle: { color: "#f85149", color0: "#3fb950",
-                     borderColor: "#f85149", borderColor0: "#3fb950" },
-      },
-      { name: "成交量", type: "bar", data: data.volume, xAxisIndex: 1, yAxisIndex: 1,
-        itemStyle: { color: "#4d9fff55" } },
-    ],
-  }, true);
+  lastKline = { symbol, data };
+  renderKline(symbol, data);
 }
 
 async function loadFeatures() {
@@ -85,20 +99,34 @@ async function loadFeatures() {
   const params = rangeParams();
   params.set("names", names.join(","));
   const data = await fetchJSON(`${API}/features/${symbol}?${params}`);
+  lastFeature = { symbol, names, data };
+  renderFeature(symbol, names, data);
+}
+
+let lastFeature = null;
+
+function renderFeature(symbol, names, data) {
   if (!featureChart) featureChart = makeChart($("#feature-chart"));
+  const t = chartTheme();
   featureChart.setOption({
     backgroundColor: "transparent",
     animation: false,
-    title: { text: `${symbol} 截面特征（T-1 信息口径）`, textStyle: { fontSize: 13 } },
-    tooltip: { trigger: "axis" },
-    legend: { top: 4, right: 10, textStyle: { fontSize: 11 } },
-    grid: { left: 60, right: 20, top: 40, bottom: 40 },
-    xAxis: { type: "category", data: data.dates },
-    yAxis: { type: "value", scale: true },
+    textStyle: { color: t.text },
+    color: t.series,
+    title: { text: `${symbol} 截面特征（T-1 信息口径）`, left: 14, top: 10,
+      textStyle: { fontSize: 13, fontWeight: 600, color: t.text } },
+    tooltip: { trigger: "axis", ...tooltipStyle(t),
+      axisPointer: { type: "line", lineStyle: { color: t.axis, type: "dashed" } } },
+    legend: { top: 9, right: 14, itemWidth: 16, itemHeight: 8,
+      textStyle: { color: t.dim, fontSize: 11 } },
+    grid: { left: 58, right: 22, top: 46, bottom: 40 },
+    xAxis: { type: "category", data: data.dates, boundaryGap: false,
+      ...axisStyle(t), splitLine: { show: false } },
+    yAxis: { type: "value", scale: true, ...axisStyle(t) },
     dataZoom: [{ type: "inside" }],
     series: names.map((n) => ({
-      name: n, type: "line", data: data.series[n],
-      showSymbol: false, connectNulls: false,
+      name: n, type: "line", data: data.series[n], smooth: 0.2,
+      showSymbol: false, connectNulls: false, lineStyle: { width: 1.6 },
     })),
   }, true);
 }
@@ -131,3 +159,9 @@ export function initExplorer() {
     }
   });
 }
+
+// 主题切换 → 已加载的 K线/特征图重渲染换肤
+window.addEventListener("gh:theme", () => {
+  if (lastKline) renderKline(lastKline.symbol, lastKline.data);
+  if (lastFeature) renderFeature(lastFeature.symbol, lastFeature.names, lastFeature.data);
+});

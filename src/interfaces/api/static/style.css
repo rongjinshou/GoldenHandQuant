@@ -579,3 +579,83 @@ footer code { background: rgba(255,255,255,.04); color: var(--text-2); }
 .tk-empty { padding: var(--s3) var(--s4); color: var(--text-3); }
 .ticket-raw { padding: var(--s2) var(--s4) var(--s3); }
 .ticket-raw > summary { color: var(--text-3); font-size: 11.5px; font-family: var(--font-mono); cursor: pointer; }
+
+/* ===================== 主题切换按钮 + 过渡 ===================== */
+.theme-toggle {
+  background: rgba(233,185,73,.06); border: 1px solid var(--gold-line); color: var(--gold);
+  width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+  font-size: 15px; line-height: 1; display: inline-flex;
+  align-items: center; justify-content: center;
+  transition: background .14s ease, transform .12s ease;
+}
+.theme-toggle:hover { background: rgba(233,185,73,.16); transform: translateY(-1px); }
+
+/* 换肤过渡 (仅颜色, 不触动 transform/入场动画) */
+body, .card, .form-card, .verdict-table, .verdict-table th, .verdict-table td,
+.chart, .page-guide, .job-card, .job-log, .chips, .fchip, .badge, .tab,
+.toolbar input, .toolbar select, .form-row input, .form-row select, .theme-toggle {
+  transition: background-color .25s ease, color .25s ease, border-color .25s ease;
+}
+
+/* ===================== 日间主题 (white style) ===================== */
+:root[data-theme="light"] {
+  --ink:       #f3f5f9;
+  --surface:   #ffffff;
+  --surface-2: #fbfcfe;
+  --raised:    #eef1f6;
+  --line:      #dce2ec;
+  --line-soft: #e8ebf2;
+  --text:   #1c2430;
+  --text-2: #46505d;
+  --text-3: #5f6a78;   /* 白底次级文字加深至 ≥4.5:1 (判据行/卡片副信息/分组标签) */
+  --gold:      #bf8a1e;   /* 深一档以在白底保持对比 */
+  --gold-2:    #d8a83a;
+  --gold-deep: #9c6f12;
+  --gold-glow: rgba(191,138,30,.13);
+  --gold-line: rgba(191,138,30,.42);
+  --good: #1f9d57;
+  --bad:  #d8453a;
+  --warn: #b8801f;
+  --info: #2f7fd6;
+  --na:   #97a1b0;
+  --shadow-1: 0 1px 2px rgba(30,40,60,.06);
+  --shadow-2: 0 10px 30px rgba(30,40,60,.12);
+}
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(1200px 520px at 78% -160px, rgba(191,138,30,.10), transparent 60%),
+    radial-gradient(1000px 460px at -8% -120px, rgba(47,127,214,.045), transparent 58%),
+    var(--ink);
+}
+/* 修正硬编码深色处 → 浅色 */
+:root[data-theme="light"] .verdict-table th { background: linear-gradient(180deg, #f1f4f9, #e9edf4); }
+:root[data-theme="light"] .reasons-row td,
+:root[data-theme="light"] .row-detail td,
+:root[data-theme="light"] .job-log,
+:root[data-theme="light"] .ticket-pre { background: #f5f7fb; }
+:root[data-theme="light"] .verdict-table tbody tr:not(.reasons-row):not(.row-detail):hover td {
+  background: rgba(191,138,30,.06);
+}
+:root[data-theme="light"] .card:hover { border-color: #c9d2de; }
+:root[data-theme="light"] .fchip:hover { border-color: #c2cbd8; }
+:root[data-theme="light"] .chip-ro { background: rgba(0,0,0,.045); }
+:root[data-theme="light"] .chip { background: rgba(191,138,30,.1); color: var(--gold-deep); }
+:root[data-theme="light"] .fchip:has(input:checked) { background: rgba(191,138,30,.12); }
+:root[data-theme="light"] .badge.info { background: rgba(0,0,0,.05); }
+:root[data-theme="light"] .grade-b { background: rgba(0,0,0,.05); }
+:root[data-theme="light"] code { background: rgba(191,138,30,.1); color: var(--gold-deep); }
+:root[data-theme="light"] footer code { background: rgba(0,0,0,.05); color: var(--text-2); }
+:root[data-theme="light"] .error-banner {
+  color: #b53124; background: linear-gradient(90deg, rgba(216,69,58,.12), rgba(216,69,58,.03));
+  border-bottom-color: rgba(216,69,58,.5);
+}
+:root[data-theme="light"] ::selection { background: rgba(191,138,30,.22); color: #000; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb { background: #c7cedb; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #b3bccb; }
+
+/* 日间: 评审收尾 — 卡片副信息/禁用 chip 对比补足 */
+:root[data-theme="light"] .card .dim,
+:root[data-theme="light"] .job-card .dim { color: #5f6a78; }
+:root[data-theme="light"] .fchip { border-color: #d4dae4; }
+:root[data-theme="light"] .fchip.disabled { opacity: .55; }
+:root[data-theme="light"] .reasons-row td { color: #5f6a78; }
