@@ -206,11 +206,37 @@ async function loadLive() {
         <td style="text-align:left"><code>${String(r.details || "").slice(0, 120)}</code></td></tr>`
   ).join("") || `<tr><td colspan="4" class="gate-na">暂无审计记录</td></tr>`;
 
-  // Fix #9: pre 内容做 HTML 转义防 XSS
-  function escHtml(s) { return s.replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  // Fix #9: HTML 转义防 XSS
+  function escHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+  // ticket → 字段化键值面板 (方向 A股 买红卖绿); 原始 JSON 收进折叠供排障
+  function kvTicket(c) {
+    if (!c || typeof c !== "object") return `<div class="tk-empty">内容不可读</div>`;
+    const dirCls = c.direction === "BUY" ? "gate-bad" : c.direction === "SELL" ? "gate-good" : "";
+    const dirText = c.direction === "BUY" ? "买入 BUY"
+      : c.direction === "SELL" ? "卖出 SELL" : (c.direction ?? "-");
+    const fin = c.final_status || c.status;
+    const finCls = /FILLED/.test(fin || "") ? "gate-good"
+      : /REJECT|FAIL/.test(fin || "") ? "gate-bad" : "";
+    const cell = (k, v, cls = "") => (v === undefined || v === null || v === "") ? ""
+      : `<div class="tk-cell"><span class="tk-k">${k}</span>`
+        + `<span class="tk-v ${cls}">${escHtml(v)}</span></div>`;
+    return `<div class="tk-grid">
+      ${cell("标的", c.symbol)}
+      ${cell("方向", dirText, dirCls)}
+      ${cell("委托价", c.price)}
+      ${cell("数量", c.volume)}
+      ${cell("金额", c.notional != null ? Number(c.notional).toLocaleString() : null)}
+      ${cell("状态", fin, finCls)}
+      ${cell("委托号", c.order_id)}
+      ${cell("提交时刻", (c.submitted_at || c.requested_at || "").slice(0, 19))}
+    </div>`;
+  }
   $("#live-tickets").innerHTML = tickets.tickets.map((t) => `
-    <details class="ticket-item"><summary>${escHtml(String(t.file || ""))}</summary>
-      <pre class="ticket-pre">${escHtml(JSON.stringify(t.content, null, 2))}</pre></details>`
+    <details class="ticket-item" open><summary>${escHtml(String(t.file || ""))}</summary>
+      ${kvTicket(t.content)}
+      <details class="ticket-raw"><summary>原始 JSON</summary>
+        <pre class="ticket-pre">${escHtml(JSON.stringify(t.content, null, 2))}</pre></details>
+    </details>`
   ).join("") || `<p class="empty">暂无 ticket</p>`;
 
   resizeCharts();

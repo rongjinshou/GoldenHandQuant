@@ -160,17 +160,22 @@ async function renderBtRun(run) {
   const p = first.params || {};
   const dates = first.equity_curve?.dates || [];
   const metaEl = $("#bt-run-meta");
+  metaEl.classList.add("meta-strip");
+  const rm = (label, val, cls = "") =>
+    `<span class="rm"><i>${label}</i><b class="${cls}">${val}</b></span>`;
   metaEl.innerHTML =
-    `入库 ${run.created_at.slice(0, 19)} · 来源 ${esc(p.source || "?")} · ` +
-    `初始资金 ${first.initial_capital ? first.initial_capital.toLocaleString() : "?"}` +
-    `<br>${runTargetHtml(p)}`;
+    rm("入库", run.created_at.slice(0, 19)) +
+    rm("来源", esc(p.source || "?")) +
+    rm("初始资金", first.initial_capital ? first.initial_capital.toLocaleString() : "?") +
+    `<span class="rm-div"></span>` +
+    `<span class="rm rm-wide">${runTargetHtml(p)}</span>`;
   applyGlossary(metaEl);
   // 评审: 截断的买卖留痕必须明示, 不许后段标记凭空消失
   const cut = run.strategies.find(
     (s) => (s.trades || []).length === 2000 && s.trade_count > 2000);
   if (cut) {
     metaEl.insertAdjacentHTML("beforeend",
-      ` <span class="run-target">｜ 买卖标记仅含前 2000 笔（共 ${cut.trade_count} 笔, 后段无标记）</span>`);
+      `<span class="rm rm-warn">⚠ 买卖标记仅前 2000 笔 (共 ${cut.trade_count})</span>`);
   }
 
   const tbody = $("#bt-table tbody");
@@ -228,26 +233,32 @@ async function renderBtRun(run) {
     } catch { benchNote = "基准行情加载失败"; }
   }
   if (seq !== renderSeq) return; // 评审 blocker: 过期渲染丢弃, 防 meta/图表串台
+  let benchHtml = "";
   if (benchSeries) {
     const k = benchSeries.findIndex((v) => v !== null);
     const bv = benchSeries.filter((v) => v !== null);
     if (bv.length < 2) {
       benchSeries = null;
-      benchNote = `基准 ${esc(benchSym)} 区间内行情不足`;
+      benchHtml = `<span class="rm rm-warn">基准 ${esc(benchSym)} 区间内行情不足</span>`;
     } else {
       const benchReturn = bv[bv.length - 1] / bv[0] - 1;
       // 评审: 基准晚于回测起点时, 策略收益重算到同一子窗口再比, 不许窗口错配
       const sv = first.equity_curve.values;
       const stratReturn = sv[k] > 0 ? sv[sv.length - 1] / sv[k] - 1 : 0;
       const alpha = stratReturn - benchReturn;
-      benchNote = `基准(${esc(benchSym)}买入持有) ${pct(benchReturn)} · `
-        + `<span class="${alpha >= 0 ? "gate-good" : "gate-bad"}">超额 ${pct(alpha)}</span>`
-        + (k > 0 ? `（自 ${dates[k]} 同窗口径）` : "");
+      benchHtml =
+        `<span class="rm-div"></span>`
+        + `<span class="rm" data-gloss="benchmark"><i>基准·${esc(benchSym)}买入持有</i>`
+        + `<b>${pct(benchReturn)}</b></span>`
+        + `<span class="rm"><i>超额</i><b class="${alpha >= 0 ? "gate-good" : "gate-bad"}">`
+        + `${pct(alpha)}</b></span>`
+        + (k > 0 ? `<span class="rm rm-note">自 ${dates[k]} 同窗口径</span>` : "");
     }
+  } else if (benchNote) {
+    benchHtml = `<span class="rm rm-warn">${benchNote}</span>`;
   }
-  if (benchNote) {
-    metaEl.insertAdjacentHTML("beforeend",
-      ` <span class="run-target" data-gloss="benchmark">｜ ${benchNote}</span>`);
+  if (benchHtml) {
+    metaEl.insertAdjacentHTML("beforeend", benchHtml);
     applyGlossary(metaEl);
   }
 
@@ -285,7 +296,7 @@ async function renderBtRun(run) {
     });
     if (!anyOverlap) {
       metaEl.insertAdjacentHTML("beforeend",
-        ` <span class="run-target">｜ 叠加轮与当前区间无重叠日期</span>`);
+        `<span class="rm rm-warn">叠加轮与当前区间无重叠日期</span>`);
     }
   }
 

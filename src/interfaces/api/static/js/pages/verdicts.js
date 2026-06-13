@@ -24,6 +24,18 @@ function gateCell(name, value, fmt) {
   return `<td class="${cls}">${fmt(value)}</td>`;
 }
 
+const esc = (s) => String(s).replace(/[&<>"]/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* 评分 + 等级: 数字 + 着色等级徽章 (A 绿 / B 中性 / C 琥珀 / D 红, 落在好坏语义内) */
+function gradeInner(score, grade) {
+  if (score === null || score === undefined) return `<span class="gate-na">-</span>`;
+  const g = (grade || "").toUpperCase();
+  const cls = { A: "grade-a", B: "grade-b", C: "grade-c", D: "grade-d", F: "grade-d" }[g] || "grade-b";
+  return `<span class="score-num">${score.toFixed(0)}</span>`
+    + (g ? `<span class="grade ${cls}">${g}</span>` : "");
+}
+
 let verdictRuns = [];
 
 export async function loadVerdicts() {
@@ -46,10 +58,16 @@ function renderRun(run) {
   const p = run.params || {};
   const longOnly = p.objective === "long_only";
   const scorecard = longOnly ? "长多(Top超额)" : "多空";
-  $("#run-params").textContent =
-    `${p.start || "?"} → ${p.end || "?"} · 切分 ${p.split || "无"} · ` +
-    `${p.rebalance_days || 1} 日调仓 · ${scorecard}记分牌 · ` +
-    `${p.universe_count || "?"} 只 · 特征 v${p.feature_version || "?"}`;
+  const rmEl = $("#run-params");
+  rmEl.classList.add("meta-strip");
+  const rm = (label, val) => `<span class="rm"><i>${label}</i><b>${val}</b></span>`;
+  rmEl.innerHTML =
+    rm("区间", `${p.start || "?"} → ${p.end || "?"}`) +
+    rm("切分", p.split || "无") +
+    rm("调仓", `${p.rebalance_days || 1} 日`) +
+    rm("记分牌", scorecard) +
+    rm("universe", `${p.universe_count || "?"} 只`) +
+    rm("特征", `v${p.feature_version || "?"}`);
 
   // 可切换表头随 objective 变化
   $("#th-stability").textContent = longOnly ? "超额IR" : "IR";
@@ -88,7 +106,7 @@ function renderRun(run) {
          ${gateCell("oos_ic_mean", f.oos_ic_mean, f4)}
          ${gateCell("oos_ir", f.oos_ir, f3)}
          ${realizeOosCell}
-         <td>${f.score != null ? f.score.toFixed(0) : "-"}（${f.grade || "-"}）</td>
+         <td class="score-cell">${gradeInner(f.score, f.grade)}</td>
          <td>${badge}</td>
        </tr>
        <tr class="reasons-row"><td colspan="13">${(f.reasons || []).join(" ｜ ")}</td></tr>`
@@ -101,15 +119,18 @@ export async function initFactorForm() {
   const byId = Object.fromEntries(data.factors.map((f) => [f.factor_id, f]));
   const html = [];
   for (const [group, ids] of Object.entries(data.groups)) {
-    html.push(`<span class="group-title" data-gloss="factor_group">${group}</span>`);
-    for (const id of ids) {
+    const chips = ids.map((id) => {
       const f = byId[id];
       const dis = f.field_ready === false;
-      html.push(`<label class="${dis ? "disabled" : ""}"
-        title="${f.expression}${dis ? "（数据管道缺字段，禁用）" : ""}">
+      return `<label class="fchip ${dis ? "disabled" : ""}"
+        title="${esc(f.expression || "")}${dis ? "（数据管道缺字段，禁用）" : ""}">
         <input type="checkbox" value="${id}" ${dis ? "disabled" : ""}
-               ${group === "P0" && !dis ? "checked" : ""}>${id} ${f.name}</label>`);
-    }
+               ${group === "P0" && !dis ? "checked" : ""}>
+        <span class="fchip-id">${id}</span><span class="fchip-name">${esc(f.name)}</span></label>`;
+    }).join("");
+    html.push(`<div class="factor-group">
+      <span class="group-title" data-gloss="factor_group">${group}</span>
+      <div class="fchips">${chips}</div></div>`);
   }
   $("#ft-factors").innerHTML = html.join("");
   applyGlossary($("#ft-factors"));
