@@ -1,10 +1,11 @@
-"""算等权覆盖池基准 + 取 backtest_runs 指标, 供人工写 F01 可投性报告。
+"""F01 可投性报告数据 — 策略 vs 等权覆盖池基准的 全程/IS/OOS 收益 + 最大回撤。
 
-等权覆盖池基准 = 每交易日全市场(prev_close>0)个股日收益均值复利(对齐重判'等权覆盖池'口径,
-设计 DD-3)。再读 f01_investability 的 backtest_runs 指标并排打印, 供与 +16.5% 上界对照。
+- 等权覆盖池基准: 每交易日全市场(LAG(close) 日收益)均值复利(对齐重判口径, 设计 DD-3;
+  库内 prev_close 恒 0 不可用, 故用 LAG)。
+- 策略: 读 backtest_runs 中 source=f01_investability 且非 quick、churn 已修(hold_fix) 的全窗口跑,
+  从入库净值曲线 {dates,values} 切 IS(<=split)/OOS(>split) 算收益与回撤。
 
-用法 (Windows python, 仓库根目录):
-    $WIN_PYTHON scripts/f01_investability_report.py
+用法 (Windows python, 仓库根目录): $WIN_PYTHON scripts/f01_investability_report.py
 """
 
 from __future__ import annotations
@@ -18,16 +19,24 @@ import duckdb
 sys.path.insert(0, os.getcwd())
 
 DB = "data/market.duckdb"
-SPLIT = "2024-06-30"
-START, END = "2021-01-01", "2026-06-11"
+START, SPLIT, END = "2021-01-01", "2024-06-30", "2026-06-11"
 
 
-def _ew_benchmark(con, start: str, end: str) -> tuple[float, int]:
-    """等权覆盖池累计收益(区间)。
+def _ret_mdd(values: list[float]) -> tuple[float, float]:
+    """累计收益 + 最大回撤(基于权益序列)。"""
+    if len(values) < 2:
+        return 0.0, 0.0
+    ret = values[-1] / values[0] - 1.0
+    peak = values[0]
+    mdd = 0.0
+    for v in values:
+        peak = max(peak, v)
+        mdd = min(mdd, v / peak - 1.0)
+    return ret, mdd
 
-    用 LAG(close) 算日收益 (库内 prev_close 列恒为 0, 不可用)。每交易日全市场个股
-    日收益均值复利 —— 对齐重判'等权覆盖池'基准口径(设计 DD-3)。
-    """
+
+def _ew_curve(con, start: str, end: str) -> tuple[list[str], list[float]]:
+    """等权覆盖池权益曲线(起点 1.0)。"""
     rows = con.execute(
         """WITH b AS (
                SELECT symbol, date, close,
@@ -37,35 +46,52 @@ def _ew_benchmark(con, start: str, end: str) -> tuple[float, int]:
            SELECT date, avg(ret) AS d FROM r GROUP BY date ORDER BY date""",
         [start, end],
     ).fetchall()
-    cum = 1.0
-    for _, d in rows:
-        cum *= 1 + (d or 0.0)
-    return cum - 1.0, len(rows)
+    dates, vals, cum = [], [], 1.0
+    for d, ret in rows:
+        cum *= 1 + (ret or 0.0)
+        dates.append(str(d))
+        vals.append(cum)
+    return dates, vals
+
+
+def _slice(dates: list[str], values: list[float], lo: str, hi: str) -> list[float]:
+    return [v for d, v in zip(dates, values) if lo <= d <= hi]
 
 
 def main() -> None:
     con = duckdb.connect(DB, read_only=True)
-    full_ret, full_n = _ew_benchmark(con, START, END)
-    oos_ret, oos_n = _ew_benchmark(con, SPLIT, END)
-    print("== 等权覆盖池基准(对齐重判口径) ==")
-    print(f"  全程 {START}..{END}: {full_ret:.2%}  ({full_n} 交易日)")
-    print(f"  OOS  {SPLIT}..{END}: {oos_ret:.2%}  ({oos_n} 交易日)")
+    bd, bv = _ew_curve(con, START, END)
     con.close()
 
-    print("\n== f01_investability backtest_runs 指标 ==")
-    from src.infrastructure.persistence.market_data_store import MarketDataStore
+    def block(dates, values, label):
+        full = _ret_mdd(values)
+        is_v = _slice(dates, values, START, SPLIT)
+        oos_v = _slice(dates, values, SPLIT, END)
+        is_r = _ret_mdd(is_v)
+        oos_r = _ret_mdd(oos_v)
+        print(f"{label:<22} 全程 {full[0]:+7.1%}(MDD {full[0+1]:6.1%}) | "
+              f"IS {is_r[0]:+7.1%}(MDD {is_r[1]:6.1%}) | OOS {oos_r[0]:+7.1%}(MDD {oos_r[1]:6.1%})")
 
+    print(f"窗口 {START} .. {SPLIT}(IS) .. {END}(OOS)\n")
+    block(bd, bv, "等权覆盖池基准")
+
+    from src.infrastructure.persistence.market_data_store import MarketDataStore
     st = MarketDataStore(DB, read_only=True)
     try:
+        rows = []
         for run in st.load_backtest_runs():
-            for strat in run["strategies"]:
-                params = json.loads(strat["params"]) if strat.get("params") else {}
-                if params.get("source") != "f01_investability":
+            for s in run["strategies"]:
+                p = json.loads(s["params"]) if s.get("params") else {}
+                if p.get("source") != "f01_investability" or p.get("quick") or not p.get("hold_fix"):
                     continue
-                # 通用打印: 除大字段外的所有键值(字段名以实跑 schema 为准)
-                shown = {k: v for k, v in strat.items()
-                         if k not in ("equity_curve", "trades", "params")}
-                print(f"  top_n={params.get('top_n')} window={params.get('window')}: {shown}")
+                ec = json.loads(s["equity_curve"]) if s.get("equity_curve") else {}
+                d, v = ec.get("dates", []), ec.get("values", [])
+                if v:
+                    rows.append((p.get("top_n"), s, d, v))
+        for top_n, s, d, v in sorted(rows, key=lambda x: x[0] or 0):
+            block(d, v, f"MicroValue top_n={top_n}")
+            print(f"{'':22} 年化 {s.get('annualized_return'):+.2%} | Sharpe {s.get('sharpe_ratio'):.2f} "
+                  f"| 胜率 {s.get('win_rate'):.1%} | 成交 {s.get('trade_count')} | 换手 {s.get('turnover_rate')}")
     finally:
         st.close()
 

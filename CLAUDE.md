@@ -57,6 +57,11 @@ python -m src.interfaces.cli.run_backtest
 # 多策略对比
 python -m src.interfaces.cli.compare_strategies --strategies dual_ma,micro_value --plot
 
+# F01 可投性回测（离线全市场 MicroValue, top_n 敏感性, 入库 backtest_runs; resources/backtest.yaml
+# 配 DuckDBHistoryDataFetcher → 基本面/宇宙也走 market.duckdb 离线, 无需 QMT 在线; --quick 计时冒烟）
+$WIN_PYTHON scripts/run_f01_investability.py            # 全窗口 + top_n {20,10,30}
+$WIN_PYTHON scripts/f01_investability_report.py         # 等权覆盖池基准 + IS/OOS/回撤 对照
+
 # 市场数据库维护（DuckDB, 只刷缺口; 需 Windows Python + QMT）
 $WIN_PYTHON -m src.interfaces.cli.quant data refresh --start-date 2021-01-01 --end-date 2025-12-31
 $WIN_PYTHON -m src.interfaces.cli.quant data status
