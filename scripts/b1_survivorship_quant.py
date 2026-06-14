@@ -34,14 +34,18 @@ def main() -> None:
             term_ret = last / tail[0] - 1                    # 退市前约 1 年累计收益
             peak = max(c)
             dd = last / peak - 1                             # 峰值→终局回撤
-            term_rets.append(term_ret); dds.append(dd)
-            last_closes.append(last); n_ok += 1
+            term_rets.append(term_ret)
+            dds.append(dd)
+            last_closes.append(last)
+            n_ok += 1
         except Exception:
             continue
 
     if not term_rets:
-        print("无可用轨迹(网络/接口)。"); return
-    s_ret = pd.Series(term_rets); s_dd = pd.Series(dds)
+        print("无可用轨迹(网络/接口)。")
+        return
+    s_ret = pd.Series(term_rets)
+    s_dd = pd.Series(dds)
     print(f"\n取到轨迹: {n_ok} 只")
     print(f"退市前约1年累计收益: 中位 {s_ret.median():.1%} | 均值 {s_ret.mean():.1%} | "
           f"<-50% 占 {(s_ret < -0.5).mean():.0%} | <-80% 占 {(s_ret < -0.8).mean():.0%}")
