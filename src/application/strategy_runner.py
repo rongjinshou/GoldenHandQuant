@@ -137,6 +137,7 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         index_symbol: str = "000852.SH",
         risk_settings: RiskSettings | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        feature_source=None,
     ):
         self.strategy = strategy
         self.sizer = sizer
@@ -144,6 +145,13 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         self.trade_gateway = trade_gateway
         self.fundamental_registry = fundamental_registry
         self.circuit_breaker = circuit_breaker
+        # B7: 技术指标统一到 feature_engine(纠错); 默认当场算, 离线回测可注入 StoredFeatureSource 复用
+        if feature_source is None:
+            from src.domain.market.services.snapshot_feature_source import (
+                FeatureEngineFeatureSource,
+            )
+            feature_source = FeatureEngineFeatureSource()
+        self.feature_source = feature_source
 
         self.index_symbol = risk_settings.system_gate.index_symbol if risk_settings else index_symbol
 
@@ -170,7 +178,7 @@ class CrossSectionalStrategyRunner(StrategyRunner):
             self._index_cache_date = context.current_time
 
         bars: dict[str, Bar] = {}
-        bar_history: dict[str, list[Bar]] = {}
+        windows: dict[str, list[Bar]] = {}
         exec_bars: dict[str, Bar] = {}
         for sym in context.symbols:
             recent = self.market_gateway.get_recent_bars(sym, context.base_timeframe, 120)
@@ -178,16 +186,26 @@ class CrossSectionalStrategyRunner(StrategyRunner):
             if window is None:
                 continue
             bars[sym] = window.info_bars[-1]      # factor snapshot: T-1 (no lookahead)
-            bar_history[sym] = window.info_bars   # factor history: up to T-1
+            # 完整窗口(末根=T): feature_engine 末行 shift(1) → as-of T-1, 无前视
+            windows[sym] = [*window.info_bars, window.exec_bar]
             exec_bars[sym] = window.exec_bar      # execution/valuation: T day
 
         universe = []
         if self.fundamental_registry:
-            # 策略不需技术指标时不传 bar_history → 跳过逐股指标重算(性能, 见 uses_bar_history)
-            hist = bar_history if self.strategy.uses_bar_history else None
-            universe = CrossSectionBuilder.build_cross_section(
-                context.current_time, bars, self.fundamental_registry, hist
-            )
+            if self.strategy.uses_bar_history:
+                # B7: 技术指标走 feature_source(feature_engine 统一口径), 替手写 _compute_bar_metrics
+                precomputed = self.feature_source.features_for(
+                    context.current_time, list(windows.keys()), windows
+                )
+                universe = CrossSectionBuilder.build_cross_section(
+                    context.current_time, bars, self.fundamental_registry,
+                    precomputed_features=precomputed,
+                )
+            else:
+                # 策略不需技术指标 → 不算特征(性能, 见 uses_bar_history)
+                universe = CrossSectionBuilder.build_cross_section(
+                    context.current_time, bars, self.fundamental_registry,
+                )
 
         gate = self.system_gate.check_gate(context.current_time)
 

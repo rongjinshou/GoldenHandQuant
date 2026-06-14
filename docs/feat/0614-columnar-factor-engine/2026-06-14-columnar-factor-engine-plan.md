@@ -136,4 +136,36 @@
 - [ ] 全测试套件绿（`pytest tests/ --ignore=tests/infrastructure/gateway/`）+ `ruff check src/`。
 - [ ] 更新 design doc 债务对账：B8 关闭、记录实测提速。
 - [ ] 更新记忆 [[reuse-not-recompute]] / [[factor-funnel-status]]：B8 已关闭。
-- [ ] Phase 1 全绿提交后，再起 Phase 2（B7 回测复用列式源）。
+- [x] Phase 1 全绿提交后，再起 Phase 2（B7 回测复用列式源）。
+
+---
+
+## Phase 2（B7）实现计划 — 回测技术指标统一到 feature_engine（纠错）
+
+**范围确认（Phase 1 后）**：`_compute_bar_metrics` 仅在 `CrossSectionalStrategyRunner`（**仅 BacktestAppService 实例化**，
+实盘 `auto_trade_app`/`live_signal_service` 不经此路径）+ 因子检验对象路径(--no-store) + ml_train/data_loader 用到。
+B7 聚焦**回测 runner**：把逐股 `_compute_bar_metrics`(手写, return_20d 口径 bug) 换成 `feature_engine`(向量化纠错版,
+即 stock_features 的同一引擎)→ 回测与因子检验**指标口径统一**。F01/MicroValue `uses_bar_history=False` 不触发, 结论不变。
+
+**关键对齐**：喂 `feature_engine.compute_symbol_features` **完整窗口**(`info_bars + [exec_bar]`, 末根=T),
+取**末行**技术列 = `shift(1)` = as-of-T-1 → 正是快照(T-1 信息)语义, exec_close=T。与旧 `_compute_bar_metrics(info_bars)`
+仅在 return_20d(纠错)+macd(~1e-6 EMA)处不同。
+
+**决策**：`StoredFeatureSource`(离线读 stock_features 免重算)留作可插拔的后续性能项(抽象已就位), 本期不建(YAGNI;
+回测非当前性能痛点, 痛点是因子检验已由 B8 解决)。
+
+### Task B7-1：FeatureEngineSnapshotSource
+- Create `src/domain/market/services/snapshot_feature_source.py`；Test 镜像。
+- [ ] 测试: `features_for(symbol, window_bars)` 返回的技术列 dict == `feature_engine.compute_symbol_features(full_df).iloc[-1]` 的 TECHNICAL_COLUMNS(NaN 略去)。
+- [ ] 实现: 把 list[Bar] → bars_df(symbol/date=timestamp/OHLCV/prev_close) → compute_symbol_features → 末行 TECHNICAL_COLUMNS dict。
+
+### Task B7-2：build_cross_section 支持 precomputed_features
+- [ ] 测试: 传 `precomputed_features={sym:{...}}` 时快照技术字段取自它(不调 _compute_bar_metrics); 不传时维持旧行为(回归)。
+- [ ] 实现: `build_cross_section(..., precomputed_features=None)`; 有则用, 无则旧路径。
+
+### Task B7-3：纠错等价（targeted diff）
+- [ ] 测试: 同一窗口, 新(feature_engine 源)vs 旧(_compute_bar_metrics)产出的快照, **仅 return_20d 显著不同 + macd ~1e-6**, 其余技术字段一致 → 证明是定点纠错非回归。
+
+### Task B7-4：接线 CrossSectionalStrategyRunner + 回测冒烟
+- [ ] 测试/冒烟: runner 在 `uses_bar_history` 时用 FeatureEngineSnapshotSource(完整窗口)→ precomputed_features → build_cross_section; 跑一个用 return_20d 的截面策略小回测, 确认跑通且结果随纠错变化。
+- [ ] 提交; 更新债务对账 B7 关闭。

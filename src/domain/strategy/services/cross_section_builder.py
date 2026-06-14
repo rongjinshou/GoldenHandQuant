@@ -18,7 +18,14 @@ class CrossSectionBuilder:
         bars: dict[str, Bar],
         registry: FundamentalRegistry,
         bar_history: dict[str, list[Bar]] | None = None,
+        precomputed_features: dict[str, dict[str, float]] | None = None,
     ) -> list[StockSnapshot]:
+        """构建截面 StockSnapshot。
+
+        技术指标来源(B7): 优先 `precomputed_features`(由 feature_engine 算好的统一口径,
+        见 [SnapshotFeatureSource]); 否则回退 `bar_history` + 手写 `_compute_bar_metrics`
+        (旧路径, return_20d 口径有偏, 仅遗留调用方用)。给了 precomputed_features 即不再手写重算。
+        """
         fundamentals = {s.symbol: s for s in registry.get_all_at_date(date)}
         snapshots: list[StockSnapshot] = []
 
@@ -27,9 +34,12 @@ class CrossSectionBuilder:
             if fund is None:
                 continue
 
-            # 从 bar 历史计算所有价量指标
+            # 价量指标: precomputed_features(feature_engine 统一口径) 优先于手写重算
             kw: dict = {}
-            if bar_history and symbol in bar_history:
+            if precomputed_features is not None:
+                if symbol in precomputed_features:
+                    kw.update(precomputed_features[symbol])
+            elif bar_history and symbol in bar_history:
                 hist = bar_history[symbol]
                 CrossSectionBuilder._compute_bar_metrics(hist, kw)
 

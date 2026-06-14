@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from src.application.strategy_runner import CrossSectionalStrategyRunner, DayContext
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
@@ -27,17 +29,19 @@ def _bar(sym, dt, close):
 
 def test_cross_sectional_runner_feeds_only_past_bars_to_factor(monkeypatch):
     sym = "000001.SZ"
-    t_minus_1 = datetime(2024, 6, 3)
-    t = datetime(2024, 6, 4)
+    t = datetime(2024, 6, 14)
+    # 前 10 根平盘(close=10, 至 T-1), 第 11 根 T 跳到 99 → 若前视 return_5d 会≈8.9
+    hist_bars = [_bar(sym, datetime(2024, 6, d), 10.0) for d in range(1, 11)]
     market = MockMarketGateway()
-    market.add_bars(sym, [_bar(sym, t_minus_1, 10.0), _bar(sym, t, 99.0)])
+    market.add_bars(sym, [*hist_bars, _bar(sym, t, 99.0)])
     market.set_current_time(t)
 
     captured = {}
 
-    def fake_build_cross_section(date, bars, registry, bar_history=None):
+    def fake_build_cross_section(date, bars, registry, bar_history=None,
+                                 precomputed_features=None):
         captured["snapshot_bar"] = bars[sym]
-        captured["history"] = bar_history[sym]
+        captured["features"] = precomputed_features[sym]
         return []
 
     monkeypatch.setattr(CrossSectionBuilder, "build_cross_section",
@@ -50,10 +54,10 @@ def test_cross_sectional_runner_feeds_only_past_bars_to_factor(monkeypatch):
     )
     runner.evaluate(DayContext(current_time=t, symbols=[sym], base_timeframe=Timeframe.DAY_1))
 
-    # The factor must see T-1 data (close=10), not T-day (close=99) -- otherwise it's lookahead
+    # 快照 bar 必须是 T-1(close=10), 非 T 日(close=99) — 否则前视
     assert captured["snapshot_bar"].close == 10.0
-    assert captured["history"][-1].close == 10.0
-    assert all(b.timestamp < t for b in captured["history"])
+    # 技术特征(feature_engine)须为 as-of T-1: 平盘 → return_5d≈0; 若前视 T 跳涨则≈8.9
+    assert captured["features"].get("return_5d", 0.0) == pytest.approx(0.0, abs=1e-12)
 
 
 class _NoHistCS(CrossSectionalStrategy):

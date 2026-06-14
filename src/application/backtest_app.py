@@ -56,6 +56,7 @@ class BacktestAppService:
         risk_settings: RiskSettings | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         event_dispatcher: RiskEventDispatcher | None = None,
+        feature_source=None,
     ) -> None:
         self.market_gateway = market_gateway
         self.trade_gateway = trade_gateway
@@ -68,6 +69,8 @@ class BacktestAppService:
         self.risk_settings = risk_settings
         self.circuit_breaker = circuit_breaker
         self.event_dispatcher = event_dispatcher
+        # B7: 截面技术特征源(None → runner 默认当场算; 离线可注入 StoredFeatureSource 复用)
+        self.feature_source = feature_source
         self.snapshots: list[DailySnapshot] = []
         self.settlement_service = DailySettlementService()
 
@@ -149,6 +152,7 @@ class BacktestAppService:
                 fundamental_registry=self.fundamental_registry,
                 risk_settings=self.risk_settings,
                 circuit_breaker=self.circuit_breaker,
+                feature_source=self.feature_source,
             )
         else:
             return SingleStrategyRunner(
