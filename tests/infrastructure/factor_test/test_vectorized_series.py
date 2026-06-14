@@ -71,3 +71,44 @@ def test_ic_series_matches_object(expr_str: str):
     assert [d for d, _ in vec_ic] == [d for d, _ in obj_ic], f"{expr_str}: 日期序列不一致"
     for (d, v), (_, o) in zip(vec_ic, obj_ic, strict=True):
         assert v == pytest.approx(o, abs=1e-12), f"{expr_str}@{d}"
+
+
+_LAYER_FIELDS = [
+    "layer_count", "layer_returns", "long_short_return", "monotonicity_score",
+    "top_layer_return", "benchmark_return", "top_excess_return",
+    "excess_ir", "excess_positive_rate",
+]
+
+
+@pytest.mark.parametrize("expr_str", ["pe_ratio", "0 - pe_ratio", "rank(roe_ttm)"])
+@pytest.mark.parametrize("num_layers,rebalance_days", [(3, 1), (3, 2), (2, 1), (5, 1)])
+def test_layer_series_matches_object(expr_str: str, num_layers: int, rebalance_days: int):
+    panel, snaps_by_date, returns_by_date = _build()
+    expr = _parse(expr_str)
+
+    obj = LayerBacktester().run(
+        expr, snaps_by_date, returns_by_date,
+        num_layers=num_layers, cost_rate=0.003, rebalance_days=rebalance_days,
+    )
+    factor_series = VectorizedEvaluator().evaluate(expr, panel.df)
+    vec = VectorizedSeriesBuilder().layer_series(
+        panel, factor_series,
+        num_layers=num_layers, cost_rate=0.003, rebalance_days=rebalance_days,
+    )
+
+    ctx = f"{expr_str}|L{num_layers}|rb{rebalance_days}"
+    for f in _LAYER_FIELDS:
+        ov, vv = getattr(obj, f), getattr(vec, f)
+        if isinstance(ov, list):
+            assert len(ov) == len(vv), f"{ctx}.{f} 长度"
+            for i, (a, b) in enumerate(zip(ov, vv, strict=True)):
+                assert b == pytest.approx(a, abs=1e-12), f"{ctx}.{f}[{i}]"
+        else:
+            assert vv == pytest.approx(ov, abs=1e-12), f"{ctx}.{f}"
+
+    # 累计曲线逐点一致
+    assert len(vec.layer_cumulative) == len(obj.layer_cumulative)
+    for li, (oc, vc) in enumerate(zip(obj.layer_cumulative, vec.layer_cumulative, strict=True)):
+        assert len(oc) == len(vc), f"{ctx}.cum[{li}] 长度"
+        for i, (a, b) in enumerate(zip(oc, vc, strict=True)):
+            assert b == pytest.approx(a, abs=1e-12), f"{ctx}.cum[{li}][{i}]"
