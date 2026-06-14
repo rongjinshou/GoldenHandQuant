@@ -149,7 +149,35 @@ P3_FACTORS: list[FactorHypothesis] = [
     ),
 ]
 
-ALL_FACTORS: list[FactorHypothesis] = P0_FACTORS + P1_FACTORS + P2_FACTORS + P3_FACTORS
+# P4 因子: 多因子组合(单因子已挖尽, F20/F21/F22/F27 中性化残差 IC 正 → 等权合成检验可投 edge)。2026-06-14 加入。
+P4_FACTORS: list[FactorHypothesis] = [
+    FactorHypothesis(
+        factor_id="F30", name="多因子组合-zscore等权", category="复合",
+        expression=(
+            "zscore(rank(1 / pe_ratio) * rank(earnings_growth))"
+            " + zscore(rank(1 / pe_ratio) * rank(revenue_growth))"
+            " + zscore(rank(0 - volatility_20d) * rank(roe_ttm))"
+            " + zscore(rank(roe_ttm) * rank(1 / pb_ratio))"
+        ),
+        direction_note="F20/F21/F22/F27 各 zscore 标准化后等权相加; 检验合成是否构成可投多因子 edge",
+        evidence_strength="中", field_ready=True, priority="P4",
+    ),
+    FactorHypothesis(
+        factor_id="F31", name="多因子组合-rank积等权", category="复合",
+        expression=(
+            "rank(1 / pe_ratio) * rank(earnings_growth)"
+            " + rank(1 / pe_ratio) * rank(revenue_growth)"
+            " + rank(0 - volatility_20d) * rank(roe_ttm)"
+            " + rank(roe_ttm) * rank(1 / pb_ratio)"
+        ),
+        direction_note="同上, 但各 rank 积([0,1])直接等权相加(对量纲更稳健的对照)",
+        evidence_strength="中", field_ready=True, priority="P4",
+    ),
+]
+
+ALL_FACTORS: list[FactorHypothesis] = (
+    P0_FACTORS + P1_FACTORS + P2_FACTORS + P3_FACTORS + P4_FACTORS
+)
 
 FACTOR_BY_ID: dict[str, FactorHypothesis] = {f.factor_id: f for f in ALL_FACTORS}
 FACTOR_BY_NAME: dict[str, FactorHypothesis] = {f.name: f for f in ALL_FACTORS}
@@ -166,7 +194,7 @@ def resolve_factors(factor_str: str) -> list[FactorHypothesis]:
     """
     if factor_str.strip().lower() == "all":
         return list(ALL_FACTORS)
-    if factor_str.strip().upper() in ("P0", "P1", "P2", "P3"):
+    if factor_str.strip().upper() in ("P0", "P1", "P2", "P3", "P4"):
         priority = factor_str.strip().upper()
         return [f for f in ALL_FACTORS if f.priority == priority]
 
