@@ -23,6 +23,7 @@ from src.domain.market.services.feature_engine import (
 )
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.market.value_objects.timeframe import Timeframe
+from src.domain.strategy.factor_test.panel import FactorPanel
 
 if TYPE_CHECKING:
     from src.domain.market.interfaces.gateways.fundamental_fetcher import IFundamentalFetcher
@@ -175,6 +176,35 @@ class MarketDataAppService:
         from src.application.factor_test_app import _compute_forward_returns
         returns_by_date = _compute_forward_returns(prices_by_date)
         return snapshots_by_date, returns_by_date, prices_by_date
+
+    def load_panel(
+        self, symbols: list[str], start_date: str, end_date: str
+    ) -> FactorPanel:
+        """ensure 三连 + 列式装载（向量化路径入口，不物化 StockSnapshot）。
+
+        与 load_cross_sections 同数据源(load_feature_join_df), 但拼成一张列式
+        DataFrame 包进 FactorPanel, 供向量化引擎直接 groupby 运算。
+        """
+        import pandas as pd
+
+        refreshed = self.ensure_bars(symbols, start_date, end_date)
+        self.ensure_fundamentals(start_date, end_date)
+        recomputed = self.ensure_features(symbols, start_date, end_date, refreshed)
+        if refreshed or recomputed:
+            print(f"  [market-data] bars 刷新 {len(refreshed)} 只, 特征重算 {recomputed} 只")
+
+        frames: list[pd.DataFrame] = []
+        for i in range(0, len(symbols), _SYMBOL_CHUNK):
+            chunk = symbols[i: i + _SYMBOL_CHUNK]
+            df = self._store.load_feature_join_df(
+                chunk, start_date, end_date, FEATURE_VERSION, self._source
+            )
+            if not df.empty:
+                frames.append(df)
+        panel_df = (
+            pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        )
+        return FactorPanel(panel_df)
 
     def prepare(
         self, symbols: list[str], start_date: str, end_date: str

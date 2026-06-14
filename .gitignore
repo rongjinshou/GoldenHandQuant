@@ -14,3 +14,4 @@ libs/xtquant/
 resources/backtest.yaml
 resources/backtest_multi_factor.yaml
 .pytest_tmp/
+.codegraph/
