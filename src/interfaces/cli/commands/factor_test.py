@@ -63,31 +63,51 @@ def run_factor_test(args: argparse.Namespace) -> None:
         market_data=wiring.market_data if use_store else None,
     )
 
-    print(f"[Step 1] Preparing data ({len(symbols)} symbols)...")
+    engine = "列式向量化" if use_store else "对象(内存)"
+    print(f"[Step 1] Preparing data ({len(symbols)} symbols, {engine}路径)...")
     try:
-        snapshots_by_date, returns_by_date, prices_by_date = service.prepare_snapshots(
-            symbols, start_date, end_date,
-        )
+        if use_store:
+            # B8: DB 路径走列式向量化, 不物化 StockSnapshot
+            panel = service.prepare_panel(symbols, start_date, end_date)
+            n_dates = int(panel.df["date"].nunique()) if not panel.df.empty else 0
+            avg = len(panel.df) // n_dates if n_dates else 0
+        else:
+            snapshots_by_date, returns_by_date, prices_by_date = service.prepare_snapshots(
+                symbols, start_date, end_date,
+            )
+            n_dates = len(snapshots_by_date)
+            avg = sum(len(v) for v in snapshots_by_date.values()) // max(n_dates, 1)
     except Exception as e:
         print(f"Error preparing data: {e}")
         return
 
-    print(f"  → {len(snapshots_by_date)} trading days, "
-          f"avg {sum(len(v) for v in snapshots_by_date.values()) / max(len(snapshots_by_date), 1):.0f} stocks/day")
+    print(f"  → {n_dates} trading days, avg {avg} stocks/day")
 
     print("\n[Step 2] Running factor tests...")
-    results = service.run_batch(
-        hypotheses=hypotheses,
-        snapshots_by_date=snapshots_by_date,
-        returns_by_date=returns_by_date,
-        prices_by_date=prices_by_date,
-        test_period=(start_date, end_date),
-        split_date=split_date,
-        num_layers=num_layers,
-        rebalance_days=rebalance_days,
-        objective=objective,
-        cost_rate=cost_rate,
-    )
+    if use_store:
+        results = service.run_batch_panel(
+            hypotheses=hypotheses,
+            panel=panel,
+            test_period=(start_date, end_date),
+            split_date=split_date,
+            num_layers=num_layers,
+            rebalance_days=rebalance_days,
+            objective=objective,
+            cost_rate=cost_rate,
+        )
+    else:
+        results = service.run_batch(
+            hypotheses=hypotheses,
+            snapshots_by_date=snapshots_by_date,
+            returns_by_date=returns_by_date,
+            prices_by_date=prices_by_date,
+            test_period=(start_date, end_date),
+            split_date=split_date,
+            num_layers=num_layers,
+            rebalance_days=rebalance_days,
+            objective=objective,
+            cost_rate=cost_rate,
+        )
 
     # 6. 输出汇总
     print(f"\n{'=' * 80}")

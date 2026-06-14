@@ -11,11 +11,14 @@ from src.domain.market.services.fundamental_registry import FundamentalRegistry
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.strategy.factor_test.factor_catalog import FactorHypothesis
+from src.domain.strategy.factor_test.panel import FactorPanel
 from src.domain.strategy.factor_test.report import ScoredFactorTestReport
 from src.domain.strategy.factor_test.verdict import FactorVerdict, judge_factor
 from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
 from src.infrastructure.factor_test.neutralizer import FactorNeutralizer
 from src.infrastructure.factor_test.test_runner import FactorTestRunner
+from src.infrastructure.factor_test.vectorized_neutralizer import VectorizedNeutralizer
+from src.infrastructure.factor_test.vectorized_runner import VectorizedRunner
 from src.infrastructure.mock.mock_market import MockMarketGateway
 
 if TYPE_CHECKING:
@@ -57,6 +60,8 @@ class FactorTestAppService:
         self._market_data = market_data
         self._runner = FactorTestRunner()
         self._neutralizer = FactorNeutralizer()
+        self._vrunner = VectorizedRunner()
+        self._vneutralizer = VectorizedNeutralizer()
 
     def prepare_snapshots(
         self,
@@ -169,6 +174,93 @@ class FactorTestAppService:
             objective=objective,
             cost_rate=cost_rate,
         )
+
+    # ------------------------------------------------------------------ #
+    # 列式向量化路径 (B8): 不物化 StockSnapshot, 与对象路径判决等价
+    # ------------------------------------------------------------------ #
+
+    def prepare_panel(
+        self, symbols: list[str], start_date: str, end_date: str
+    ) -> FactorPanel:
+        """列式装载(DB 快路径)。需注入 MarketDataAppService。"""
+        if self._market_data is None:
+            raise RuntimeError(
+                "prepare_panel 需要 MarketDataAppService(DB 路径); "
+                "无 store 时请用 prepare_snapshots + run_batch(对象路径)。"
+            )
+        return self._market_data.load_panel(symbols, start_date, end_date)
+
+    def run_batch_panel(
+        self,
+        hypotheses: list[FactorHypothesis],
+        panel: FactorPanel,
+        test_period: tuple[str, str],
+        split_date: str | None = None,
+        num_layers: int = 5,
+        rebalance_days: int = 1,
+        objective: str = "long_short",
+        cost_rate: float = 0.003,
+    ) -> list[FactorTestResult]:
+        """批量因子测试(列式向量化), 与 run_batch 判决等价。
+
+        IS/OOS 用 panel.slice_is/slice_oos 切分(与对象路径的字典过滤等价: IS 是
+        全窗前缀故前向收益一致; OOS 首日的 split→首日收益在对象路径中存在但永不被选作
+        next_date, 故两路 IC 序列一致)。
+        """
+        results: list[FactorTestResult] = []
+
+        for hyp in hypotheses:
+            print(f"  Testing {hyp.factor_id} {hyp.name}: {hyp.expression}")
+
+            if split_date:
+                is_panel = panel.slice_is(split_date)
+                is_period = (test_period[0], split_date)
+            else:
+                is_panel = panel
+                is_period = test_period
+
+            is_report = self._vrunner.run(
+                hyp.expression, is_panel, test_period=is_period,
+                num_layers=num_layers, rebalance_days=rebalance_days,
+                objective=objective, cost_rate=cost_rate,
+            )
+
+            oos_report: ScoredFactorTestReport | None = None
+            if split_date:
+                oos_panel = panel.slice_oos(split_date)
+                if not oos_panel.df.empty:
+                    oos_report = self._vrunner.run(
+                        hyp.expression, oos_panel,
+                        test_period=(split_date, test_period[1]),
+                        num_layers=num_layers, rebalance_days=rebalance_days,
+                        objective=objective, cost_rate=cost_rate,
+                    )
+
+            if hyp.category in _CONTROL_CATEGORIES:
+                neutralized_ic = None
+            else:
+                neutralized_ic = self._vneutralizer.mean_neutralized_ic(
+                    hyp.expression, is_panel
+                )
+
+            verdict = judge_factor(
+                is_report, oos_report=oos_report,
+                factor_id=hyp.factor_id, factor_name=hyp.name,
+                neutralized_ic=neutralized_ic, objective=objective,
+            )
+
+            results.append(FactorTestResult(
+                hypothesis=hyp,
+                is_report=is_report,
+                oos_report=oos_report,
+                verdict=verdict,
+            ))
+
+            status = "PASS" if verdict.passed else "FAIL"
+            print(f"    -> {status} | IC={is_report.ic_mean:.4f} IR={is_report.ir:.3f} "
+                  f"Score={is_report.score:.0f}({is_report.grade})")
+
+        return results
 
     def run_batch(
         self,
