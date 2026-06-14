@@ -209,7 +209,7 @@ BacktestReport → store_backtest_reports → backtest_runs (驾驶舱回测页)
 
 | 项 | 内容 |
 |---|---|
-| B1 | 退市股未入 instruments/bars → 生存者偏差；后续可补退市标的历史消除 |
+| B1 | 退市股未入 instruments/bars → 生存者偏差。**2026-06-14 调查 + 裁定(数值回填受阻, 但目的已达)**：自由数据源全不可得——QMT mini 无退市标的(`get_instrument_detail` 对西水/信威/刚泰/美都/华泽均 None)、Tushare 无 token、akshare SZ 近年退市缺失且退市股日线仅 ~8% 可取(eastmoney 个股历史不服务多数退市码)。干净的点对点全回填需付费/完整源(Tushare pro 积分 / Wind)。**真实样本(7 只 SH 2021+ 退市)**：退市前约 1 年中位 −83%、峰→终局回撤 −94.5%、终价 ~¥0.41 —— 正是 F01 微盘命中区。**结构裁定**:① B2 趋势闸增益是同宇宙 ON−OFF 的**差值 → 生存者偏差对冲**(退市股两腿同缺), 含退市股反会让闸躲掉更多崩盘→闸更优, 故 B2 结论稳健/偏保守; ② F01 单独"非可投 alpha"经修正只会更差→结论稳; ③ 仅**绝对收益(85%/145%)被高估, 是上界**。**净结论:生存者偏差不推翻本会话任何结论, 仅令绝对数字偏乐观。** 脚本 `scripts/b1_survivorship_quant.py`。 |
 | B2 | ✅ **已闭(2026-06-14)**：中证1000(000852.SH) 1206 根 bars 入库(`scripts/fetch_index_bars.py`, QMT)→ 趋势闸离线生效(全窗阻断买入 48.8% 天)。F01 关/开 A/B(`scripts/b2_trend_gate_ab.py`/`b2_trend_gate_oos.py`): 全窗 OFF 85.6%/MDD20%/Sh0.76 → ON 145%/MDD10.7%/Sh1.51; **IS Δ收益+2.6%/ΔMDD−9.4%(Sh0.72→1.18), OOS Δ收益+19.3%/ΔMDD−9.6%(Sh0.97→1.73)** → 闸效泛化(非样本内躲崩)、回撤减半。**F01+趋势闸 = 漏斗首个 OOS 验证的可投候选**(待消生存者偏差 B1)。原 DD-4 预案兑现。 |
 | B3 | `MicroValueStrategy` 的稳健化叠层（日历/错峰/质量/趋势闸）未做消融，无法分离"size 本体"与"叠层增益"；可作下一轮 §六.2 稳健化专题 |
 | B4 | `fundamental_snapshots` 14.4% 行 `market_cap≤0`（QMT `TotalVolume` 缺失）→ 本 Spec 在读取层 `market_cap>0` 兜住；根因应在 QMT 取数管道修（补全总股本/总市值），否则其它消费方（含 factor-test 若改读此表）同样踩坑 |
