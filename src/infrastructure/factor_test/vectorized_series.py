@@ -193,6 +193,80 @@ class VectorizedSeriesBuilder:
             for d, g in fac.groupby("date", sort=False)
         }
 
+    def decay_ics(
+        self,
+        panel: FactorPanel,
+        factor_series: pd.Series,
+        holding_periods: list[int] | None = None,
+    ) -> tuple[list[int], list[float]]:
+        """各持有期 IC 衰减曲线, 与 ``DecayAnalyzer.analyze`` 逐位等价。
+
+        period=k 的收益 = price[d_{j+k}]/price[d_j] − 1(键入当前日 d_j); IC 沿用
+        calculate_ic_series 的 next_date 约定(factor@d_i 配 returns@首个>d_i 的收益键)。
+        """
+        if holding_periods is None:
+            holding_periods = [1, 5, 10, 20, 60]
+
+        df = panel.df
+        dates_str = sorted(
+            {pd.Timestamp(d).strftime("%Y-%m-%d") for d in df["date"].unique()}
+        )
+        fac_long = pd.DataFrame({
+            "date_str": pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d").to_numpy(),
+            "symbol": df["symbol"].to_numpy(),
+            "factor": factor_series.to_numpy(),
+        }).dropna(subset=["factor"])
+
+        periods: list[int] = []
+        decay_ics: list[float] = []
+        for k in holding_periods:
+            rl = self._decay_returns_long(panel, k)
+            periods.append(k)
+            decay_ics.append(self._avg_decay_ic(fac_long, rl, dates_str))
+        return periods, decay_ics
+
+    def _decay_returns_long(self, panel: FactorPanel, k: int) -> pd.DataFrame:
+        """k 日前向收益长表 [ret_key(当前日 str), symbol, ret]，ret = fut/cur − 1。"""
+        price_col = panel.price_col
+        d = panel.df[["date", "symbol", price_col]].copy()
+        date_order = {dt: i for i, dt in enumerate(sorted(d["date"].unique()))}
+        d["di"] = d["date"].map(date_order)
+        d["di_fut"] = d["di"] + k
+        right = d[["symbol", "di", price_col]].rename(
+            columns={"di": "di_fut", price_col: "_fut"}
+        )
+        merged = d.merge(right, on=["symbol", "di_fut"], how="inner")
+        merged = merged[merged[price_col] > 0].copy()
+        merged["ret"] = merged["_fut"] / merged[price_col] - 1.0
+        merged["ret_key"] = pd.to_datetime(merged["date"]).dt.strftime("%Y-%m-%d")
+        return merged[["ret_key", "symbol", "ret"]]
+
+    def _avg_decay_ic(
+        self, fac_long: pd.DataFrame, returns_long: pd.DataFrame, dates_str: list[str]
+    ) -> float:
+        """factor@d_i 配 returns@(首个>d_i 的收益键), 对有 next 的快照日求平均 IC(无配对→0)。"""
+        ret_keys = sorted(returns_long["ret_key"].unique())
+        if not ret_keys:
+            return 0.0
+        next_map: dict[str, str] = {}
+        dates_with_next: list[str] = []
+        for ds in dates_str:
+            j = bisect.bisect_right(ret_keys, ds)
+            if j < len(ret_keys):
+                next_map[ds] = ret_keys[j]
+                dates_with_next.append(ds)
+        if not dates_with_next:
+            return 0.0
+        fac = fac_long.copy()
+        fac["ret_key"] = fac["date_str"].map(next_map)
+        merged = fac.merge(returns_long, on=["ret_key", "symbol"], how="inner")
+        ic_by_date = {
+            sd: self._spearman(g["factor"], g["ret"])
+            for sd, g in merged.groupby("date_str", sort=True)
+        }
+        vals = [ic_by_date.get(ds, 0.0) for ds in dates_with_next]
+        return sum(vals) / len(vals)
+
     @staticmethod
     def _returns_long(panel: FactorPanel) -> pd.DataFrame:
         """前向收益 dict → 长表 [ret_date(实现日), symbol, ret]。"""

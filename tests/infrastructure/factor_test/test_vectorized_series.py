@@ -11,6 +11,7 @@ from src.domain.strategy.factor_test.lexer import tokenize
 from src.domain.strategy.factor_test.panel import FactorPanel
 from src.domain.strategy.factor_test.parser import FactorExpressionParser
 from src.domain.strategy.factor_test.vectorized_evaluator import VectorizedEvaluator
+from src.infrastructure.factor_test.decay_analyzer import DecayAnalyzer
 from src.infrastructure.factor_test.ic_calculator import ICCalculator
 from src.infrastructure.factor_test.layer_backtest import LayerBacktester
 from src.infrastructure.factor_test.vectorized_series import VectorizedSeriesBuilder
@@ -112,3 +113,22 @@ def test_layer_series_matches_object(expr_str: str, num_layers: int, rebalance_d
         assert len(oc) == len(vc), f"{ctx}.cum[{li}] 长度"
         for i, (a, b) in enumerate(zip(oc, vc, strict=True)):
             assert b == pytest.approx(a, abs=1e-12), f"{ctx}.cum[{li}][{i}]"
+
+
+@pytest.mark.parametrize("expr_str", ["pe_ratio", "rank(roe_ttm)", "1 / pb_ratio"])
+def test_decay_ics_matches_object(expr_str: str):
+    panel, snaps_by_date, _ = _build()
+    prices_by_date = {
+        date: {sym: close for sym, _, _, _, close in rows}
+        for date, rows in _DATA.items()
+    }
+    expr = _parse(expr_str)
+    periods = [1, 2, 3]
+
+    obj_p, obj_ics = DecayAnalyzer().analyze(expr, snaps_by_date, prices_by_date, periods)
+    factor_series = VectorizedEvaluator().evaluate(expr, panel.df)
+    vec_p, vec_ics = VectorizedSeriesBuilder().decay_ics(panel, factor_series, periods)
+
+    assert vec_p == obj_p
+    for k, (a, b) in zip(periods, zip(obj_ics, vec_ics, strict=True), strict=True):
+        assert b == pytest.approx(a, abs=1e-12), f"{expr_str} decay@{k}"
