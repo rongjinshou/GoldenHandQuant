@@ -246,3 +246,78 @@ def test_scan_cross_sectional_invokes_decision_core(monkeypatch):
     assert "决策核心" in d.reason
     assert d.strategy_name == "MicroValueStrategy"
     assert d.confidence_score == 1.0
+
+
+def test_scan_signal_consistency_with_backtest_runner(monkeypatch):
+    """信号一致性守门(R4): 实盘 LiveSignalService.scan 的目标组合 == 回测
+    CrossSectionalStrategyRunner.evaluate 的目标组合(相同 market/fundamental/sizer/日期)。
+
+    R3b 后实盘截面扫描内部即决策核心 → 给定相同输入, 实盘决策路径与回测决策路径逐位
+    一致, 信号一致性是架构保证(非巧合)。这是回测/实盘归一重构(0628)的最终证明。
+    """
+    from src.application import live_signal_service as lss
+    from src.application.strategy_runner import CrossSectionalStrategyRunner, DayContext
+    from src.domain.market.services.fundamental_registry import FundamentalRegistry
+    from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
+    from src.domain.portfolio.services.equal_weight_sizer import EqualWeightSizer
+    from src.domain.strategy.registry import create_strategy
+    from src.infrastructure.mock.mock_market import MockMarketGateway
+    from src.infrastructure.mock.mock_trade import MockTradeGateway
+
+    fixed_now = datetime(2024, 6, 11, 10, 0, 0)  # 周二, 非 1/4 月
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr(lss, "datetime", _FixedDatetime)
+
+    symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
+    market = MockMarketGateway()
+    for i, sym in enumerate(symbols):
+        c = 10.0 + i
+        market.add_bars(sym, [Bar(
+            symbol=sym, timeframe=Timeframe.DAY_1, timestamp=datetime(2024, 6, d),
+            open=c * 0.99, high=c * 1.02, low=c * 0.98, close=c,
+            volume=1_000_000, prev_close=c * 0.99,
+        ) for d in range(5, 12)])
+    market.set_current_time(datetime(2024, 6, 11, 23, 59))
+
+    registry = FundamentalRegistry()
+    for i, sym in enumerate(symbols):
+        registry.add(FundamentalSnapshot(
+            symbol=sym, date=fixed_now, name=f"Co{sym}", list_date=datetime(2000, 1, 1),
+            market_cap=1e9 + i * 1e8, roe_ttm=0.15, ocf_ttm=1e8,
+        ))
+    trade = MockTradeGateway(market, initial_capital=1_000_000)
+    sizer = EqualWeightSizer(n_symbols=len(symbols))
+
+    # 路径 A: 实盘决策路径 LiveSignalService.scan
+    account_gw = MagicMock()
+    account_gw.get_asset.return_value = trade.get_asset()
+    account_gw.get_positions.return_value = []
+    service = LiveSignalService(
+        market_gateway=market, account_gateway=account_gw, trade_gateway=trade,
+        sizer=sizer, fundamental_registry=registry,
+    )
+    displays = service.scan(strategy_name="micro_value", symbols=symbols)
+    live = sorted(
+        (d.symbol, d.direction.value, d.suggested_volume, round(d.suggested_price, 4))
+        for d in displays
+    )
+
+    # 路径 B: 回测决策路径 CrossSectionalStrategyRunner.evaluate(相同输入)
+    runner = CrossSectionalStrategyRunner(
+        strategy=create_strategy("micro_value"), sizer=sizer,
+        market_gateway=market, trade_gateway=trade, fundamental_registry=registry,
+    )
+    targets, _ = runner.evaluate(DayContext(
+        current_time=fixed_now, symbols=symbols, base_timeframe=Timeframe.DAY_1,
+    ))
+    bt = sorted(
+        (t.symbol, t.direction.value, t.volume, round(t.price, 4)) for t in targets
+    )
+
+    assert live == bt, f"信号不一致: 实盘 {live} != 回测 {bt}"
+    assert len(live) >= 1  # 确实产了非空目标组合
