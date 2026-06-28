@@ -22,7 +22,6 @@ def _setup_logging() -> None:
 def cmd_status(args: object) -> None:
     """显示系统状态。"""
     print("=== GoldenHandQuant 系统状态 ===")
-    print("提示: 完整状态需要注入 AutoTradingEngine 实例")
     print("状态: 未连接")
 
 

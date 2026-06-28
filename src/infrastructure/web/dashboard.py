@@ -6,7 +6,6 @@ from datetime import datetime
 
 from src.application.anomaly_detector import AnomalyDetector
 from src.application.auto_pause_manager import AutoPauseManager
-from src.application.auto_trading_engine import AutoTradingEngine
 from src.domain.trade.services.execution_monitor import ExecutionMonitor
 from src.infrastructure.web.auth import TokenAuth
 
@@ -21,13 +20,11 @@ class WebDashboard:
 
     def __init__(
         self,
-        trading_engine: AutoTradingEngine | None = None,
         execution_monitor: ExecutionMonitor | None = None,
         anomaly_detector: AnomalyDetector | None = None,
         pause_manager: AutoPauseManager | None = None,
         auth: TokenAuth | None = None,
     ) -> None:
-        self._trading_engine = trading_engine
         self._execution_monitor = execution_monitor
         self._anomaly_detector = anomaly_detector
         self._pause_manager = pause_manager
@@ -36,7 +33,8 @@ class WebDashboard:
 
     def get_status(self) -> dict:
         """获取系统状态。"""
-        engine_running = self._trading_engine.is_running if self._trading_engine else False
+        # AutoTradingEngine 已归档(0628 R3a), 自动交易状态改由 TradingStore/auto_trade 守护体现
+        engine_running = False
         all_paused = self._pause_manager.is_all_paused if self._pause_manager else False
 
         return {
