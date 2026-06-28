@@ -84,7 +84,7 @@ class AutoTradeAppService:
     ) -> None:
         if config.mode not in ("dry_run", "live"):
             raise ValueError(f"非法 mode: {config.mode!r} (仅 dry_run/live)")
-        gateway_is_dry = bool(getattr(trade_gateway, "is_dry_run", False))
+        gateway_is_dry = bool(trade_gateway.is_dry_run)
         if (config.mode == "dry_run") != gateway_is_dry:
             raise ValueError(
                 f"mode={config.mode} 与网关真实性不一致 (gateway.is_dry_run={gateway_is_dry})"

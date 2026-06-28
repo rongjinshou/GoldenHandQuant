@@ -35,7 +35,7 @@ class DryRunTradeGateway:
         )
         return order_id
 
-    def query_order_status(self, order_id: str) -> str:
+    def query_order_status(self, order_id: str) -> str | None:
         return "DRY_RUN"
 
     def cancel_order(self, order_id: str) -> bool:

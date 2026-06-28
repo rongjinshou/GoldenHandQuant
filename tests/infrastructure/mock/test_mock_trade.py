@@ -322,3 +322,34 @@ class TestMockTradeGatewayNewRules:
         with pytest.raises(OrderSubmitError, match="limit price"):
             gateway.place_order(order)
 
+    # --- R1: ITradeGateway 契约补全 (is_dry_run / query_order_status / cancel_order) ---
+
+    @pytest.fixture
+    def filled_order_id(self, gateway, market):
+        """经 gateway.place_order 同步撮合成交后的订单 id。"""
+        order = Order(
+            order_id="filled_1",
+            account_id="test",
+            ticker="600000.SH",
+            direction=OrderDirection.BUY,
+            type=OrderType.MARKET,
+            volume=100,
+            price=10.0,
+        )
+        gateway.place_order(order)
+        assert order.status == OrderStatus.FILLED
+        return order.order_id
+
+    def test_is_dry_run_true(self, gateway):
+        assert gateway.is_dry_run is True
+
+    def test_query_order_status_returns_status_of_known_order(self, filled_order_id, gateway):
+        assert gateway.query_order_status(filled_order_id) == "FILLED"
+
+    def test_query_order_status_unknown_returns_none(self, gateway):
+        assert gateway.query_order_status("nonexistent") is None
+
+    def test_cancel_order_returns_false_no_open_orders(self, filled_order_id, gateway):
+        # Mock 同步撮合, 提交即终态, 无挂单可撤
+        assert gateway.cancel_order(filled_order_id) is False
+

@@ -30,6 +30,8 @@ def _map_xt_order_status(status: int) -> str:
 class QmtTradeGateway(ITradeGateway, IAccountGateway):
     """QMT 交易网关实现。"""
 
+    is_dry_run = False  # QMT 实盘网关, 触达真实券商
+
     def __init__(self, path: str, session_id: int, account_id: str, account_type: str = "STOCK") -> None:
         """
         Args:

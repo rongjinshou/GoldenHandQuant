@@ -23,6 +23,8 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
     4. 成交量限制: 单笔不超过 K 线成交量的 10%。
     """
 
+    is_dry_run = True  # Mock 是模拟撮合, 不触达真实券商
+
     # 费率常量
     COMMISSION_RATE = 0.00025
     MIN_COMMISSION = 5.0
@@ -219,6 +221,15 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             raise
 
         return order.order_id
+
+    def query_order_status(self, order_id: str) -> str | None:
+        order = self.orders.get(order_id)
+        return order.status.value if order else None
+
+    def cancel_order(self, order_id: str) -> bool:
+        # 同步撮合: place_order 提交即进终态(FILLED/REJECTED/PARTIAL_CANCELED),
+        # 无 SUBMITTED 挂单可撤 → 恒 False。
+        return False
 
     def _calculate_costs(
         self, price: float, volume: int, direction: OrderDirection
