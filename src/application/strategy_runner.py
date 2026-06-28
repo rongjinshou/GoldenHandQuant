@@ -1,3 +1,17 @@
+"""策略决策核心 — 回测与实盘共享的单日决策编排（架构重构 0628 R2 确立）。
+
+`StrategyRunner.evaluate(DayContext)` 是回测/实盘共用的「决策核心」：装配截面
+(`CrossSectionBuilder`, 含基本面) → 系统风控闸(`SystemRiskGate` 趋势闸) → 策略信号
+→ 盘后风控信号(`RiskSignalGenerator`) → 批量 sizer → 产出 `list[OrderTarget]`。
+
+只依赖 domain Protocol(`IMarketGateway`/`ITradeGateway`/`IPositionSizer`)，不依赖任何
+回测专属设施(不碰 set_current_time/load_bars/BacktestAppService)：回测由
+`BacktestAppService` 循环驱动每个交易日，实盘由 `AutoTradeAppService` 在执行时刻驱动当日
+—— 同一份决策代码，只注入不同网关。差异只在执行层(模拟撮合 vs 真实下单)。
+
+独立可运行性见 tests/application/test_strategy_runner_lookahead.py(Mock+DayContext 脱离
+回测编排直调 evaluate)。设计：docs/feat/0628-backtest-live-unification/。
+"""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
