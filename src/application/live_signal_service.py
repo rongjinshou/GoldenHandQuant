@@ -100,6 +100,21 @@ class LiveSignalService:
         positions: list[Position],
         asset: Asset,
     ) -> list[SignalDisplay]:
+        """时序(bar)策略扫描 —— 决策与回测同源, 执行/展示按 live 语义。
+
+        刻意未并入回测的 SingleStrategyRunner.evaluate(架构重构 0628 剩余债, 经评估
+        不强行统一, 否则回退 live 质量): 决策(strategy.generate_signals + sizer)已
+        与回测同源, 截面那种"漏趋势闸/基本面"的决策分叉在此不存在; 差异只在执行/
+        展示层且是 live 正当差异 ——
+          · 限价用 bars[-1].close±slippage(当前价), 非 runner 的 T 日开盘(回测产物,
+            T-1 决策/T 开盘成交); 塞进 live 等于按错价下单。
+          · 保留 per-signal confidence/reason: 供半自动复核展示, 且
+            AutoTradeAppService._select 的 min_confidence 闸依赖之 —— 走 runner 会被
+            抹成 1.0/"决策核心", 闸语义失效。
+        触发统一: 任一 bar 策略成为 live 候选(dual_ma 现非主线), 届时让
+        SingleStrategyRunner 透出 signals 以保住 confidence/reason 再并轨。
+        设计: docs/feat/0628-backtest-live-unification/。
+        """
         market_data: dict[str, list[Bar]] = {}
         for symbol in symbols:
             bars = self.market_gateway.get_recent_bars(
