@@ -1,0 +1,7 @@
+# 行结尾统一: 仓库内文本文件一律 LF。
+# 缘由: 全仓曾混入 106 个 CRLF 的 .py(WSL/Windows 双环境历史遗留), 导致
+# Edit 工具按字节匹配失败、并诱发整文件 CRLF↔LF churn(参见 mock_trade.py 事故)。
+* text=auto eol=lf
+
+# 字体等二进制不做行结尾转换(git 一般可自动判定, 此处显式守护)。
+*.woff2 binary
