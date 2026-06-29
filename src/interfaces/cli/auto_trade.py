@@ -41,9 +41,7 @@ def _setup_logging() -> None:
 def _build_service(settings, mode: str):
     """组装全部依赖 (需 QMT 客户端在线)。"""
     from src.application.auto_trade_app import AutoTradeAppService, AutoTradeConfig
-    from src.application.live_signal_service import LiveSignalService
     from src.domain.common.services.audit_service import AuditService
-    from src.domain.portfolio.services.sizers.fixed_ratio_sizer import FixedRatioSizer
     from src.infrastructure.gateway.dry_run_trade import DryRunTradeGateway
     from src.infrastructure.gateway.qmt_market import QmtMarketGateway
     from src.infrastructure.gateway.qmt_realtime_quote import QmtRealtimeQuoteFetcher
@@ -52,6 +50,7 @@ def _build_service(settings, mode: str):
         SqliteAuditLogRepository,
     )
     from src.infrastructure.persistence.trading_store import TradingStore
+    from src.interfaces.cli._auto_trade_wiring import build_live_signal_service
     from src.interfaces.cli.cli_utils import resolve_account_id
 
     at = settings.auto_trade
@@ -67,15 +66,14 @@ def _build_service(settings, mode: str):
     trade_gateway = real_gateway if mode == "live" else DryRunTradeGateway(real_gateway)
 
     store = TradingStore(at.db_path)
-    signal_service = LiveSignalService(
+    signal_service, symbols = build_live_signal_service(
+        at,
         market_gateway=QmtMarketGateway(),
         account_gateway=real_gateway,
         trade_gateway=trade_gateway,
-        sizer=FixedRatioSizer(ratio=at.position_ratio),
-        bar_lookback=at.bar_lookback,
     )
     config = AutoTradeConfig(
-        mode=mode, strategy=at.strategy, symbols=at.symbols,
+        mode=mode, strategy=at.strategy, symbols=symbols,
         min_confidence=at.min_confidence,
         max_orders_per_cycle=at.max_orders_per_cycle,
         per_order_notional_cap=at.per_order_notional_cap,
