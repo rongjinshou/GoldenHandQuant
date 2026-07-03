@@ -30,20 +30,24 @@ live_trade:
   #   top_n: 9
 
 auto_trade:
-  enabled: false              # 双保险: 配置 + CLI; live 模式还需 --live
-  mode: dry_run               # dry_run | live
-  strategy: dual_ma
-  symbols: ["600000.SH", "601006.SH", "600096.SH", "000021.SZ"]   # 主板白名单内
+  enabled: false              # 双保险: 跑时 --enable
+  mode: dry_run
+  strategy: micro_value       # F01 影子盘(0626 阶段1); dual_ma 路径保留未删
+  symbols: []                 # 必须留空→DuckDB 全市场宇宙(mainboard_only 过滤); 非空会交集缩宇宙!
+  strategy_params:
+    top_n: 20                 # gate PASS 口径(阶段0 report), 勿用 registry 默认 9
+  mainboard_only: true        # 宇宙装配层主板过滤(check_symbol_scope 60/000/001)
   execution_times: ["09:35", "14:50"]
-  min_confidence: 0.6
-  max_orders_per_cycle: 3
-  per_order_notional_cap: 1500.0
-  daily_notional_cap: 3000.0
+  min_confidence: 0.6         # 截面信号恒 1.0, 此闸对影子盘无效(只约束 bar 策略)
+  max_orders_per_cycle: 48    # 调仓日 ≤20买+≤20+卖
+  per_order_notional_cap: 9000.0        # ¥146k/20≈7.3k+余量
+  per_order_notional_ceiling: 10000.0   # 显式抬硬顶(默认 5000 是 0611 首单安全值)
+  daily_notional_cap: 320000.0          # 调仓日双向 ~2×146k+余量
   daily_loss_limit_ratio: 0.02
   poll_timeout_seconds: 30
   position_ratio: 0.1
   bar_lookback: 100
-  db_path: "data/trading.db"
+  db_path: data/trading.db
 
 monitor:
   refresh_interval: 3

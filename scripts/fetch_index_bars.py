@@ -6,6 +6,7 @@
 
 import os
 import sys
+from datetime import date
 
 sys.path.insert(0, os.getcwd())
 
@@ -15,7 +16,8 @@ from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher  #
 from src.infrastructure.persistence.market_data_store import MarketDataStore  # noqa: E402
 
 INDEX = "000852.SH"
-START, END = "2020-06-01", "2026-06-13"   # 含 warmup, 覆盖回测窗
+START = "2020-06-01"                                    # 含 warmup, 覆盖回测窗
+END = date.today().isoformat()                          # 刷到当日(影子盘比对需指数与个股同鲜)
 
 
 def main() -> None:
