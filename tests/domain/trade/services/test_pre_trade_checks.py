@@ -64,6 +64,13 @@ class TestCapsAndFunds:
     def test_notional_cap_hard_ceiling(self):
         assert check_notional_cap(5000.01, cap=99999.0) is not None
 
+    def test_notional_cap_ceiling_default_unchanged(self):
+        assert check_notional_cap(5001.0, cap=9000.0) is not None  # 默认硬顶 5000 仍生效
+
+    def test_notional_cap_ceiling_raised(self):
+        assert check_notional_cap(7300.0, cap=9000.0, ceiling=10000.0) is None
+        assert check_notional_cap(9500.0, cap=9000.0, ceiling=10000.0) is not None  # cap 仍约束
+
     def test_buy_cash_includes_fee_buffer(self):
         assert check_buy_cash(1000.0, available_cash=1010.0) is None
         assert check_buy_cash(1000.0, available_cash=1009.9) is not None
@@ -125,6 +132,17 @@ class TestAggregateGates:
             quote=stale, now=WED, max_notional=1500.0, available_cash=1e6,
         )
         assert not r.passed and "过期" in r.reject_reason
+
+    def test_run_pre_trade_gates_passes_ceiling(self):
+        """notional≈7300 > 默认硬顶 5000, 抬高 notional_ceiling=10000 后过闸。"""
+        r = run_pre_trade_gates(
+            symbol="601006.SH", direction=OrderDirection.BUY, volume=1000,
+            quote=_quote(last=7.3, bid1=7.29, ask1=7.31, prev_close=7.3),
+            now=WED, max_notional=9000.0, notional_ceiling=10000.0,
+            available_cash=10000.0,
+        )
+        assert r.passed and r.reject_reason is None
+        assert r.notional == 7310.0  # min(ask1, last×1.002)=7.31 × 1000
 
     def test_sell_uses_volume_gate_not_cash(self):
         r = run_pre_trade_gates(

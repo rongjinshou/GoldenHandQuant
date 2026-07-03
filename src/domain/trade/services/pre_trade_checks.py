@@ -64,8 +64,10 @@ def check_price_band(price: float, *, prev_close: float, band: float = PRICE_BAN
     return f"限价 {price} 超出涨跌停带 [{low}, {high}] (前收 {prev_close})"
 
 
-def check_notional_cap(notional: float, *, cap: float) -> str | None:
-    effective = min(cap, MAX_NOTIONAL_CEILING)
+def check_notional_cap(
+    notional: float, *, cap: float, ceiling: float = MAX_NOTIONAL_CEILING
+) -> str | None:
+    effective = min(cap, ceiling)
     if notional <= effective:
         return None
     return f"金额 {notional:.2f} 超上限 {effective:.2f}"
@@ -102,6 +104,7 @@ def run_pre_trade_gates(
     quote: Quote | None,
     now: datetime,
     max_notional: float,
+    notional_ceiling: float = MAX_NOTIONAL_CEILING,
     available_cash: float | None = None,
     available_volume: int | None = None,
 ) -> GateResult:
@@ -129,7 +132,7 @@ def run_pre_trade_gates(
         return GateResult(passed=False, reject_reason=reason)
 
     notional = price * volume
-    if reason := check_notional_cap(notional, cap=max_notional):
+    if reason := check_notional_cap(notional, cap=max_notional, ceiling=notional_ceiling):
         return GateResult(passed=False, reject_reason=reason)
 
     if direction == OrderDirection.BUY:

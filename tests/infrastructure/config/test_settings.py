@@ -2,6 +2,7 @@ import os
 import tempfile
 
 from src.infrastructure.config.settings import (
+    AutoTradeSettings,
     BacktestSettings,
     LiveTradeSettings,
     QmtSettings,
@@ -82,6 +83,25 @@ def test_live_trade_settings_defaults():
     assert settings.slippage_buy == 0.001
     assert settings.slippage_sell == 0.001
     assert settings.bar_lookback == 100
+
+
+def test_auto_trade_new_fields_defaults():
+    at = AutoTradeSettings()
+    assert at.strategy_params == {}
+    assert at.mainboard_only is False
+    assert at.per_order_notional_ceiling == 5000.0
+
+
+def test_load_trading_config_parses_shadow_fields(tmp_path):
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        "auto_trade:\n  strategy: micro_value\n  strategy_params:\n    top_n: 20\n"
+        "  mainboard_only: true\n  per_order_notional_ceiling: 10000.0\n",
+        encoding="utf-8")
+    s = load_trading_config(str(p))
+    assert s.auto_trade.strategy_params == {"top_n": 20}
+    assert s.auto_trade.mainboard_only is True
+    assert s.auto_trade.per_order_notional_ceiling == 10000.0
 
 
 def test_load_trading_config_with_live_trade():

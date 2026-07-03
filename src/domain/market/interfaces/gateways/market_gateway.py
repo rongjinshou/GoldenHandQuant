@@ -30,3 +30,7 @@ class IMarketGateway(Protocol):
         默认实现返回空列表，子类可覆盖。
         """
         return []
+
+    def ensure_ready(self) -> None:
+        """行情源健康探针: 不可用抛 RuntimeError。默认无操作(Mock/回测源恒可用)。"""
+        return None

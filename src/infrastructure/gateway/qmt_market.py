@@ -94,6 +94,8 @@ class QmtMarketGateway(IMarketGateway):
                     close=float(row["close"]),
                     volume=float(row["volume"]),
                     unadjusted_close=float(unadjusted_close_map.get(ts, 0.0)),
+                    # 前复权序列内前根 close, 与 DuckDB 历史 bars 口径自洽; 窗口首根 0.0 无碍
+                    prev_close=bars[-1].close if bars else 0.0,
                 )
                 bars.append(bar)
 
@@ -110,5 +112,17 @@ class QmtMarketGateway(IMarketGateway):
         由上游 FeaturePipeline 从 bar 历史计算填充。
         """
         return []
+
+    def ensure_ready(self) -> None:
+        """xtdata 服务健康探针(同 scripts/test_qmt_connection.py Step1 口径, 轻量不触发下载)。"""
+        try:
+            detail = xtdata.get_instrument_detail("000001.SZ")
+        except Exception as e:
+            raise RuntimeError(f"xtdata 行情服务探针异常: {e}") from e
+        if not detail:
+            raise RuntimeError(
+                "xtdata 行情服务不可用(xtdatacenter 58610 未起?): "
+                "诊断 $WIN_PYTHON scripts/test_qmt_connection.py; "
+                "恢复: QMT 极简端确认行情面板有数据(非仅交易登录), 必要时重启重登")
 
 

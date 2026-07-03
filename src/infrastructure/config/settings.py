@@ -163,6 +163,9 @@ class AutoTradeSettings:
     poll_timeout_seconds: float = 30.0
     position_ratio: float = 0.1
     bar_lookback: int = 100
+    strategy_params: dict = field(default_factory=dict)   # 截面策略参数(如 top_n), 覆盖 registry 默认
+    mainboard_only: bool = False                           # 宇宙装配层主板过滤(check_symbol_scope 口径)
+    per_order_notional_ceiling: float = 5000.0             # 单笔金额硬顶(默认保持 0611 安全值)
     db_path: str = "data/trading.db"
 
 

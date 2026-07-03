@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 
 from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
@@ -34,3 +35,17 @@ class FundamentalRegistry:
     def get_all_at_date(self, date: datetime) -> list[FundamentalSnapshot]:
         date_key = date.replace(hour=0, minute=0, second=0, microsecond=0)
         return self._by_date.get(date_key, [])
+
+    def latest_date_at_or_before(self, date: datetime) -> datetime | None:
+        """<= date 的最近快照日; 无则 None。live 装配 as-of 别名用(0626 阶段1 DD-5)。"""
+        date_key = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        candidates = [d for d in self._by_date if d <= date_key]
+        return max(candidates) if candidates else None
+
+    def alias_date(self, src: datetime, dst: datetime) -> int:
+        """把 src 日快照以 dst 日期别名注册(live as-of 回退, 不动既有数据); 返回行数。"""
+        # 复制一份: get_all_at_date 返回内部列表, src==dst 时边迭代边 add 会死循环
+        rows = list(self.get_all_at_date(src))
+        for snap in rows:
+            self.add(replace(snap, date=dst))
+        return len(rows)
