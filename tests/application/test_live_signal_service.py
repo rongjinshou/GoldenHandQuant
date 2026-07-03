@@ -1,11 +1,20 @@
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
+import pytest
+
+from src.application.data_health import DataHealthError
 from src.application.live_signal_service import LiveSignalService, SignalDisplay
 from src.domain.account.entities.asset import Asset
+from src.domain.account.entities.position import Position
+from src.domain.market.services.fundamental_registry import FundamentalRegistry
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
 from src.domain.market.value_objects.timeframe import Timeframe
+from src.domain.portfolio.services.equal_weight_sizer import EqualWeightSizer
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
+from src.infrastructure.mock.mock_market import MockMarketGateway
+from src.infrastructure.mock.mock_trade import MockTradeGateway
 
 
 def _make_bars(symbol: str, prices: list[float]) -> list[Bar]:
@@ -115,6 +124,54 @@ class TestLiveSignalService:
         assert "QMT error" in results[0].error_message
 
 
+_FIXED_TUESDAY = datetime(2024, 6, 11, 10, 0, 0)  # 周二(weekday()==1), 非 1/4 月
+
+
+def _make_index_bars(closes: list[float], end_day: datetime = datetime(2024, 6, 11)) -> list[Bar]:
+    """趋势闸指数 bars: 平走(全等收盘)时 MA20==close → pass_buy=True。"""
+    start = end_day - timedelta(days=len(closes) - 1)
+    return [Bar(
+        symbol="000852.SH", timeframe=Timeframe.DAY_1,
+        timestamp=start + timedelta(days=i),
+        open=c, high=c, low=c, close=c, volume=1_000_000,
+    ) for i, c in enumerate(closes)]
+
+
+def _make_cs_market(symbols: list[str], index_closes: list[float] | None = None) -> MockMarketGateway:
+    """截面 fixture 行情: 个股 7 根 bars(06-05..06-11) + 指数 bars(默认 25 根平走)。"""
+    market = MockMarketGateway()
+    for i, sym in enumerate(symbols):
+        c = 10.0 + i
+        market.add_bars(sym, [Bar(
+            symbol=sym, timeframe=Timeframe.DAY_1, timestamp=datetime(2024, 6, d),
+            open=c * 0.99, high=c * 1.02, low=c * 0.98, close=c,
+            volume=1_000_000, prev_close=c * 0.99,
+        ) for d in range(5, 12)])
+    market.add_bars("000852.SH", _make_index_bars(index_closes or [5000.0] * 25))
+    market.set_current_time(datetime(2024, 6, 11, 23, 59))
+    return market
+
+
+def _make_cs_registry(symbols: list[str]) -> FundamentalRegistry:
+    registry = FundamentalRegistry()
+    for i, sym in enumerate(symbols):
+        registry.add(FundamentalSnapshot(
+            symbol=sym, date=_FIXED_TUESDAY, name=f"Co{sym}",
+            list_date=datetime(2000, 1, 1), market_cap=1e9 + i * 1e8,
+            roe_ttm=0.15, ocf_ttm=1e8,
+        ))
+    return registry
+
+
+def _make_account_gw(total: float = 1_000_000, cash: float = 1_000_000) -> MagicMock:
+    account_gw = MagicMock()
+    account_gw.get_asset.return_value = Asset(
+        account_id="t", total_asset=total, available_cash=cash,
+    )
+    account_gw.get_positions.return_value = []
+    return account_gw
+
+
 def test_scan_cross_sectional_via_decision_core(monkeypatch):
     """截面 scan(micro_value) 经决策核心 CrossSectionalStrategyRunner 产 SignalDisplay。
 
@@ -123,13 +180,8 @@ def test_scan_cross_sectional_via_decision_core(monkeypatch):
     datetime.now() → 冻结 now() 为固定周二(2024-06-11, 非 1/4 月)保证确定性。
     """
     from src.application import live_signal_service as lss
-    from src.domain.market.services.fundamental_registry import FundamentalRegistry
-    from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
-    from src.domain.portfolio.services.equal_weight_sizer import EqualWeightSizer
-    from src.infrastructure.mock.mock_market import MockMarketGateway
-    from src.infrastructure.mock.mock_trade import MockTradeGateway
 
-    fixed_now = datetime(2024, 6, 11, 10, 0, 0)  # 周二(weekday()==1), 6 月
+    fixed_now = _FIXED_TUESDAY
 
     class _FixedDatetime(datetime):
         @classmethod
@@ -139,39 +191,17 @@ def test_scan_cross_sectional_via_decision_core(monkeypatch):
     monkeypatch.setattr(lss, "datetime", _FixedDatetime)
 
     symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
-    market = MockMarketGateway()
-    for i, sym in enumerate(symbols):
-        bars = []
-        for day in range(5, 12):  # 06-05 .. 06-11
-            close = 10.0 + i
-            bars.append(Bar(
-                symbol=sym, timeframe=Timeframe.DAY_1,
-                timestamp=datetime(2024, 6, day),
-                open=close * 0.99, high=close * 1.02, low=close * 0.98,
-                close=close, volume=1_000_000, prev_close=close * 0.99,
-            ))
-        market.add_bars(sym, bars)
-    market.set_current_time(datetime(2024, 6, 11, 23, 59))
-
-    registry = FundamentalRegistry()
-    for i, sym in enumerate(symbols):
-        registry.add(FundamentalSnapshot(
-            symbol=sym, date=fixed_now, name=f"Co{sym}",
-            list_date=datetime(2000, 1, 1), market_cap=1e9 + i * 1e8,
-            roe_ttm=0.15, ocf_ttm=1e8,
-        ))
+    market = _make_cs_market(symbols)
+    registry = _make_cs_registry(symbols)
 
     trade = MockTradeGateway(market, initial_capital=1_000_000)
-    account_gw = MagicMock()
-    account_gw.get_asset.return_value = Asset(
-        account_id="t", total_asset=1_000_000, available_cash=1_000_000,
-    )
-    account_gw.get_positions.return_value = []
+    account_gw = _make_account_gw()
 
     service = LiveSignalService(
         market_gateway=market, account_gateway=account_gw, trade_gateway=trade,
         sizer=EqualWeightSizer(n_symbols=len(symbols)),
         fundamental_registry=registry,
+        min_fundamental_rows=1,  # fixture registry 仅 3 行
     )
 
     displays = service.scan(strategy_name="micro_value", symbols=symbols)
@@ -195,6 +225,7 @@ def test_scan_cross_sectional_invokes_decision_core(monkeypatch):
     from src.application import strategy_runner as sr
     from src.application.strategy_runner import DayContext
     from src.domain.portfolio.entities.order_target import OrderTarget
+    from src.domain.risk.services.system_risk_gate import SystemRiskGate
     from src.domain.trade.value_objects.order_direction import OrderDirection
 
     captured: dict = {}
@@ -206,6 +237,11 @@ def test_scan_cross_sectional_invokes_decision_core(monkeypatch):
     class _FakeRunner:
         def __init__(self, **kwargs):
             captured["init"] = kwargs
+            self.system_gate = SystemRiskGate()
+
+        def prime_index_data(self, index_bars, as_of):
+            captured["primed"] = (len(index_bars), as_of)
+            self.system_gate.set_index_data(index_bars)
 
         def evaluate(self, context):
             captured["context"] = context
@@ -214,23 +250,30 @@ def test_scan_cross_sectional_invokes_decision_core(monkeypatch):
     monkeypatch.setattr(sr, "CrossSectionalStrategyRunner", _FakeRunner)
 
     market = MagicMock()
-    account_gw = MagicMock()
-    account_gw.get_asset.return_value = Asset(
+    market.get_recent_bars.return_value = _make_index_bars([5000.0] * 25)
+    account_gw = _make_account_gw()
+    trade = MagicMock()
+    trade.get_positions.return_value = []
+    trade.get_asset.return_value = Asset(
         account_id="t", total_asset=1_000_000, available_cash=1_000_000,
     )
-    account_gw.get_positions.return_value = []
-    trade = MagicMock()
-    registry = object()  # sentinel
+
+    class _RegistryStub:
+        def get_all_at_date(self, date):
+            return [object()]
+
+    registry = _RegistryStub()  # sentinel(带守卫所需最小接口)
 
     service = LiveSignalService(
         market_gateway=market, account_gateway=account_gw, trade_gateway=trade,
-        fundamental_registry=registry,
+        fundamental_registry=registry, min_fundamental_rows=1,
     )
 
     displays = service.scan(strategy_name="micro_value", symbols=["000001.SZ"])
 
     # 走了截面分流 → 构造了决策核心 runner, 注入了 fundamental_registry + DayContext
     assert captured["init"]["fundamental_registry"] is registry
+    assert captured["primed"][0] == 25  # 守卫拉取的指数 bars 显式注入 runner, 不重拉
     assert isinstance(captured["context"], DayContext)
     assert captured["context"].symbols == ["000001.SZ"]
     assert captured["context"].base_timeframe == Timeframe.DAY_1
@@ -257,14 +300,9 @@ def test_scan_signal_consistency_with_backtest_runner(monkeypatch):
     """
     from src.application import live_signal_service as lss
     from src.application.strategy_runner import CrossSectionalStrategyRunner, DayContext
-    from src.domain.market.services.fundamental_registry import FundamentalRegistry
-    from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
-    from src.domain.portfolio.services.equal_weight_sizer import EqualWeightSizer
     from src.domain.strategy.registry import create_strategy
-    from src.infrastructure.mock.mock_market import MockMarketGateway
-    from src.infrastructure.mock.mock_trade import MockTradeGateway
 
-    fixed_now = datetime(2024, 6, 11, 10, 0, 0)  # 周二, 非 1/4 月
+    fixed_now = _FIXED_TUESDAY
 
     class _FixedDatetime(datetime):
         @classmethod
@@ -274,22 +312,9 @@ def test_scan_signal_consistency_with_backtest_runner(monkeypatch):
     monkeypatch.setattr(lss, "datetime", _FixedDatetime)
 
     symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
-    market = MockMarketGateway()
-    for i, sym in enumerate(symbols):
-        c = 10.0 + i
-        market.add_bars(sym, [Bar(
-            symbol=sym, timeframe=Timeframe.DAY_1, timestamp=datetime(2024, 6, d),
-            open=c * 0.99, high=c * 1.02, low=c * 0.98, close=c,
-            volume=1_000_000, prev_close=c * 0.99,
-        ) for d in range(5, 12)])
-    market.set_current_time(datetime(2024, 6, 11, 23, 59))
-
-    registry = FundamentalRegistry()
-    for i, sym in enumerate(symbols):
-        registry.add(FundamentalSnapshot(
-            symbol=sym, date=fixed_now, name=f"Co{sym}", list_date=datetime(2000, 1, 1),
-            market_cap=1e9 + i * 1e8, roe_ttm=0.15, ocf_ttm=1e8,
-        ))
+    # 25 根平走指数 bars: 两条路径趋势闸同为 pass_buy=True(语义与原 fail-open 不变)
+    market = _make_cs_market(symbols)
+    registry = _make_cs_registry(symbols)
     trade = MockTradeGateway(market, initial_capital=1_000_000)
     sizer = EqualWeightSizer(n_symbols=len(symbols))
 
@@ -300,6 +325,7 @@ def test_scan_signal_consistency_with_backtest_runner(monkeypatch):
     service = LiveSignalService(
         market_gateway=market, account_gateway=account_gw, trade_gateway=trade,
         sizer=sizer, fundamental_registry=registry,
+        min_fundamental_rows=1,  # fixture registry 仅 3 行
     )
     displays = service.scan(strategy_name="micro_value", symbols=symbols)
     live = sorted(
@@ -321,3 +347,161 @@ def test_scan_signal_consistency_with_backtest_runner(monkeypatch):
 
     assert live == bt, f"信号不一致: 实盘 {live} != 回测 {bt}"
     assert len(live) >= 1  # 确实产了非空目标组合
+
+
+# ---- B2: scan 数据健康守卫 + ScanSnapshot 决策快照(0626 阶段1 DD-4/DD-7) ----
+
+
+def _make_guard_service(
+    market, trade, registry, *, min_rows: int = 1, params: dict | None = None,
+    clock=None,
+) -> LiveSignalService:
+    return LiveSignalService(
+        market_gateway=market, account_gateway=_make_account_gw(), trade_gateway=trade,
+        sizer=EqualWeightSizer(n_symbols=3), fundamental_registry=registry,
+        strategy_params=params, min_fundamental_rows=min_rows,
+        clock=clock or (lambda: _FIXED_TUESDAY),
+    )
+
+
+def test_scan_empty_universe_raises_and_snapshots_fault():
+    service = _make_guard_service(MagicMock(), MagicMock(), FundamentalRegistry())
+
+    with pytest.raises(DataHealthError):
+        service.scan(strategy_name="micro_value", symbols=[])
+
+    snap = service.last_snapshot
+    assert snap is not None
+    assert snap.data_health == "fault"
+    assert "宇宙" in snap.note
+    assert snap.targets == [] and snap.selection == []
+    assert snap.snapshot_time == _FIXED_TUESDAY
+
+
+def test_scan_insufficient_fundamental_rows_raises():
+    symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
+    market = _make_cs_market(symbols)
+    registry = _make_cs_registry(symbols[:2])  # 只 2 行 < min 3
+    trade = MockTradeGateway(market, initial_capital=1_000_000)
+    service = _make_guard_service(market, trade, registry, min_rows=3)
+
+    with pytest.raises(DataHealthError):
+        service.scan(strategy_name="micro_value", symbols=symbols)
+
+    snap = service.last_snapshot
+    assert snap.data_health == "fault"
+    assert snap.fundamental_rows == 2
+    assert snap.targets == [] and snap.selection == []
+
+
+def test_scan_insufficient_index_bars_raises():
+    symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
+    market = _make_cs_market(symbols, index_closes=[5000.0] * 10)  # < 20 根
+    registry = _make_cs_registry(symbols)
+    trade = MagicMock()
+    trade.get_positions.return_value = [Position(
+        account_id="t", ticker="000001.SZ",
+        total_volume=1000, available_volume=1000, average_cost=10.0,
+    )]
+    trade.get_asset.return_value = Asset(
+        account_id="t", total_asset=1_000_000, available_cash=990_000,
+    )
+    service = _make_guard_service(market, trade, registry)
+
+    with pytest.raises(DataHealthError):
+        service.scan(strategy_name="micro_value", symbols=symbols)
+
+    # 有持仓也不产生任何 SELL: 数据故障 abort ≠ 清仓
+    snap = service.last_snapshot
+    assert snap.data_health == "fault"
+    assert snap.index_bars_count == 10
+    assert snap.targets == [] and snap.selection == []
+
+
+def test_scan_gate_blocked_liquidation_allowed():
+    """指数末根 < MA20 且数据完好 → 合法清仓路径照常放行(设计内行为, 非数据故障)。"""
+    symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
+    market = _make_cs_market(symbols, index_closes=[5000.0] * 24 + [4000.0])
+    registry = _make_cs_registry(symbols)
+    trade = MagicMock()
+    trade.get_positions.return_value = [Position(
+        account_id="t", ticker="000001.SZ",
+        total_volume=1000, available_volume=1000, average_cost=10.0,
+    )]
+    trade.get_asset.return_value = Asset(
+        account_id="t", total_asset=1_000_000, available_cash=990_000,
+    )
+    service = _make_guard_service(market, trade, registry)
+
+    displays = service.scan(strategy_name="micro_value", symbols=symbols)
+
+    assert len(displays) >= 1
+    assert all(d.direction == SignalDirection.SELL for d in displays)
+    snap = service.last_snapshot
+    assert snap.gate_passed is False
+    assert snap.data_health == "ok"
+    assert snap.selection == []  # 闸阻断 → 无 BUY 目标池
+
+
+def test_scan_snapshot_captures_inputs_and_outputs():
+    symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
+    market = _make_cs_market(symbols)
+    registry = _make_cs_registry(symbols)
+    trade = MockTradeGateway(market, initial_capital=1_000_000)
+    service = _make_guard_service(market, trade, registry)
+
+    displays = service.scan(strategy_name="micro_value", symbols=symbols)
+
+    snap = service.last_snapshot
+    assert snap.data_health == "ok" and snap.note == ""
+    assert snap.snapshot_time == _FIXED_TUESDAY
+    assert snap.strategy == "micro_value"
+    assert snap.gate_passed is True
+    assert snap.fundamental_rows == 3
+    assert snap.index_bars_count == 25
+    # assembly_meta 未注入 → 回退 len(symbols)/0
+    assert snap.universe_size == 3 and snap.filtered_size == 3
+    assert snap.staleness_days == 0
+    assert snap.positions == []  # MockTradeGateway 初始空仓
+    assert snap.total_asset == 1_000_000
+    assert snap.selection == sorted(
+        d.symbol for d in displays if d.direction == SignalDirection.BUY
+    )
+    assert len(snap.targets) == len(displays) >= 1
+    assert {(t["symbol"], t["direction"], t["volume"]) for t in snap.targets} == {
+        (d.symbol, d.direction.value, d.suggested_volume) for d in displays
+    }
+
+
+def test_strategy_params_control_top_n():
+    symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
+    market = _make_cs_market(symbols)
+    registry = _make_cs_registry(symbols)
+    trade = MockTradeGateway(market, initial_capital=1_000_000)
+    service = _make_guard_service(market, trade, registry, params={"top_n": 2})
+
+    service.scan(strategy_name="micro_value", symbols=symbols)
+
+    snap = service.last_snapshot
+    assert len(snap.selection) == 2
+    assert snap.selection == ["000001.SZ", "000002.SZ"]  # 市值升序前 2
+
+
+def test_clock_injection():
+    """clock 注入固定周二 → 与真实 datetime.now() 无关地复现选股(比对脚本 DD-8 前提)。
+
+    未注入时钟时 registry 在真实今天无行, 守卫必 abort → scan 正常产出即证明
+    决策全程用的是注入时钟。
+    """
+    symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
+    market = _make_cs_market(symbols)
+    registry = _make_cs_registry(symbols)
+    trade = MockTradeGateway(market, initial_capital=1_000_000)
+    service = _make_guard_service(market, trade, registry, clock=lambda: _FIXED_TUESDAY)
+
+    displays = service.scan(strategy_name="micro_value", symbols=symbols)
+
+    snap = service.last_snapshot
+    assert snap.snapshot_time == _FIXED_TUESDAY
+    assert snap.selection == symbols  # 周二调仓日全 3 只入选(top_n 默认 9)
+    assert len(displays) == 3

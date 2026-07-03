@@ -179,6 +179,12 @@ class CrossSectionalStrategyRunner(StrategyRunner):
             HardStopLossPolicy(max_loss_ratio=max_loss),
         ])
 
+    def prime_index_data(self, index_bars: list[Bar], as_of: datetime) -> None:
+        """外部已拉取指数 bars 时显式注入, evaluate 命中 _index_cache_date 跳过重复拉取。"""
+        if index_bars:
+            self.system_gate.set_index_data(index_bars)
+        self._index_cache_date = as_of
+
     def evaluate(self, context: DayContext) -> tuple[list[OrderTarget], dict[str, float]]:
         # 熔断器检查: TRIGGERED 时直接返回空
         if self.circuit_breaker and self.circuit_breaker.state.blocks_all_trading:

@@ -1,8 +1,10 @@
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
+from src.application.data_health import DataHealthError
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
 from src.domain.account.interfaces.gateways.account_gateway import IAccountGateway
@@ -49,6 +51,30 @@ class OrderResult:
     error_message: str = ""
 
 
+@dataclass(slots=True, kw_only=True)
+class ScanSnapshot:
+    """单次截面 scan 的决策快照 — 决策的完整输入+输出留痕(0626 阶段1 DD-7)。
+
+    data_health: "ok" = 正常决策(含合法清仓); "fault" = 数据健康守卫命中,
+    本周期不买不卖(targets/selection 恒空)。
+    """
+    snapshot_time: datetime
+    strategy: str
+    universe_size: int
+    filtered_size: int
+    fundamental_date: datetime | None
+    fundamental_rows: int
+    staleness_days: int
+    index_bars_count: int
+    gate_passed: bool
+    positions: list[dict]
+    total_asset: float
+    selection: list[str]
+    targets: list[dict]
+    data_health: str
+    note: str
+
+
 class LiveSignalService:
     """半自动交易信号编排服务。
 
@@ -65,6 +91,11 @@ class LiveSignalService:
         slippage_sell: float = 0.001,
         bar_lookback: int = 100,
         fundamental_registry=None,
+        strategy_params: dict | None = None,
+        clock: Callable[[], datetime] | None = None,
+        assembly_meta=None,
+        index_symbol: str = "000852.SH",
+        min_fundamental_rows: int = 500,
     ) -> None:
         self.market_gateway = market_gateway
         self.account_gateway = account_gateway
@@ -74,10 +105,18 @@ class LiveSignalService:
         self.slippage_sell = slippage_sell
         self.bar_lookback = bar_lookback
         self.fundamental_registry = fundamental_registry
+        self.strategy_params = strategy_params
+        # 默认时钟经 lambda 晚绑定本模块 datetime(既有测试 monkeypatch lss.datetime 仍可注入)
+        self.clock: Callable[[], datetime] = clock or (lambda: datetime.now())
+        self.assembly_meta = assembly_meta
+        self.index_symbol = index_symbol
+        self.min_fundamental_rows = min_fundamental_rows
+        self.last_snapshot: ScanSnapshot | None = None
 
     def scan(self, strategy_name: str, symbols: list[str]) -> list[SignalDisplay]:
         """扫描信号并返回展示列表。"""
-        strategy = create_strategy(strategy_name)
+        # create_strategy(name, params=None) 与原单参调用等价 → None 时行为不变
+        strategy = create_strategy(strategy_name, self.strategy_params)
         config = get_strategy(strategy_name)
 
         asset = self.account_gateway.get_asset()
@@ -89,7 +128,7 @@ class LiveSignalService:
 
         if config.strategy_type == "cross_section":
             return self._scan_cross_sectional(
-                strategy, symbols, positions, asset,
+                strategy, strategy_name, symbols, positions, asset,
             )
         return self._scan_bar(strategy, symbols, positions, asset)
 
@@ -129,21 +168,97 @@ class LiveSignalService:
         signals = strategy.generate_signals(market_data, positions)
         return self._signals_to_displays(signals, market_data, positions, asset)
 
-    def _scan_cross_sectional(self, strategy, symbols, positions, asset):
-        """截面策略扫描 — 统一走决策核心 CrossSectionalStrategyRunner。
+    def _scan_cross_sectional(self, strategy, strategy_name, symbols, positions, asset):
+        """截面策略扫描 — DD-4 数据健康守卫 → 指数注入 → 决策核心 → DD-7 决策快照。
 
         positions/asset 保留签名兼容(分流调用方传入), runner 内部自取真账户。
+        守卫命中: 先填 fault 快照再抛 DataHealthError → 调用方留痕, 本周期不买不卖
+        (数据故障 ≠ 合法清仓; 闸阻断/空仓月的清仓是数据完好下的设计内行为, 照常放行)。
         """
         from src.application.strategy_runner import CrossSectionalStrategyRunner, DayContext
+
+        now = self.clock()
+        if not symbols:
+            note = "宇宙为空: 装配失败或配置错误, 拒绝决策"
+            self._snapshot_fault(now, strategy_name, symbols, note)
+            raise DataHealthError(note)
+        rows = (
+            self.fundamental_registry.get_all_at_date(now)
+            if self.fundamental_registry is not None else []
+        )
+        if len(rows) < self.min_fundamental_rows:
+            note = f"当日基本面行数 {len(rows)} < {self.min_fundamental_rows}, 拒绝决策"
+            self._snapshot_fault(now, strategy_name, symbols, note, fundamental_rows=len(rows))
+            raise DataHealthError(note)
+        index_bars = self.market_gateway.get_recent_bars(self.index_symbol, Timeframe.DAY_1, 100)
+        if len(index_bars) < 20:
+            note = f"趋势闸指数 bars {len(index_bars)} < 20(将静默 fail-open), 拒绝决策"
+            self._snapshot_fault(
+                now, strategy_name, symbols, note,
+                fundamental_rows=len(rows), index_bars_count=len(index_bars),
+            )
+            raise DataHealthError(note)
+
         runner = CrossSectionalStrategyRunner(
             strategy=strategy, sizer=self.sizer,
             market_gateway=self.market_gateway, trade_gateway=self.trade_gateway,
             fundamental_registry=self.fundamental_registry,
         )
+        runner.prime_index_data(index_bars, now)
+        # check_gate 纯读幂等: 先判留痕, evaluate 内同一 gate 同结果
+        gate_passed = runner.system_gate.check_gate(now).pass_buy
         targets, prices = runner.evaluate(DayContext(
-            current_time=datetime.now(), symbols=symbols, base_timeframe=Timeframe.DAY_1,
+            current_time=now, symbols=symbols, base_timeframe=Timeframe.DAY_1,
         ))
+
+        # 快照的持仓/资产与 runner 决策同源(trade_gateway; dry_run 透传真账户)
+        live_positions = self.trade_gateway.get_positions()
+        live_asset = self.trade_gateway.get_asset()
+        universe_size, filtered_size, fundamental_date, staleness_days = (
+            self._meta_fields(symbols, now)
+        )
+        self.last_snapshot = ScanSnapshot(
+            snapshot_time=now, strategy=strategy_name,
+            universe_size=universe_size, filtered_size=filtered_size,
+            fundamental_date=fundamental_date, fundamental_rows=len(rows),
+            staleness_days=staleness_days, index_bars_count=len(index_bars),
+            gate_passed=gate_passed,
+            positions=[{
+                "symbol": p.ticker, "total_volume": p.total_volume,
+                "available_volume": p.available_volume, "average_cost": p.average_cost,
+            } for p in live_positions],
+            total_asset=live_asset.total_asset if live_asset else 0.0,
+            selection=sorted({t.symbol for t in targets if t.direction == OrderDirection.BUY}),
+            targets=[{
+                "symbol": t.symbol, "direction": t.direction.value, "volume": t.volume,
+                "price": t.price, "strategy_name": t.strategy_name,
+            } for t in targets],
+            data_health="ok", note="",
+        )
         return [self._target_to_display(t, prices) for t in targets]
+
+    def _meta_fields(self, symbols, now: datetime) -> tuple[int, int, datetime | None, int]:
+        """装配元信息(B1 注入 AssemblyMeta); 未注入时回退 len(symbols)/当日/0。"""
+        meta = self.assembly_meta
+        if meta is None:
+            return len(symbols), len(symbols), now, 0
+        return meta.universe_size, meta.filtered_size, meta.fundamental_date, meta.staleness_days
+
+    def _snapshot_fault(
+        self, now: datetime, strategy_name: str, symbols: list[str], note: str, *,
+        fundamental_rows: int = 0, index_bars_count: int = 0,
+    ) -> None:
+        universe_size, filtered_size, fundamental_date, staleness_days = (
+            self._meta_fields(symbols, now)
+        )
+        self.last_snapshot = ScanSnapshot(
+            snapshot_time=now, strategy=strategy_name,
+            universe_size=universe_size, filtered_size=filtered_size,
+            fundamental_date=fundamental_date, fundamental_rows=fundamental_rows,
+            staleness_days=staleness_days, index_bars_count=index_bars_count,
+            gate_passed=False, positions=[], total_asset=0.0,
+            selection=[], targets=[], data_health="fault", note=note,
+        )
 
     def _target_to_display(self, t, prices):
         current = prices.get(t.symbol, t.price)
