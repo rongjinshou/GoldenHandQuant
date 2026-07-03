@@ -33,6 +33,16 @@ _SCHEMA = [
         total_volume INTEGER, available_volume INTEGER,
         average_cost REAL, last_price REAL
     )""",
+    # 截面决策快照(0626 阶段1 DD-7): 决策的完整输入+输出留痕, D2 离线比对同源。
+    """CREATE TABLE IF NOT EXISTS signal_snapshots (
+        cycle_id TEXT PRIMARY KEY, snapshot_time TEXT NOT NULL, mode TEXT NOT NULL,
+        strategy TEXT NOT NULL, universe_size INTEGER, filtered_size INTEGER,
+        fundamental_date TEXT, fundamental_rows INTEGER, staleness_days INTEGER,
+        index_bars_count INTEGER, gate_passed INTEGER,
+        positions_json TEXT DEFAULT '[]', total_asset REAL,
+        selection_json TEXT DEFAULT '[]', targets_json TEXT DEFAULT '[]',
+        data_health TEXT DEFAULT 'ok', note TEXT DEFAULT ''
+    )""",
 ]
 
 # 占用预算的状态(意向已发出): 拒单/失败不占。
@@ -168,6 +178,38 @@ class TradingStore:
              for r in rows],
         )
         self._db.commit()
+
+    # --------------------------------------------------- signal snapshots
+    def save_signal_snapshot(self, row: dict) -> None:
+        """截面决策快照落库(cycle_id 幂等 upsert); 序列化约定见 auto_trade_app。"""
+        cols = ("cycle_id", "snapshot_time", "mode", "strategy",
+                "universe_size", "filtered_size", "fundamental_date",
+                "fundamental_rows", "staleness_days", "index_bars_count",
+                "gate_passed", "positions_json", "total_asset",
+                "selection_json", "targets_json", "data_health", "note")
+        self._db.execute(
+            f"INSERT OR REPLACE INTO signal_snapshots ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' for _ in cols)})",
+            tuple(row.get(c) for c in cols),
+        )
+        self._db.commit()
+
+    def load_signal_snapshots(self, limit: int = 20) -> list[dict]:
+        cur = self._db.execute(
+            "SELECT * FROM signal_snapshots ORDER BY snapshot_time DESC LIMIT ?",
+            (limit,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def load_signal_snapshot_by_date(self, date_str: str) -> dict | None:
+        """某日最新一条决策快照(D2 影子盘一致性比对入口); 无则 None。"""
+        cur = self._db.execute(
+            """SELECT * FROM signal_snapshots WHERE date(snapshot_time)=?
+               ORDER BY snapshot_time DESC LIMIT 1""",
+            (date_str,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
 
     def load_latest_positions(self, *, mode: str) -> list[dict]:
         cur = self._db.execute(

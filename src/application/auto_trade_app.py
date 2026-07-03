@@ -44,6 +44,7 @@ class AutoTradeConfig:
     min_confidence: float = 0.6
     max_orders_per_cycle: int = 3
     per_order_notional_cap: float = 1500.0
+    per_order_notional_ceiling: float = 5000.0   # 单笔金额硬顶(默认保持 0611 安全值)
     daily_notional_cap: float = 3000.0
     daily_loss_limit_ratio: float = 0.02
     poll_timeout_seconds: float = 30.0
@@ -116,13 +117,15 @@ class AutoTradeAppService:
 
         try:
             displays = self._signals.scan(self._cfg.strategy, self._cfg.symbols)
-        except Exception as e:  # 扫描失败不杀循环, 留痕收口
+        except Exception as e:  # 扫描失败不杀循环, 留痕收口(含 DataHealthError 拒绝决策)
             logger.error("信号扫描失败: %s", e, exc_info=True)
             summary.note = f"scan failed: {e}"
+            self._save_scan_snapshot(cycle_id)  # 守卫命中的 fault 快照(B2 已填充)
             self._finalize(summary)
             return summary
 
         summary.signals_generated = len(displays)
+        self._save_scan_snapshot(cycle_id)
         try:
             candidates = self._select(displays, now)
             block_buys, asset = self._prepare_baseline_and_loss_check(now)
@@ -152,6 +155,42 @@ class AutoTradeAppService:
                 summary.note = (summary.note + f" snapshot failed: {e}").strip()
             self._finalize(summary)
         return summary
+
+    def _save_scan_snapshot(self, cycle_id: str) -> None:
+        """截面决策快照落库(0626 阶段1 DD-7) — 自身异常不得杀循环。
+
+        序列化约定(D2 比对脚本反序列化同此): datetime → isoformat 字符串;
+        positions/selection/targets → json.dumps(ensure_ascii=False);
+        gate_passed → int(0/1)。落库后清空 last_snapshot 防跨周期陈旧快照。
+        """
+        snap = getattr(self._signals, "last_snapshot", None)
+        if snap is None:
+            return
+        try:
+            self._store.save_signal_snapshot({
+                "cycle_id": cycle_id,
+                "snapshot_time": snap.snapshot_time.isoformat(),
+                "mode": self._cfg.mode,
+                "strategy": snap.strategy,
+                "universe_size": snap.universe_size,
+                "filtered_size": snap.filtered_size,
+                "fundamental_date": (snap.fundamental_date.isoformat()
+                                     if snap.fundamental_date else None),
+                "fundamental_rows": snap.fundamental_rows,
+                "staleness_days": snap.staleness_days,
+                "index_bars_count": snap.index_bars_count,
+                "gate_passed": int(snap.gate_passed),
+                "positions_json": json.dumps(snap.positions, ensure_ascii=False),
+                "total_asset": snap.total_asset,
+                "selection_json": json.dumps(snap.selection, ensure_ascii=False),
+                "targets_json": json.dumps(snap.targets, ensure_ascii=False),
+                "data_health": snap.data_health,
+                "note": snap.note,
+            })
+        except Exception as e:
+            logger.error("决策快照落库失败 (循环继续): %s", e, exc_info=True)
+        finally:
+            self._signals.last_snapshot = None
 
     # ------------------------------------------------------------- selection
     def _select(self, displays: list[SignalDisplay], now: datetime) -> list[SignalDisplay]:
@@ -221,6 +260,7 @@ class AutoTradeAppService:
         gate = run_pre_trade_gates(
             symbol=d.symbol, direction=direction, volume=d.suggested_volume,
             quote=quote, now=now, max_notional=self._cfg.per_order_notional_cap,
+            notional_ceiling=self._cfg.per_order_notional_ceiling,
             available_cash=cash_available,
             available_volume=available_volume,
         )

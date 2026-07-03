@@ -65,10 +65,15 @@ def _build_service(settings, mode: str):
     )
     trade_gateway = real_gateway if mode == "live" else DryRunTradeGateway(real_gateway)
 
+    # 行情探针 fail-fast(0626 阶段1 DD-4): xtdata 断连时不做后续 TradingStore/DuckDB
+    # 装配; RuntimeError(含探针诊断指引)由 main 的 except RuntimeError 优雅退出。
+    market_gateway = QmtMarketGateway()
+    market_gateway.ensure_ready()
+
     store = TradingStore(at.db_path)
     signal_service, symbols = build_live_signal_service(
         at,
-        market_gateway=QmtMarketGateway(),
+        market_gateway=market_gateway,
         account_gateway=real_gateway,
         trade_gateway=trade_gateway,
     )
@@ -77,6 +82,7 @@ def _build_service(settings, mode: str):
         min_confidence=at.min_confidence,
         max_orders_per_cycle=at.max_orders_per_cycle,
         per_order_notional_cap=at.per_order_notional_cap,
+        per_order_notional_ceiling=at.per_order_notional_ceiling,
         daily_notional_cap=at.daily_notional_cap,
         daily_loss_limit_ratio=at.daily_loss_limit_ratio,
         poll_timeout_seconds=at.poll_timeout_seconds,

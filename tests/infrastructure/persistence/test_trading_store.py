@@ -120,6 +120,71 @@ class TestExecutions:
         assert keys == {"601006.SH:BUY"}  # 拒单不算已交易
 
 
+def _snapshot_row(cycle_id="c1", snapshot_time=T0, data_health="ok",
+                  note="") -> dict:
+    return {
+        "cycle_id": cycle_id, "snapshot_time": snapshot_time.isoformat(),
+        "mode": "dry_run", "strategy": "micro_value",
+        "universe_size": 1885, "filtered_size": 1880,
+        "fundamental_date": "2026-06-09T00:00:00", "fundamental_rows": 1880,
+        "staleness_days": 1, "index_bars_count": 100, "gate_passed": 1,
+        "positions_json": "[]", "total_asset": 146000.0,
+        "selection_json": '["601006.SH"]', "targets_json": "[]",
+        "data_health": data_health, "note": note,
+    }
+
+
+class TestSignalSnapshots:
+    def test_save_and_load_roundtrip(self, tmp_path):
+        s = _store(tmp_path)
+        s.save_signal_snapshot(_snapshot_row())
+
+        rows = s.load_signal_snapshots(limit=10)
+
+        assert len(rows) == 1
+        assert rows[0]["strategy"] == "micro_value"
+        assert rows[0]["gate_passed"] == 1
+        assert rows[0]["selection_json"] == '["601006.SH"]'
+        assert rows[0]["fundamental_date"] == "2026-06-09T00:00:00"
+
+    def test_save_is_upsert_by_cycle_id(self, tmp_path):
+        s = _store(tmp_path)
+        s.save_signal_snapshot(_snapshot_row(note="first"))
+        s.save_signal_snapshot(_snapshot_row(note="second"))
+
+        rows = s.load_signal_snapshots()
+
+        assert len(rows) == 1
+        assert rows[0]["note"] == "second"
+
+    def test_load_by_date_returns_latest_of_day(self, tmp_path):
+        s = _store(tmp_path)
+        s.save_signal_snapshot(_snapshot_row("c-am", snapshot_time=T0))
+        s.save_signal_snapshot(
+            _snapshot_row("c-pm", snapshot_time=T0.replace(hour=14, minute=50)))
+        s.save_signal_snapshot(
+            _snapshot_row("c-other", snapshot_time=datetime(2026, 6, 11, 9, 35)))
+
+        row = s.load_signal_snapshot_by_date(T0.date().isoformat())
+
+        assert row is not None
+        assert row["cycle_id"] == "c-pm"
+
+    def test_load_by_date_missing_returns_none(self, tmp_path):
+        s = _store(tmp_path)
+        assert s.load_signal_snapshot_by_date("2026-07-08") is None
+
+    def test_fault_snapshot_roundtrip(self, tmp_path):
+        s = _store(tmp_path)
+        s.save_signal_snapshot(_snapshot_row(
+            data_health="fault", note="宇宙为空: 装配失败或配置错误"))
+
+        row = s.load_signal_snapshot_by_date(T0.date().isoformat())
+
+        assert row["data_health"] == "fault"
+        assert "宇宙为空" in row["note"]
+
+
 class TestSnapshots:
     def test_account_snapshot_and_day_start_equity(self, tmp_path):
         s = _store(tmp_path)
