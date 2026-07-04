@@ -79,6 +79,8 @@ $WIN_PYTHON scripts/fetch_index_bars.py          # 指数 000852.SH 不在 refre
 $WIN_PYTHON -m src.interfaces.cli.quant auto-trade --once --enable
 # ④ 收盘后：再 refresh（含当日）→ 一致性比对（QMT 实时决策 vs DuckDB 离线同输入重放）
 $WIN_PYTHON scripts/shadow_consistency_check.py                  # exit 0=逐位一致
+# ⑤ 纸面净值周度更新（"跟着 F01 做到哪了", 入 backtest_runs, 驾驶舱回测页可见）
+$WIN_PYTHON scripts/shadow_paper_equity.py
 ```
 
 **数据健康守卫（fail-fast，宁可停一周期不误清仓）**：装配/scan 期任一命中 →
