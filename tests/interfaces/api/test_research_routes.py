@@ -11,7 +11,7 @@ from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
 from src.infrastructure.persistence.market_data_store import MarketDataStore
 from src.interfaces.api.app import app
-from src.interfaces.api.routes.research import get_research_store
+from src.interfaces.api.routes.research import get_research_store, get_research_write_store
 
 
 def _bar(symbol: str, date: str, close: float) -> Bar:
@@ -215,3 +215,96 @@ class TestFeatures:
             params={"names": "not_a_feature"},
         )
         assert resp.status_code == 422
+
+
+def _write_override(db_path: str):
+    """DELETE 端点测试专用写连接依赖覆盖 — 设计 docs/feat/0705-research-retire。"""
+    def _fn():
+        store = MarketDataStore(db_path, read_only=False)
+        try:
+            yield store
+        finally:
+            store.close()
+    return _fn
+
+
+class TestDeleteBacktestRun:
+    def test_delete_existing_run_returns_deleted_count_and_actually_removes(self, tmp_path):
+        from src.domain.backtest.entities.backtest_report import BacktestReport
+        from src.infrastructure.persistence.backtest_run_mapper import build_backtest_run_row
+
+        db = str(tmp_path / "bt.duckdb")
+        s = MarketDataStore(db)
+        report = BacktestReport(
+            start_date=datetime(2024, 1, 1), end_date=datetime(2024, 12, 31),
+            initial_capital=100000.0, final_capital=112000.0,
+            total_return=0.12, annualized_return=0.12, max_drawdown=0.08,
+            win_rate=0.55, profit_loss_ratio=1.6, trade_count=42,
+            dates=[datetime(2024, 1, 2), datetime(2024, 1, 3)],
+            equity_curve=[100000.0, 100500.0], daily_returns=[0.0, 0.005],
+            strategy_name="dual_ma",
+        )
+        s.insert_backtest_runs([build_backtest_run_row(report, run_id="r1", params={})])
+        s.close()
+
+        app.dependency_overrides[get_research_write_store] = _write_override(db)
+        try:
+            resp = TestClient(app).delete("/api/research/backtests/r1")
+            assert resp.status_code == 200
+            assert resp.json() == {"deleted": 1}
+
+            app.dependency_overrides[get_research_store] = _write_override(db)
+            assert TestClient(app).get("/api/research/backtests").json() == {"runs": []}
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_delete_nonexistent_run_returns_404(self, tmp_path):
+        db = str(tmp_path / "bt.duckdb")
+        MarketDataStore(db).close()
+
+        app.dependency_overrides[get_research_write_store] = _write_override(db)
+        try:
+            resp = TestClient(app).delete("/api/research/backtests/does-not-exist")
+            assert resp.status_code == 404
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_delete_when_db_missing_returns_404(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GHQ_MARKET_DB", str(tmp_path / "nope.duckdb"))
+        resp = TestClient(app).delete("/api/research/backtests/r1")
+        assert resp.status_code == 404
+
+
+class TestDeleteVerdictRun:
+    def test_delete_existing_run_returns_deleted_count_and_actually_removes(self, tmp_path):
+        db = str(tmp_path / "v.duckdb")
+        s = MarketDataStore(db)
+        s.insert_verdicts("r1", {}, _verdict_rows())
+        s.close()
+
+        app.dependency_overrides[get_research_write_store] = _write_override(db)
+        try:
+            resp = TestClient(app).delete("/api/research/verdicts/r1")
+            assert resp.status_code == 200
+            assert resp.json() == {"deleted": 1}
+
+            app.dependency_overrides[get_research_store] = _write_override(db)
+            assert TestClient(app).get("/api/research/verdicts").json() == {"runs": []}
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_delete_nonexistent_run_returns_404(self, tmp_path):
+        db = str(tmp_path / "v.duckdb")
+        MarketDataStore(db).close()
+
+        app.dependency_overrides[get_research_write_store] = _write_override(db)
+        try:
+            resp = TestClient(app).delete("/api/research/verdicts/does-not-exist")
+            assert resp.status_code == 404
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_delete_when_db_missing_returns_404(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GHQ_MARKET_DB", str(tmp_path / "nope.duckdb"))
+        resp = TestClient(app).delete("/api/research/verdicts/r1")
+        assert resp.status_code == 404

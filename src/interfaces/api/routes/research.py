@@ -55,6 +55,29 @@ def get_research_store() -> Iterator[MarketDataStore | None]:
         store.close()
 
 
+def get_research_write_store() -> Iterator[MarketDataStore]:
+    """删除端点用的独立写连接依赖 — 短生命周期, 每请求一个, 与只读依赖并存。
+
+    库文件不存在 → 404(没有库谈不上删除); 写锁被 factor-test/data-refresh
+    占用 → 503(同 get_research_store 的转写文案)。设计: docs/feat/0705-research-retire。
+    """
+    path = _db_path()
+    if not Path(path).exists():
+        raise HTTPException(status_code=404, detail="研究数据库不存在")
+    try:
+        store = MarketDataStore(path, read_only=False)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail="market.duckdb 正被写进程占用（factor-test / data refresh 运行中），"
+                   f"请稍后重试。底层错误: {e}",
+        ) from e
+    try:
+        yield store
+    finally:
+        store.close()
+
+
 def _nn(value: float | None) -> float | None:
     """NaN → None，保证 JSON 合法。"""
     if value is None or (isinstance(value, float) and math.isnan(value)):
@@ -84,6 +107,18 @@ async def verdicts(store: MarketDataStore | None = Depends(get_research_store)):
     return {"runs": store.load_verdict_runs()}
 
 
+@router.delete("/verdicts/{run_id}")
+async def delete_verdict(
+    run_id: str,
+    store: MarketDataStore = Depends(get_research_write_store),
+):
+    """删除整轮判决(该 run_id 下全部因子行) — 设计 docs/feat/0705-research-retire。"""
+    deleted = store.delete_verdict_run(run_id)
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail=f"run 不存在: {run_id}")
+    return {"deleted": deleted}
+
+
 @router.get("/backtests")
 async def backtests(store: MarketDataStore | None = Depends(get_research_store)):
     """历次回测结果 (倒序, 同 run 多策略并排)。equity_curve/params 解析为对象。"""
@@ -97,6 +132,18 @@ async def backtests(store: MarketDataStore | None = Depends(get_research_store))
             # 旧行无 trades 留痕 → 空列表 (前端不画买卖标记)
             s["trades"] = json.loads(s["trades"]) if s.get("trades") else []
     return {"runs": runs}
+
+
+@router.delete("/backtests/{run_id}")
+async def delete_backtest(
+    run_id: str,
+    store: MarketDataStore = Depends(get_research_write_store),
+):
+    """删除整轮回测(该 run_id 下全部策略行) — 设计 docs/feat/0705-research-retire。"""
+    deleted = store.delete_backtest_run(run_id)
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail=f"run 不存在: {run_id}")
+    return {"deleted": deleted}
 
 
 @router.get("/symbols")
