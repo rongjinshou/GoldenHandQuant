@@ -153,6 +153,25 @@ class TestTradesColumn:
 
         assert len(json.loads(row["trades"])) == 2000
 
+    def test_delete_existing_run_removes_all_its_strategy_rows(self):
+        store = MarketDataStore(":memory:")
+        r1 = build_backtest_run_row(_report(), run_id="r1", params={})
+        r2 = dict(r1, strategy="micro_value")
+        other = build_backtest_run_row(_report(), run_id="r2", params={})
+        store.insert_backtest_runs([r1, r2, other])
+
+        deleted = store.delete_backtest_run("r1")
+
+        assert deleted == 2
+        assert [r["run_id"] for r in store.load_backtest_runs()] == ["r2"]
+
+    def test_delete_nonexistent_run_returns_zero(self):
+        store = MarketDataStore(":memory:")
+        store.insert_backtest_runs([build_backtest_run_row(_report(), run_id="r1", params={})])
+
+        assert store.delete_backtest_run("does-not-exist") == 0
+        assert len(store.load_backtest_runs()) == 1
+
     def test_read_only_legacy_table_without_trades_column(self, tmp_path):
         """read_only 打开缺 trades 列的旧库: 正常读出, trades=None, 不许 500。"""
         import duckdb

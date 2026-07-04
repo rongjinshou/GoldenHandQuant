@@ -436,6 +436,15 @@ class MarketDataStore:
                 ],
             )
 
+    def delete_verdict_run(self, run_id: str) -> int:
+        """删除整轮判决(该 run_id 下全部因子行)。返回删除行数。"""
+        count = self._conn.execute(
+            "SELECT COUNT(*) FROM factor_verdicts WHERE run_id = ?", [run_id]
+        ).fetchone()[0]
+        if count:
+            self._conn.execute("DELETE FROM factor_verdicts WHERE run_id = ?", [run_id])
+        return count
+
     def load_verdict_runs(self) -> list[dict]:
         """全部判决按 run 分组，created_at 倒序。"""
         rows = self._conn.execute(
@@ -483,6 +492,15 @@ class MarketDataStore:
                     VALUES (?, ?, {", ".join("?" for _ in _BACKTEST_COLS)})""",
                 [r["run_id"], created_at, *[r.get(c) for c in _BACKTEST_COLS]],
             )
+
+    def delete_backtest_run(self, run_id: str) -> int:
+        """删除整轮回测(该 run_id 下全部策略行)。返回删除行数。"""
+        count = self._conn.execute(
+            "SELECT COUNT(*) FROM backtest_runs WHERE run_id = ?", [run_id]
+        ).fetchone()[0]
+        if count:
+            self._conn.execute("DELETE FROM backtest_runs WHERE run_id = ?", [run_id])
+        return count
 
     def load_backtest_runs(self, limit: int = 100) -> list[dict]:
         """按 run 分组, created_at 倒序。equity_curve/params 保持 JSON 字符串。

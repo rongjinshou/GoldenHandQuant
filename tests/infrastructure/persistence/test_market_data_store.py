@@ -215,6 +215,22 @@ class TestVerdicts:
         assert f["excess_positive_rate"] == 0.6
         assert f["objective"] == "long_only"
 
+    def test_delete_existing_run_removes_all_its_factor_rows(self, store):
+        rows_2 = self._rows() + [{**self._rows()[0], "factor_id": "F05"}]
+        store.insert_verdicts("run1", {}, rows_2)
+        store.insert_verdicts("run2", {}, self._rows())
+
+        deleted = store.delete_verdict_run("run1")
+
+        assert deleted == 2
+        assert [r["run_id"] for r in store.load_verdict_runs()] == ["run2"]
+
+    def test_delete_nonexistent_run_returns_zero(self, store):
+        store.insert_verdicts("run1", {}, self._rows())
+
+        assert store.delete_verdict_run("does-not-exist") == 0
+        assert len(store.load_verdict_runs()) == 1
+
     def test_migration_adds_longonly_columns_to_legacy_table(self, tmp_path):
         """存量库(无新列)再打开应被幂等迁移加列 + objective 回填 long_short。"""
         path = str(tmp_path / "legacy.duckdb")
