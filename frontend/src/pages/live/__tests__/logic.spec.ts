@@ -94,13 +94,13 @@ describe('cumReturn', () => {
     })
   })
 
-  it('≥2 快照涨 → 红(up), 现值优先取最新账户快照', () => {
+  it('≥2 快照涨 → 红(up), 现值优先取最新账户快照, 起点副文案带模式', () => {
     const series = [acct(100000), acct(105000)]
-    // latest 覆盖序列末值: 起点 100000, 现值 110000 → +10%
+    // latest 覆盖序列末值: 起点 100000, 现值 110000 → +10%; sub 标注 series 模式防跨模式误读
     expect(cumReturn(series, acct(110000))).toEqual({
       text: '+10.00%',
       tone: 'up',
-      sub: `起点 ${(100000).toLocaleString()}`,
+      sub: `起点 ${(100000).toLocaleString()} (dry_run)`,
     })
   })
 

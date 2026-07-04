@@ -15,8 +15,11 @@ import { f2, f3, f4, gateClass, gradeClass, pct } from './verdicts/gates'
  * 因子检验表单(分组 chips/P0 默认勾/field_ready 禁用/多重检验提示) + JobCard 闭环。 */
 
 const error = ref('')
+const loading = ref(true)
 const runs = ref<VerdictRun[]>([])
 const selectedIdx = ref(0)
+// 提前声明: loadVerdicts 成功回调里预填(声明本体在表单区块会触发 TDZ/lint)
+const ftSplit = ref<string | null>(null)
 
 async function loadVerdicts(): Promise<void> {
   try {
@@ -24,8 +27,13 @@ async function loadVerdicts(): Promise<void> {
     runs.value = data.runs
     selectedIdx.value = 0
     error.value = ''
+    // 检验表单预填最近一轮的切分日 — 消除进页即报"多重检验风险"的常驻警告
+    const lastSplit = runs.value[0]?.params?.split
+    if (!ftSplit.value && typeof lastSplit === 'string' && lastSplit) ftSplit.value = lastSplit
   } catch (e) {
     error.value = (e as Error).message
+  } finally {
+    loading.value = false
   }
 }
 
@@ -34,12 +42,36 @@ void loadVerdicts()
 const run = computed(() => runs.value[selectedIdx.value] ?? null)
 const longOnly = computed(() => run.value?.params?.objective === 'long_only')
 
+/* 下拉时间前置: 同名多轮次靠时间区分, 避免截断后每项看起来一样 */
 const runOptions = computed(() =>
   runs.value.map((r, i) => ({
-    label: `${r.run_id}（${(r.created_at ?? '').slice(0, 19)}）`,
+    label: `${(r.created_at ?? '').slice(0, 16)} · ${r.run_id}`,
     value: i,
   })),
 )
+
+// ---- reasons 降噪: 失败项常驻红 chip, 通过项折叠为摘要, 行点击展开全量 ----
+const expanded = ref<Set<string>>(new Set())
+
+function toggleExpand(id: string): void {
+  const next = new Set(expanded.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expanded.value = next
+}
+
+function isPassReason(r: string): boolean {
+  // 后端 verdict.py 用 '✓'(U+2713); 兼容 '√'(U+221A) 防历史数据
+  return r.includes('✓') || r.includes('√')
+}
+
+function failedReasons(f: VerdictFactor): string[] {
+  return (f.reasons ?? []).filter((r) => !isPassReason(r))
+}
+
+function passedCount(f: VerdictFactor): number {
+  return (f.reasons ?? []).filter(isPassReason).length
+}
 
 const metaItems = computed(() => {
   const p = run.value?.params ?? {}
@@ -156,7 +188,6 @@ function toggleChip(id: string, disabled: boolean): void {
 
 const ftStart = ref<string | null>(null)
 const ftEnd = ref<string | null>(null)
-const ftSplit = ref<string | null>(null)
 const ftObjective = ref('long_only')
 const ftLayers = ref(5)
 const ftRebalance = ref(5)
@@ -205,14 +236,19 @@ async function submitFactorTest(): Promise<void> {
         v-model:value="selectedIdx"
         :options="runOptions"
         size="small"
-        style="width: 320px"
+        style="width: 420px"
         data-testid="run-select"
       />
     </header>
+    <p class="guide t-muted">
+      每轮因子检验的预测力（IC/IR）、样本外表现与硬性闸门结论。<b class="t-pass">PASS</b>
+      = 全部闸门通过；FAIL 行下方红色项即未过原因，点击行可展开全部判定明细。
+    </p>
 
     <ErrorBanner v-if="error" :msg="error" />
-    <p v-if="!runs.length" class="t-muted" data-testid="verdicts-empty">
-      暂无判决轮次 — 用下方表单提交一次因子检验
+    <p v-if="loading" class="t-muted">加载判决轮次…</p>
+    <p v-else-if="!runs.length" class="t-muted" data-testid="verdicts-empty">
+      暂无判决轮次 — 用下方表单提交一次因子检验。
     </p>
 
     <template v-if="run">
@@ -233,9 +269,7 @@ async function submitFactorTest(): Promise<void> {
           <thead>
             <tr>
               <th>因子</th>
-              <th>名称</th>
-              <th>表达式</th>
-              <th v-for="c in columns" :key="c.th">
+              <th v-for="c in columns" :key="c.th" class="th-num">
                 <GlossaryTip v-if="c.gloss" :term="c.gloss">{{ c.th }}</GlossaryTip>
                 <template v-else>{{ c.th }}</template>
               </th>
@@ -245,10 +279,15 @@ async function submitFactorTest(): Promise<void> {
           </thead>
           <tbody>
             <template v-for="f in run.factors" :key="f.factor_id">
-              <tr>
-                <td>{{ f.factor_id }}</td>
-                <td>{{ f.factor_name ?? '' }}</td>
-                <td><code>{{ f.expression ?? '' }}</code></td>
+              <!-- 主行: 因子(id+名称合并一格), 点击切换判定明细展开 -->
+              <tr class="factor-row" @click="toggleExpand(f.factor_id)">
+                <td class="factor-cell" :title="f.expression ?? ''">
+                  <span class="fx num">{{ expanded.has(f.factor_id) ? '▾' : '▸' }}</span>
+                  <span class="factor-id-name">
+                    <span class="fid num">{{ f.factor_id }}</span>
+                    <span class="fname">{{ f.factor_name ?? '' }}</span>
+                  </span>
+                </td>
                 <td v-for="c in columns" :key="c.th" class="num" :class="c.cell(f).cls">
                   {{ c.cell(f).text }}
                 </td>
@@ -267,8 +306,25 @@ async function submitFactorTest(): Promise<void> {
                   }}</span>
                 </td>
               </tr>
+              <!-- 明细行: 折叠=失败项红chip+通过摘要; 展开=表达式+全部判定chips -->
               <tr class="reasons-row">
-                <td :colspan="columns.length + 5">{{ (f.reasons ?? []).join(' ｜ ') }}</td>
+                <td :colspan="columns.length + 3">
+                  <template v-if="expanded.has(f.factor_id)">
+                    <code v-if="f.expression" class="expr num">{{ f.expression }}</code>
+                    <span
+                      v-for="(r, ri) in f.reasons ?? []"
+                      :key="ri"
+                      class="reason"
+                      :class="isPassReason(r) ? 'r-pass' : 'r-fail'"
+                    >{{ r }}</span>
+                  </template>
+                  <template v-else>
+                    <span v-for="(r, ri) in failedReasons(f)" :key="ri" class="reason r-fail">{{ r }}</span>
+                    <span v-if="passedCount(f) > 0" class="reason r-summary">
+                      ✓ {{ failedReasons(f).length ? `其余 ${passedCount(f)} 项通过` : `全部 ${passedCount(f)} 项通过` }}
+                    </span>
+                  </template>
+                </td>
               </tr>
             </template>
           </tbody>
@@ -322,11 +378,16 @@ async function submitFactorTest(): Promise<void> {
   align-items: center;
   display: flex;
   gap: 14px;
-  margin-bottom: var(--gap);
+  margin-bottom: 6px;
 }
 
 .page-head h2 {
   margin: 0;
+}
+
+.guide {
+  font-size: 13px;
+  margin: 0 0 var(--gap);
 }
 
 .meta-strip {
@@ -402,20 +463,101 @@ th {
 }
 
 td {
-  border-bottom: 1px solid var(--border);
   font-size: 13px;
   padding: 7px 9px;
 }
 
-td code {
-  color: var(--accent-blue);
-  font-size: 12px;
+/* 数值列右对齐: 小数点纵向对位便于比较 */
+th.th-num {
+  text-align: right;
+}
+
+td.num {
+  text-align: right;
+}
+
+/* 因子=一个视觉单元: 主行与明细行之间无线, 明细行下边框做因子分界 */
+.factor-row {
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.factor-row:hover {
+  background: var(--accent-soft);
+}
+
+.factor-cell {
+  white-space: nowrap;
+}
+
+.fx {
+  color: var(--text-3);
+  display: inline-block;
+  font-size: 11px;
+  margin-right: 4px;
+  width: 12px;
+}
+
+.factor-id-name {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  vertical-align: middle;
+}
+
+.fid {
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.fname {
+  color: var(--text-3);
+  font-size: 11.5px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .reasons-row td {
+  background: color-mix(in srgb, var(--bg-3) 36%, transparent);
+  border-bottom: 1px solid var(--border);
   color: var(--text-3);
   font-size: 11.5px;
-  padding: 3px 9px 9px;
+  padding: 4px 9px 9px 25px;
+}
+
+.expr {
+  color: var(--accent-blue);
+  display: block;
+  font-size: 11.5px;
+  margin: 2px 0 6px;
+  white-space: pre-wrap;
+}
+
+/* 判定 chips: 失败=红(为什么FAIL一眼可见), 通过=灰, 摘要=绿 */
+.reason {
+  border-radius: 4px;
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 2px 6px 2px 0;
+  padding: 1px 7px;
+}
+
+.r-fail {
+  background: color-mix(in srgb, var(--c-fail) 12%, transparent);
+  color: var(--c-fail);
+}
+
+.r-pass {
+  background: var(--bg-3);
+  color: var(--text-3);
+}
+
+.r-summary {
+  background: color-mix(in srgb, var(--c-pass) 10%, transparent);
+  color: var(--c-pass);
 }
 
 .gate-na {

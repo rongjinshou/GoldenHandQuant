@@ -17,8 +17,16 @@ const TABLE_LABELS: Record<string, string> = {
   fundamental_snapshots: '基本面快照',
   stock_features: '截面特征',
 }
+// 主数值单位: 行数表标"行", 股票池主值即标的数标"只"
+const TABLE_UNITS: Record<string, string> = {
+  instruments: '只',
+  bars: '行',
+  fundamental_snapshots: '行',
+  stock_features: '行',
+}
 
 const data = ref<OverviewData | null>(null)
+const loading = ref(true)
 const error = ref('')
 
 async function load(): Promise<void> {
@@ -27,6 +35,8 @@ async function load(): Promise<void> {
     error.value = ''
   } catch (e) {
     error.value = (e as Error).message
+  } finally {
+    loading.value = false
   }
 }
 
@@ -39,22 +49,26 @@ const totalRows = computed(() =>
 const metaLine = computed(() => {
   if (!data.value) return ''
   return data.value.db_exists
-    ? `判决轮次 ${data.value.verdict_runs} · 特征版本 v${data.value.feature_version}`
+    ? `判决轮次 ${data.value.verdict_runs} · 特征版本 v${data.value.feature_version} · ${data.value.db_path}`
     : '数据库不存在'
 })
 
-function rangeOf(s: { min_date: string | null; max_date: string | null }): string {
-  // 股票池等静态表没有日期区间, 显示 "—" 而非误导性的 "无数据"
-  return s.min_date ? `${s.min_date} ~ ${s.max_date}` : '—'
+/* 副行语义: 股票池的区间是"上市日期", 其余表是"数据覆盖" — 两种含义显式标注不混淆 */
+function subOf(table: string, s: { symbols: number; min_date: string | null; max_date: string | null }): string {
+  const range = s.min_date ? `${s.min_date} ~ ${s.max_date}` : '—'
+  if (table === 'instruments') return `上市日期 ${range}`
+  return `${s.symbols.toLocaleString()} 只标的 · 数据覆盖 ${range}`
 }
 
 // ---- 数据刷新表单(旧 initRefreshForm 对等) ----
 const drStart = ref<string | null>(null)
 const drEnd = ref<string | null>(null)
+const submitting = ref(false)
 const refreshJobIds = ref<string[]>([])
 
 async function submitRefresh(): Promise<void> {
   error.value = ''
+  submitting.value = true
   try {
     const job = await postJSON<Job>('/api/jobs/data-refresh', {
       start_date: drStart.value ?? '',
@@ -63,6 +77,8 @@ async function submitRefresh(): Promise<void> {
     refreshJobIds.value.unshift(job.job_id)
   } catch (e) {
     error.value = (e as Error).message
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -75,14 +91,22 @@ function onRefreshDone(): void {
   <section data-testid="page-overview">
     <header class="page-head">
       <h2>数据资产总览</h2>
-      <span v-if="metaLine" class="t-muted meta-line">{{ metaLine }}</span>
+      <span v-if="metaLine" class="t-muted meta-line num">{{ metaLine }}</span>
     </header>
+    <p class="guide t-muted">
+      本地行情库（DuckDB）四张核心表的规模与覆盖区间。回测、因子检验、特征查看都读这份离线数据——数据缺口会直接造成回测失真，先保证覆盖再谈结论。
+    </p>
 
     <ErrorBanner v-if="error" :msg="error" />
 
     <p v-if="data && totalRows === 0" class="t-muted" data-testid="overview-empty">
-      数据库为空 — 先运行数据刷新（下方表单或 quant data refresh）
+      暂无数据 — 先运行下方数据刷新（或 quant data refresh）。
     </p>
+
+    <!-- 加载骨架: 固定高度占位, 数据到达不跳版 -->
+    <div v-if="loading && !data" class="kpi-row">
+      <div v-for="i in 4" :key="i" class="card kpi-skeleton"></div>
+    </div>
 
     <div v-if="data" class="kpi-row">
       <KpiCard
@@ -90,20 +114,20 @@ function onRefreshDone(): void {
         :key="table"
         :label="TABLE_LABELS[table] ?? String(table)"
         :value="stat.rows"
+        :unit="TABLE_UNITS[table] ?? ''"
         count-up
-        :sub="`${stat.symbols.toLocaleString()} 只标的 · ${rangeOf(stat)}`"
+        :sub="subOf(String(table), stat)"
       />
     </div>
 
-    <p v-if="data" class="t-muted db-path num">{{ data.db_path }}</p>
-
-    <details class="card form-card">
+    <details class="card form-card" :open="data !== null && totalRows === 0">
       <summary>数据刷新（QMT 增量, 只刷缺口）</summary>
       <div class="form-row">
         <label>起始 <NDatePicker v-model:formatted-value="drStart" value-format="yyyy-MM-dd" type="date" clearable data-testid="dr-start" /></label>
         <label>结束 <NDatePicker v-model:formatted-value="drEnd" value-format="yyyy-MM-dd" type="date" clearable data-testid="dr-end" /></label>
-        <NButton type="primary" data-testid="dr-submit" @click="submitRefresh">提交刷新任务</NButton>
+        <NButton type="primary" :loading="submitting" :disabled="submitting" data-testid="dr-submit" @click="submitRefresh">提交刷新任务</NButton>
       </div>
+      <p class="form-help t-muted">留空 = 按库内缺口自动补齐（默认全区间）；需 QMT 客户端在线。</p>
       <div data-testid="dr-job-area">
         <JobCard v-for="id in refreshJobIds" :key="id" :job-id="id" @done="onRefreshDone" />
       </div>
@@ -124,7 +148,12 @@ function onRefreshDone(): void {
 }
 
 .meta-line {
+  font-size: 12.5px;
+}
+
+.guide {
   font-size: 13px;
+  margin: 0 0 var(--gap);
 }
 
 .kpi-row {
@@ -134,9 +163,24 @@ function onRefreshDone(): void {
   margin-bottom: var(--gap);
 }
 
-.db-path {
+.kpi-skeleton {
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+  min-height: 92px;
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.form-card {
+  max-width: 720px;
+}
+
+.form-help {
   font-size: 12px;
-  margin: 0 0 var(--gap-lg);
+  margin: 6px 0 0;
 }
 
 .form-card summary {

@@ -26,6 +26,8 @@ const body = computed(() => GLOSSARY[props.term])
 .gloss {
   border-bottom: 1px dotted var(--text-3);
   cursor: help;
+  /* flex-column label 里防 stretch: 虚线只压文字宽, 不拉满整列(行内场景 width 对 inline 无效, 不受影响) */
+  width: fit-content;
 }
 
 .tip-body {

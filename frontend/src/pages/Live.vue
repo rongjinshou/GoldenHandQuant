@@ -160,7 +160,13 @@ const hasDb = computed(() => overviewData.value?.db_exists === true)
 const showEmpty = computed(() => overviewData.value !== null && !hasDb.value)
 
 // ---- KPI 条(4 卡) ----
-const cum = computed(() => cumReturn(series.value, acct.value))
+// 累计收益按最新账户的模式过滤 series — 全模式混合下 series[0] 起点与
+// latest_account 现值可能分属不同 mode, 相除即跨模式串账
+const cum = computed(() => {
+  const m = acct.value?.mode
+  const s = m ? series.value.filter((r) => r.mode === m) : series.value
+  return cumReturn(s, acct.value)
+})
 const totalAssetText = computed(() => num(acct.value?.total_asset))
 const totalAssetSub = computed(
   () => `${sliceTime(acct.value?.snapshot_time) || '无快照'} · ${acct.value?.mode ?? ''}`,
@@ -168,7 +174,13 @@ const totalAssetSub = computed(
 const availCashText = computed(() => num(acct.value?.available_cash))
 const availCashSub = computed(() => `冻结 ${num(acct.value?.frozen_cash)}`)
 const mktValText = computed(() => num(acct.value?.market_value))
-const mktValSub = computed(() => `${positions.value.length} 只持仓`)
+// 市值口径=最新账户快照(acct.mode), 计数须同口径 — positions 受页内 mode 筛选影响会分叉
+const mktValSub = computed(() => {
+  const m = acct.value?.mode
+  const rows = positionsData.value?.positions ?? []
+  const n = m ? rows.filter((r) => r.mode === m).length : rows.length
+  return `${n} 只持仓`
+})
 
 type NavItem = { key: string; label: string; badge?: number }
 const subnavItems = computed<NavItem[]>(() => [

@@ -37,14 +37,30 @@ use([
  * 标的联想(200ms 防抖, 失败静默)/日期区间/加载=K线+特征并行/13特征选择即重载/主题重渲染。 */
 
 const DEFAULT_FEATURES = ['return_20d', 'volatility_20d']
-const FEATURE_CHOICES = [
-  'return_5d', 'return_20d', 'return_60d', 'volatility_20d', 'volatility_60d',
-  'turnover_rate', 'avg_turnover_20d', 'rsi_14', 'macd', 'ma_20',
-  'skewness_20d', 'illiquidity_20d', 'obv_slope_20d',
+/* 特征中文标签 + glossary 词条(term=特征名) — 勾选框不再裸英文变量名 */
+const FEATURE_META: { name: string; label: string }[] = [
+  { name: 'return_5d', label: '5日收益' },
+  { name: 'return_20d', label: '20日收益' },
+  { name: 'return_60d', label: '60日收益' },
+  { name: 'volatility_20d', label: '20日波动' },
+  { name: 'volatility_60d', label: '60日波动' },
+  { name: 'turnover_rate', label: '换手率' },
+  { name: 'avg_turnover_20d', label: '20日均换手' },
+  { name: 'rsi_14', label: 'RSI(14)' },
+  { name: 'macd', label: 'MACD' },
+  { name: 'ma_20', label: '20日均线' },
+  { name: 'skewness_20d', label: '20日偏度' },
+  { name: 'illiquidity_20d', label: '非流动性' },
+  { name: 'obv_slope_20d', label: 'OBV斜率' },
 ]
+
+function featureLabel(name: string): string {
+  return FEATURE_META.find((f) => f.name === name)?.label ?? name
+}
 
 const palette = useChartTheme()
 const error = ref('')
+const loadingData = ref(false)
 
 const symbolInput = ref('')
 const startDate = ref<string | null>(null)
@@ -59,26 +75,35 @@ function pickedSymbol(): string {
   return (symbolInput.value || '').split(/\s/)[0].trim()
 }
 
-/* 联想: 200ms 防抖, 失败静默 */
+/* 联想: 200ms 防抖, 失败静默; seq 守卫 — 加载/选中/失焦后迟到的响应丢弃不再弹出 */
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+let suggestSeq = 0
 function onSymbolInput(): void {
   if (searchTimer) clearTimeout(searchTimer)
   const q = symbolInput.value.trim()
   if (!q) return
+  const mySeq = ++suggestSeq
   searchTimer = setTimeout(async () => {
     try {
-      suggestions.value = await fetchJSON<SymbolHit[]>(
+      const hits = await fetchJSON<SymbolHit[]>(
         `/api/research/symbols?q=${encodeURIComponent(q)}`,
       )
+      if (mySeq === suggestSeq) suggestions.value = hits
     } catch {
       /* 联想失败静默 */
     }
   }, 200)
 }
 
+function closeSuggestions(): void {
+  suggestSeq++ // 使飞行中的联想请求作废
+  if (searchTimer) clearTimeout(searchTimer)
+  suggestions.value = []
+}
+
 function pickSuggestion(s: SymbolHit): void {
   symbolInput.value = s.symbol
-  suggestions.value = []
+  closeSuggestions()
 }
 
 function rangeParams(): URLSearchParams {
@@ -99,7 +124,10 @@ async function loadFeatures(): Promise<void> {
   const symbol = pickedSymbol()
   if (!symbol) return
   const names = pickedFeatures.value
-  if (!names.length) return
+  if (!names.length) {
+    lastFeature.value = null // 全取消勾选 → 清图, 不残留旧曲线
+    return
+  }
   const params = rangeParams()
   params.set('names', names.join(','))
   const data = await fetchJSON<FeatureData>(`/api/research/features/${symbol}?${params}`)
@@ -108,11 +136,20 @@ async function loadFeatures(): Promise<void> {
 
 async function loadAll(): Promise<void> {
   error.value = ''
+  closeSuggestions() // 加载即收起联想下拉(含飞行中请求)
+  loadingData.value = true
   try {
     await Promise.all([loadKline(), loadFeatures()])
   } catch (e) {
     error.value = (e as Error).message
+  } finally {
+    loadingData.value = false
   }
+}
+
+/* 失焦延迟收起联想(留点击选项的时间窗) */
+function onSymbolBlur(): void {
+  setTimeout(closeSuggestions, 160)
 }
 
 /* 特征勾选变化即重载特征图(对等旧 change 监听) */
@@ -130,7 +167,7 @@ const klineOption = computed(() => {
     textStyle: { color: t.text },
     title: {
       text: `${k.symbol} 前复权日线`,
-      left: 14,
+      left: 8,
       top: 10,
       textStyle: { fontSize: 13, fontWeight: 600, color: t.text },
     },
@@ -209,7 +246,7 @@ const featureOption = computed(() => {
     color: t.series,
     title: {
       text: `${f.symbol} 截面特征（T-1 信息口径）`,
-      left: 14,
+      left: 8,
       top: 10,
       textStyle: { fontSize: 13, fontWeight: 600, color: t.text },
     },
@@ -236,7 +273,7 @@ const featureOption = computed(() => {
     yAxis: { type: 'value', scale: true, ...axisStyle(t) },
     dataZoom: [{ type: 'inside' }],
     series: f.names.map((n) => ({
-      name: n,
+      name: featureLabel(n), // 图例/悬浮提示用中文标签
       type: 'line',
       data: f.data.series[n],
       smooth: 0.2,
@@ -255,58 +292,76 @@ const featureOption = computed(() => {
       <GlossaryTip term="qfq"><span class="t-muted">前复权</span></GlossaryTip>
       <GlossaryTip term="t1"><span class="t-muted">T-1 口径</span></GlossaryTip>
     </header>
+    <p class="guide t-muted">
+      查看本地库内任一标的的 K 线与预计算截面特征。特征即因子检验用的原料——悬停任一特征名可看它衡量什么、怎么读数。
+    </p>
 
     <ErrorBanner v-if="error" :msg="error" />
 
     <div class="controls card">
-      <div class="symbol-box" data-testid="explorer-symbol-input">
-        <NInput
-          v-model:value="symbolInput"
-          placeholder="标的代码, 如 000021.SZ"
+      <label class="ctl-field">
+        标的
+        <div class="symbol-box" data-testid="explorer-symbol-input">
+          <NInput
+            v-model:value="symbolInput"
+            placeholder="代码/名称联想, 如 000021.SZ"
+            clearable
+            @input="onSymbolInput"
+            @blur="onSymbolBlur"
+            @keyup.enter="loadAll"
+          />
+          <ul v-if="suggestions.length" class="suggest card">
+            <li v-for="s in suggestions" :key="s.symbol" @click="pickSuggestion(s)">
+              <span class="num">{{ s.symbol }}</span> {{ s.name }}
+            </li>
+          </ul>
+        </div>
+      </label>
+      <label class="ctl-field">
+        起始
+        <NDatePicker
+          v-model:formatted-value="startDate"
+          value-format="yyyy-MM-dd"
+          type="date"
+          placeholder="最早"
           clearable
-          @input="onSymbolInput"
-          @keyup.enter="loadAll"
+          style="width: 160px"
         />
-        <ul v-if="suggestions.length" class="suggest card">
-          <li v-for="s in suggestions" :key="s.symbol" @click="pickSuggestion(s)">
-            <span class="num">{{ s.symbol }}</span> {{ s.name }}
-          </li>
-        </ul>
-      </div>
-      <NDatePicker
-        v-model:formatted-value="startDate"
-        value-format="yyyy-MM-dd"
-        type="date"
-        placeholder="起始日期"
-        clearable
-      />
-      <NDatePicker
-        v-model:formatted-value="endDate"
-        value-format="yyyy-MM-dd"
-        type="date"
-        placeholder="结束日期"
-        clearable
-      />
-      <NButton type="primary" data-testid="explorer-load" @click="loadAll">加载</NButton>
+      </label>
+      <label class="ctl-field">
+        结束
+        <NDatePicker
+          v-model:formatted-value="endDate"
+          value-format="yyyy-MM-dd"
+          type="date"
+          placeholder="最新"
+          clearable
+          style="width: 160px"
+        />
+      </label>
+      <NButton type="primary" :loading="loadingData" :disabled="loadingData" data-testid="explorer-load" @click="loadAll">加载</NButton>
     </div>
 
+    <!-- 标签列固定, 复选框自成一列换行对齐; 中文标签+悬停术语解释 -->
     <div class="feature-picker card">
-      <span class="t-muted">特征:</span>
-      <NCheckbox
-        v-for="name in FEATURE_CHOICES"
-        :key="name"
-        :checked="pickedFeatures.includes(name)"
-        size="small"
-        @update:checked="
-          (v: boolean) => {
-            pickedFeatures = v
-              ? [...pickedFeatures, name]
-              : pickedFeatures.filter((x) => x !== name)
-          }
-        "
-      >
-        <span class="num feature-name">{{ name }}</span>
-      </NCheckbox>
+      <span class="t-muted picker-label">特征</span>
+      <div class="feature-list">
+        <NCheckbox
+          v-for="fm in FEATURE_META"
+          :key="fm.name"
+          :checked="pickedFeatures.includes(fm.name)"
+          size="small"
+          @update:checked="
+            (v: boolean) => {
+              pickedFeatures = v
+                ? [...pickedFeatures, fm.name]
+                : pickedFeatures.filter((x) => x !== fm.name)
+            }
+          "
+        >
+          <GlossaryTip :term="fm.name"><span class="feature-name">{{ fm.label }}</span></GlossaryTip>
+        </NCheckbox>
+      </div>
     </div>
 
     <div class="chart-card card" data-testid="kline-chart">
@@ -316,7 +371,7 @@ const featureOption = computed(() => {
 
     <div class="chart-card card" data-testid="feature-chart">
       <VChart v-if="featureOption" :option="featureOption" autoresize class="chart chart-feature" />
-      <p v-else class="t-muted empty">特征时序将显示在这里</p>
+      <p v-else class="t-muted empty">暂无特征曲线 — 勾选上方特征并点击加载。</p>
     </div>
   </section>
 </template>
@@ -326,20 +381,33 @@ const featureOption = computed(() => {
   align-items: baseline;
   display: flex;
   gap: 10px;
-  margin-bottom: var(--gap);
+  margin-bottom: 6px;
 }
 
 .page-head h2 {
   margin: 0;
 }
 
+.guide {
+  font-size: 13px;
+  margin: 0 0 var(--gap);
+}
+
 .controls {
-  align-items: center;
+  align-items: end;
   display: flex;
   flex-wrap: wrap;
   gap: var(--gap);
   margin-bottom: var(--gap);
-  padding: 14px 16px;
+  padding: 12px 16px;
+}
+
+.ctl-field {
+  color: var(--text-3);
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+  gap: 6px;
 }
 
 .symbol-box {
@@ -373,13 +441,25 @@ const featureOption = computed(() => {
 }
 
 .feature-picker {
-  align-items: center;
+  align-items: baseline;
   display: flex;
-  flex-wrap: wrap;
   font-size: 12.5px;
-  gap: 4px 14px;
+  gap: 14px;
   margin-bottom: var(--gap);
   padding: 10px 16px;
+}
+
+.picker-label {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.feature-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
 }
 
 .feature-name {
@@ -388,7 +468,7 @@ const featureOption = computed(() => {
 
 .chart-card {
   margin-bottom: var(--gap);
-  padding: 8px;
+  padding: 8px 16px 12px;
 }
 
 .chart {

@@ -41,7 +41,9 @@ export function statusBadge(status: string): BadgeKind {
 }
 
 /* 累计收益 KPI — equity 快照 ≥2 才有"累计"口径(单快照无从谈累计):
- * 现值优先取最新账户快照, 回退权益序列末条; 起点无效(空/0)同样显示占位。 */
+ * 现值优先取最新账户快照, 回退权益序列末条; 起点无效(空/0)同样显示占位。
+ * series 须为单一模式(调用方按 latest.mode 预过滤) — 混合序列的 series[0] 起点
+ * 与 latest 现值可能分属不同 mode, 相除即跨模式串账; sub 标注模式便于核对。 */
 export interface CumReturnView {
   text: string
   tone: 'up' | 'down' | 'neutral'
@@ -60,7 +62,7 @@ export function cumReturn(
     return {
       text: `${ret >= 0 ? '+' : ''}${(ret * 100).toFixed(2)}%`,
       tone: ret >= 0 ? 'up' : 'down', // A股: 涨红跌绿
-      sub: `起点 ${num(first)}`,
+      sub: `起点 ${num(first)} (${series[0].mode})`,
     }
   }
   return {

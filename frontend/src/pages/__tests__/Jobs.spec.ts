@@ -143,14 +143,28 @@ describe('Jobs 任务列表', () => {
     expect(useJobsStore().activeCount).toBe(2)
   })
 
-  it('空列表显空态并清零活跃数', async () => {
+  it('首载未返回显加载中占位, 返回后消失且不误显空态', async () => {
+    const w = mountJobs()
+
+    // fetch 尚未 resolve — listData 为 null
+    expect(w.find('[data-testid="jobs-loading"]').exists()).toBe(true)
+    expect(w.find('[data-testid="jobs-empty"]').exists()).toBe(false)
+
+    await flushPromises()
+    expect(w.find('[data-testid="jobs-loading"]').exists()).toBe(false)
+  })
+
+  it('空列表显空态并清零活跃数, 日志占位联动引导文案', async () => {
     listJobs = []
     const w = mountJobs()
     await flushPromises()
 
+    expect(w.find('[data-testid="jobs-loading"]').exists()).toBe(false)
     expect(w.find('[data-testid="jobs-empty"]').exists()).toBe(true)
     expect(w.text()).toContain('暂无任务')
     expect(useJobsStore().activeCount).toBe(0)
+    // 零任务时终端框不藏但文案引导(布局稳定)
+    expect(w.find('[data-testid="job-log"]').text()).toBe('暂无任务，提交后此处显示实时日志')
   })
 
   it('取消: POST cancel 后刷新列表, .stop 不触发日志钻取', async () => {
@@ -256,9 +270,12 @@ describe('Jobs ML 表单', () => {
     expect(urls(/\/api\/jobs\?limit=100$/).length).toBe(2)
   })
 
-  it('评估提交默认载荷(共用模型名输入)', async () => {
+  it('评估提交默认载荷(共用模型名输入), 评估行常驻显示所评模型', async () => {
     const w = mountJobs()
     await flushPromises()
+
+    // 评估静默依赖首行「模型名」— 提示元素把依赖显式化
+    expect(w.find('[data-testid="ml-eval-model"]').text()).toBe('评估模型：lgbm_return_5d')
 
     await w.find('[data-testid="ml-eval-submit"]').trigger('click')
     await flushPromises()

@@ -32,12 +32,15 @@ const palette = useChartTheme()
 const cyclesToday = computed(() => props.ov?.cycles_today ?? 0)
 const execsToday = computed(() => props.ov?.executions_today ?? 0)
 
+// 大数字=已提交金额(裸 0 曾被误读为"无预算", 故旁挂"已提交"标注);
+// 单笔上限塞不进副行 → 移到标题词条触发文本旁的小字
 const budgetMain = computed(() => num(props.budget?.submitted_notional))
 const budgetSub = computed(() => {
   const b = props.budget
   if (!b) return ''
-  return `上限 ${num(b.daily_notional_cap)} · 余 ${num(b.remaining)} · 单笔顶 ${num(b.per_order_notional_cap)}`
+  return `上限 ${num(b.daily_notional_cap)} · 余 ${num(b.remaining)}`
 })
+const perOrderCap = computed(() => num(props.budget?.per_order_notional_cap))
 
 const daemon = computed(() =>
   props.cfg ? daemonBadge(props.cfg) : { kind: 'info' as BadgeKind, text: '' },
@@ -46,11 +49,18 @@ const slotsText = computed(() => (props.cfg?.today.expected_slots ?? []).join(' 
 
 const at = computed(() => props.cfg?.auto_trade ?? {})
 const atModeCls = computed(() => (at.value.mode === 'live' ? 'fail' : 'info'))
-const atSub = computed(
-  () => `${at.value.strategy || ''} · ${(at.value.symbols ?? []).length} 标的 · `,
-)
+// 空段过滤再拼 — 避免 "0 标的" 误导(空 symbols=标的由策略宇宙决定)与首尾悬空分隔符
+const atSub = computed(() => {
+  const syms = at.value.symbols ?? []
+  const parts = [
+    at.value.strategy,
+    syms.length ? `${syms.length} 标的` : '标的由策略宇宙决定',
+  ].filter((p): p is string => !!p)
+  return parts.join(' · ')
+})
 
-// ---- 权益曲线(旧口径: ≥2 快照; 单点提示采样方法; mode 分线, 首线带品牌渐变面) ----
+// ---- 权益曲线(旧口径: ≥2 快照; 单点提示采样方法; mode 分线, 首线带品牌渐变面;
+// x 轴用 time 而非 category — 等距排快照会把 3 分钟画得与 17 天一样宽, 且截到分钟出现重复刻度) ----
 const hasEquity = computed(() => props.series.length >= 2)
 const equityHint = computed(() =>
   props.series.length === 1
@@ -58,12 +68,24 @@ const equityHint = computed(() =>
     : '暂无权益快照。',
 )
 
+/* time 轴刻度/浮层统一 MM-DD HH:mm(快照分钟粒度足够定位) */
+function fmtTs(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+interface EquityTipParam {
+  axisValue?: number | string
+  marker?: string
+  seriesName?: string
+  value?: unknown
+}
+
 const equityOption = computed(() => {
   if (!hasEquity.value) return null
   const t = palette.value
   const modes = [...new Set(props.series.map((r) => r.mode))]
-  const timeline = [...new Set(props.series.map((r) => r.snapshot_time))].sort()
-  const tsIndex = new Map(timeline.map((v, i) => [v, i]))
   return {
     backgroundColor: 'transparent',
     animation: false,
@@ -73,6 +95,17 @@ const equityOption = computed(() => {
       trigger: 'axis',
       ...tooltipStyle(t),
       axisPointer: { type: 'line', lineStyle: { color: t.axis, type: 'dashed' } },
+      // time 轴 axisValue 是毫秒时间戳, 自行格式化; value 是 [时间, 权益] 二元组取第二元
+      formatter: (ps: EquityTipParam[]): string => {
+        if (!ps.length) return ''
+        const lines = [fmtTs(Number(ps[0].axisValue))]
+        for (const q of ps) {
+          const v = Array.isArray(q.value) ? (q.value[1] as number | null) : null
+          if (v === null || v === undefined) continue
+          lines.push(`${q.marker ?? ''}${q.seriesName ?? ''}: ${Number(v).toLocaleString()}`)
+        }
+        return lines.join('<br>')
+      },
     },
     legend: {
       top: 9,
@@ -83,10 +116,9 @@ const equityOption = computed(() => {
     },
     grid: { left: 70, right: 24, top: 46, bottom: 40 },
     xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: timeline.map((v) => v.slice(5, 16)),
+      type: 'time',
       ...axisStyle(t),
+      axisLabel: { color: t.dim, fontSize: 11, formatter: fmtTs, hideOverlap: true },
       splitLine: { show: false },
     },
     yAxis: {
@@ -96,19 +128,24 @@ const equityOption = computed(() => {
       axisLabel: { color: t.dim, fontSize: 11, formatter: wan },
     },
     series: modes.map((m, i) => {
-      const data: (number | null)[] = new Array<number | null>(timeline.length).fill(null)
-      props.series
+      // [snapshot_time, total_asset] 二元组按真实时间落点(ISO 串字典序=时间序)
+      const data = props.series
         .filter((r) => r.mode === m)
-        .forEach((r) => {
-          const idx = tsIndex.get(r.snapshot_time)
-          if (idx !== undefined) data[idx] = r.total_asset
-        })
+        .map((r) => [r.snapshot_time, r.total_asset] as [string, number | null])
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1))
       const col = t.series[i % t.series.length]
+      // time 轴下系列自身时间跨度过窄(如 live 仅几分钟的两次快照)时线宽不足 1px 不可见,
+      // 按跨度占全图比例判定是否显式显符号
+      const times = data.filter((d) => d[1] !== null && d[1] !== undefined).map((d) => +new Date(d[0]))
+      const allTimes = props.series.map((r) => +new Date(r.snapshot_time))
+      const globalSpan = Math.max(...allTimes) - Math.min(...allTimes) || 1
+      const ownSpan = times.length > 1 ? Math.max(...times) - Math.min(...times) : 0
       return {
         name: `总资产(${m})`,
         type: 'line',
         smooth: 0.25,
-        showSymbol: false,
+        showSymbol: ownSpan / globalSpan < 0.02,
+        symbolSize: 7,
         connectNulls: true,
         data,
         lineStyle: { color: col, width: 2.2 },
@@ -130,8 +167,11 @@ const equityOption = computed(() => {
       </div>
 
       <div v-if="budget" class="card ops-card">
-        <h3><GlossaryTip term="budget"><span>今日预算（跨模式）</span></GlossaryTip></h3>
-        <div class="big num">{{ budgetMain }}</div>
+        <h3>
+          <GlossaryTip term="budget"><span>今日预算（跨模式）</span></GlossaryTip>
+          <span class="cap-note num">单笔顶 {{ perOrderCap }}</span>
+        </h3>
+        <div class="big num">{{ budgetMain }} <span class="unit">已提交</span></div>
         <div class="sub t-muted num">{{ budgetSub }}</div>
       </div>
 
@@ -155,7 +195,7 @@ const equityOption = computed(() => {
           </LvBadge>
         </div>
         <div class="sub t-muted">
-          {{ atSub }}<GlossaryTip term="confidence"><span>置信</span></GlossaryTip>≥{{ at.min_confidence ?? '?' }}
+          {{ atSub }} · <GlossaryTip term="confidence"><span>置信</span></GlossaryTip>≥{{ at.min_confidence ?? '?' }}
         </div>
       </div>
     </div>
@@ -204,6 +244,14 @@ const equityOption = computed(() => {
   color: var(--text-3);
   font-size: 13px;
   font-weight: 400;
+}
+
+/* 卡标题旁的次要参数(单笔上限) — 比标题再弱一档 */
+.cap-note {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  margin-left: 6px;
 }
 
 .sub {

@@ -194,12 +194,13 @@ async function submitBacktest(): Promise<void> {
       </label>
     </div>
 
+    <!-- 字段统一 160px 栅格, 配置收尾 280px — 行内框边对齐 -->
     <div class="form-row">
-      <label>起 <NDatePicker v-model:formatted-value="startDate" value-format="yyyy-MM-dd" type="date" clearable data-testid="bt-start" /></label>
-      <label>止 <NDatePicker v-model:formatted-value="endDate" value-format="yyyy-MM-dd" type="date" clearable data-testid="bt-end" /></label>
+      <label>起 <NDatePicker v-model:formatted-value="startDate" value-format="yyyy-MM-dd" type="date" clearable style="width: 160px" data-testid="bt-start" /></label>
+      <label>止 <NDatePicker v-model:formatted-value="endDate" value-format="yyyy-MM-dd" type="date" clearable style="width: 160px" data-testid="bt-end" /></label>
       <label>
         <GlossaryTip term="initial_capital">初始资金</GlossaryTip>
-        <NInputNumber v-model:value="capital" placeholder="配置默认" :step="10000" :show-button="false" style="width: 140px" />
+        <NInputNumber v-model:value="capital" placeholder="配置默认" :step="10000" :show-button="false" style="width: 160px" />
       </label>
       <label>
         <GlossaryTip term="bt_config">配置</GlossaryTip>
@@ -272,8 +273,9 @@ async function submitBacktest(): Promise<void> {
   gap: 6px;
 }
 
+/* 信息型标注降为灰阶 — 橙色只留给主按钮/激活态, 不与 CTA 争焦点 */
 .group-title {
-  color: var(--accent);
+  color: var(--text-3);
   font-family: var(--font-display);
   font-size: 12.5px;
   font-weight: 700;
@@ -292,7 +294,7 @@ async function submitBacktest(): Promise<void> {
 }
 
 .type-badge {
-  color: var(--accent);
+  color: var(--accent-blue);
   font-family: var(--font-display);
   font-size: 11.5px;
   font-weight: 700;

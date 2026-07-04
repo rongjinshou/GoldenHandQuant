@@ -8,9 +8,10 @@ const props = withDefaults(
     value: string | number
     tone?: 'up' | 'down' | 'neutral'
     sub?: string
+    unit?: string
     countUp?: boolean
   }>(),
-  { tone: 'neutral', sub: '', countUp: false },
+  { tone: 'neutral', sub: '', unit: '', countUp: false },
 )
 
 const display = ref<string>(String(props.value))
@@ -56,7 +57,9 @@ watch(
 <template>
   <div class="kpi card card--hoverable" data-testid="kpi-card">
     <div class="kpi-label">{{ label }}</div>
-    <div class="kpi-value num" :class="`tone-${tone}`">{{ display }}</div>
+    <div class="kpi-value num" :class="`tone-${tone}`">
+      {{ display }}<span v-if="unit" class="kpi-unit">{{ unit }}</span>
+    </div>
     <div v-if="sub" class="kpi-sub t-muted">{{ sub }}</div>
   </div>
 </template>
@@ -88,6 +91,14 @@ watch(
 
 .tone-down {
   color: var(--c-down);
+}
+
+.kpi-unit {
+  color: var(--text-3);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
+  margin-left: 4px;
 }
 
 .kpi-sub {

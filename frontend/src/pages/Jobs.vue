@@ -58,6 +58,12 @@ const logTitle = ref('')
 const logText = ref('选择任务查看日志')
 const logLive = ref(false)
 const logEl = ref<HTMLPreElement | null>(null)
+// 零任务时终端框纯噪音 — 占位文案联动引导, 不藏区块保布局稳定
+const logDisplay = computed(() =>
+  listData.value && jobs.value.length === 0 && selectedId.value === null
+    ? '暂无任务，提交后此处显示实时日志'
+    : logText.value,
+)
 let logTimer: ReturnType<typeof setInterval> | null = null
 let logSeq = 0 // 切换任务后丢弃前一任务迟到响应
 
@@ -171,13 +177,17 @@ function onMlDone(): void {
         <label>训练止 <NDatePicker v-model:formatted-value="mlEnd" value-format="yyyy-MM-dd" type="date" clearable data-testid="ml-end" /></label>
         <label>标的 <NInput v-model:value="mlSymbols" style="width: 140px" data-testid="ml-symbols" /></label>
         <label><GlossaryTip term="model_name">模型名</GlossaryTip> <NInput v-model:value="mlModel" style="width: 170px" data-testid="ml-model" /></label>
-        <label><GlossaryTip term="n_trials">n-trials</GlossaryTip> <NInputNumber v-model:value="mlTrials" :min="1" :max="200" style="width: 100px" data-testid="ml-trials" /></label>
-        <NButton type="primary" data-testid="ml-train-submit" @click="submitTrain">训练</NButton>
+        <label><GlossaryTip term="n_trials">调参次数 (n-trials)</GlossaryTip> <NInputNumber v-model:value="mlTrials" :min="1" :max="200" style="width: 100px" data-testid="ml-trials" /></label>
+        <NButton type="primary" class="row-end" data-testid="ml-train-submit" @click="submitTrain">训练</NButton>
       </div>
       <div class="form-row">
         <label>评估起 <NDatePicker v-model:formatted-value="mleStart" value-format="yyyy-MM-dd" type="date" clearable data-testid="mle-start" /></label>
         <label>评估止 <NDatePicker v-model:formatted-value="mleEnd" value-format="yyyy-MM-dd" type="date" clearable data-testid="mle-end" /></label>
-        <NButton type="primary" data-testid="ml-eval-submit" @click="submitEval">评估</NButton>
+        <!-- 评估静默复用首行「模型名」— 常驻小字把依赖显式化, 避免评错模型; 评估降为次级钮与训练分主次 -->
+        <div class="row-end eval-group">
+          <span class="t-muted eval-model-hint" data-testid="ml-eval-model">评估模型：{{ mlModel || '未填' }}</span>
+          <NButton data-testid="ml-eval-submit" @click="submitEval">评估</NButton>
+        </div>
       </div>
     </details>
 
@@ -230,7 +240,9 @@ function onMlDone(): void {
           </tr>
         </tbody>
       </table>
-      <p v-if="listData && jobs.length === 0" class="t-muted empty" data-testid="jobs-empty">
+      <!-- 首载未返回时 7 列孤表头下给 loading 占位; 空态仍要求列表已返回 -->
+      <p v-if="!listData" class="t-muted empty" data-testid="jobs-loading">加载中…</p>
+      <p v-else-if="jobs.length === 0" class="t-muted empty" data-testid="jobs-empty">
         暂无任务 — 在各页签提交回测/因子检验/数据刷新。
       </p>
     </div>
@@ -240,7 +252,7 @@ function onMlDone(): void {
       <span v-if="logLive" class="live-dot" aria-hidden="true"></span>
       <span class="t-muted log-title num" data-testid="job-log-title">{{ logTitle }}</span>
     </h3>
-    <pre ref="logEl" class="job-log" data-testid="job-log">{{ logText }}</pre>
+    <pre ref="logEl" class="job-log" data-testid="job-log">{{ logDisplay }}</pre>
   </section>
 </template>
 
@@ -286,6 +298,22 @@ function onMlDone(): void {
 
 .form-card {
   margin-bottom: var(--gap);
+}
+
+/* 两行提交按钮统一靠右收口, 消除位置漂移 */
+.row-end {
+  margin-left: auto;
+}
+
+/* 评估提示与按钮成组, 提示紧贴按钮左侧 */
+.eval-group {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.eval-model-hint {
+  font-size: 12.5px;
 }
 
 /* 分节标题: 承旧驾驶舱 accent 竖签(结构=信息, 标记独立分节) */

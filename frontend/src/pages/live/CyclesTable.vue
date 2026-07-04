@@ -5,7 +5,7 @@ import { fetchJSON } from '@/api/fetch'
 import type { ExecutionRecord, TradingCycle } from '@/api/types'
 
 import LvBadge from './LvBadge.vue'
-import { num, sliceTime } from './logic'
+import { num, sliceTime, statusBadge } from './logic'
 
 /* 循环表 — 旧 live.js 循环段对等:
  * 行点击展开钻取该循环的执行明细(/cycles/{id}/executions); 展开态跨轮询保持,
@@ -66,6 +66,14 @@ function detailRows(id: string): ExecutionRecord[] | null {
   const d = details.value[id]
   return Array.isArray(d) ? d : null
 }
+
+/* 明细方向语义色: A股买红卖绿(t-buy/t-sell), 与执行表/ticket 面板同口径 */
+function dirCls(d: string): string {
+  return d === 'BUY' ? 't-buy' : d === 'SELL' ? 't-sell' : ''
+}
+function dirText(d: string): string {
+  return d === 'BUY' ? '买' : d === 'SELL' ? '卖' : d
+}
 </script>
 
 <template>
@@ -90,7 +98,10 @@ function detailRows(id: string): ExecutionRecord[] | null {
         </tr>
         <template v-for="c in visible" :key="c.cycle_id">
           <tr class="clickable" data-testid="cycle-row" @click="toggle(c.cycle_id)">
-            <td class="num">{{ sliceTime(c.cycle_time) }}</td>
+            <!-- ▸/▾ 展开指示符: 行可点击展开这一交互此前无任何视觉暗示 -->
+            <td class="num">
+              <span class="caret" aria-hidden="true">{{ expanded.has(c.cycle_id) ? '▾' : '▸' }}</span>{{ sliceTime(c.cycle_time) }}
+            </td>
             <td><LvBadge :kind="c.mode === 'live' ? 'fail' : 'info'">{{ c.mode }}</LvBadge></td>
             <td>{{ c.strategy }}</td>
             <td class="num right">{{ c.signals_generated }}</td>
@@ -107,14 +118,23 @@ function detailRows(id: string): ExecutionRecord[] | null {
                 明细加载失败
               </div>
               <table v-else class="detail-table">
+                <thead>
+                  <tr>
+                    <th>标的</th>
+                    <th>方向</th>
+                    <th>状态</th>
+                    <th class="right">金额</th>
+                    <th>拒绝原因</th>
+                  </tr>
+                </thead>
                 <tbody>
                   <tr v-if="!detailRows(c.cycle_id)?.length">
                     <td colspan="5" class="t-muted">该循环无执行记录</td>
                   </tr>
                   <tr v-for="(e, i) in detailRows(c.cycle_id) ?? []" :key="i">
                     <td class="num">{{ e.symbol }}</td>
-                    <td>{{ e.direction }}</td>
-                    <td>{{ e.status }}</td>
+                    <td :class="dirCls(e.direction)">{{ dirText(e.direction) }}</td>
+                    <td><LvBadge :kind="statusBadge(e.status)">{{ e.status }}</LvBadge></td>
                     <td class="num right">{{ num(e.notional) }}</td>
                     <td>{{ e.reject_reason ?? '' }}</td>
                   </tr>
@@ -194,10 +214,24 @@ td {
   width: auto;
 }
 
+.detail-table th {
+  border-bottom: 1px dashed var(--border);
+  font-size: 11px;
+  padding: 4px 14px 4px 0;
+}
+
 .detail-table td {
   border-bottom: 1px dashed var(--border);
   font-size: 12.5px;
   padding: 5px 14px 5px 0;
+}
+
+.caret {
+  color: var(--text-3);
+  display: inline-block;
+  font-size: 11px;
+  margin-right: 6px;
+  width: 10px;
 }
 
 .detail-msg {
