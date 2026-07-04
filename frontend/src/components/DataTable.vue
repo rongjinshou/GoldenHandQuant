@@ -52,19 +52,23 @@ const hiddenCount = computed(() => props.rows.length - visible.value.length)
     <table>
       <thead>
         <tr>
-          <th v-for="col in columns" :key="col.key" :class="{ right: col.align === 'right' }">
-            {{ col.title }}
+          <th v-for="column in columns" :key="column.key" :class="{ right: column.align === 'right' }">
+            {{ column.title }}
           </th>
         </tr>
       </thead>
       <TransitionGroup tag="tbody" name="dt-row" appear>
         <tr
-          v-for="row in visible"
-          :key="String(row[rowKey])"
-          @click="emit('rowClick', row)"
+          v-for="record in visible"
+          :key="String(record[rowKey])"
+          @click="emit('rowClick', record)"
         >
-          <td v-for="col in columns" :key="col.key" :class="{ right: col.align === 'right', num: col.align === 'right' }">
-            <CellRender :row="row" :col="col" />
+          <td
+            v-for="column in columns"
+            :key="column.key"
+            :class="{ right: column.align === 'right', num: column.align === 'right' }"
+          >
+            <CellRender :row="record" :col="column" />
           </td>
         </tr>
       </TransitionGroup>
