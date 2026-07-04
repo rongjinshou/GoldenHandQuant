@@ -198,6 +198,19 @@ class LiveSignalService:
                 fundamental_rows=len(rows), index_bars_count=len(index_bars),
             )
             raise DataHealthError(note)
+        # 守卫4: 指数可得但个股行情全断(部分断连)时, 截面宇宙会静默为空 → 清仓分支;
+        # 抽样探测头部数只, 全空即判数据故障(宁可误杀一个周期, 不误清一次仓)。
+        probe = symbols[:5]
+        if all(
+            not self.market_gateway.get_recent_bars(s, Timeframe.DAY_1, 120)
+            for s in probe
+        ):
+            note = f"个股行情探测失败: 前 {len(probe)} 只 bars 全空(行情部分断连?), 拒绝决策"
+            self._snapshot_fault(
+                now, strategy_name, symbols, note,
+                fundamental_rows=len(rows), index_bars_count=len(index_bars),
+            )
+            raise DataHealthError(note)
 
         runner = CrossSectionalStrategyRunner(
             strategy=strategy, sizer=self.sizer,

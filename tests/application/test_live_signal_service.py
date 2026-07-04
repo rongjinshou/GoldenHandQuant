@@ -418,6 +418,32 @@ def test_scan_insufficient_index_bars_raises():
     assert snap.targets == [] and snap.selection == []
 
 
+def test_scan_stock_bars_all_empty_raises_not_liquidates():
+    """指数可得但个股行情全断(部分断连) → fault abort, 绝不落入清仓分支(K1 红线)。"""
+    symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
+    market = MockMarketGateway()   # 只装指数, 个股 bars 全空
+    market.add_bars("000852.SH", _make_index_bars([5000.0] * 25))
+    market.set_current_time(datetime(2024, 6, 11, 23, 59))
+    registry = _make_cs_registry(symbols)
+    trade = MagicMock()
+    trade.get_positions.return_value = [Position(
+        account_id="t", ticker="000001.SZ",
+        total_volume=1000, available_volume=1000, average_cost=10.0,
+    )]
+    trade.get_asset.return_value = Asset(
+        account_id="t", total_asset=1_000_000, available_cash=990_000,
+    )
+    service = _make_guard_service(market, trade, registry)
+
+    with pytest.raises(DataHealthError):
+        service.scan(strategy_name="micro_value", symbols=symbols)
+
+    snap = service.last_snapshot
+    assert snap.data_health == "fault"
+    assert "个股行情" in snap.note
+    assert snap.targets == [] and snap.selection == []
+
+
 def test_scan_gate_blocked_liquidation_allowed():
     """指数末根 < MA20 且数据完好 → 合法清仓路径照常放行(设计内行为, 非数据故障)。"""
     symbols = ["000001.SZ", "000002.SZ", "000003.SZ"]
