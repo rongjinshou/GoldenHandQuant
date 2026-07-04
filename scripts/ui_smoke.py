@@ -131,11 +131,9 @@ def run_deep(page, out_dir: Path) -> dict:
     page.click('[data-testid="nav-backtests"]')
     page.wait_for_selector('[data-testid="page-backtests"]', timeout=8_000)
     open_details(page)
-    # dual_ma 默认勾选; 填短区间 + 单标的, 保证 1 分钟级跑完
-    page.fill('[data-testid="bt-start"] input', "2024-01-01")
-    page.fill('[data-testid="bt-end"] input', "2024-03-31")
-    # chips: 填完整代码触发 input 事件即自动成 chip
-    page.fill('[data-testid="bt-symbols-input"] input', "000021.SZ")
+    # dual_ma 默认勾选; 用默认日期区间; 填单标的成 chip(bt-symbols-input 是普通 input, 非 NInput)
+    page.fill('[data-testid="bt-symbols-input"]', "000021.SZ")
+    page.press('[data-testid="bt-symbols-input"]', "Enter")  # 整码即时成 chip; Enter 兜底取候选
     page.wait_for_selector('[data-testid="bt-chip"]', timeout=5_000)
     page.click('[data-testid="bt-submit"]')
 
