@@ -46,6 +46,11 @@
 
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.24);
   --shadow-pop: 0 4px 24px rgba(0, 0, 0, 0.5);
+
+  /* 环境背景「量化坐标场」: 细网格 + 暖辉光 + 蓝景深(设计 §花活) */
+  --fx-grid: rgba(255, 255, 255, 0.034);
+  --fx-glow: rgba(217, 119, 87, 0.16);
+  --fx-glow-2: rgba(106, 155, 204, 0.09);
 }
 
 :root[data-theme='light'] {
@@ -72,6 +77,11 @@
 
   --shadow-card: 0 1px 2px rgba(20, 20, 19, 0.06), 0 4px 16px rgba(20, 20, 19, 0.06);
   --shadow-pop: 0 4px 24px rgba(20, 20, 19, 0.14);
+
+  /* 环境背景「量化坐标场」(日间: 深线浅底) */
+  --fx-grid: rgba(20, 20, 19, 0.042);
+  --fx-glow: rgba(217, 119, 87, 0.10);
+  --fx-glow-2: rgba(106, 155, 204, 0.06);
 }
 
 @media (prefers-reduced-motion: reduce) {

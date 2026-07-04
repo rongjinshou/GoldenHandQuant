@@ -41,8 +41,8 @@ const jobsStore = useJobsStore()
 
       <main class="content">
         <RouterView v-slot="{ Component }">
-          <Transition name="page" mode="out-in">
-            <component :is="Component" />
+          <Transition name="page">
+            <component :is="Component" :key="($route.name as string) ?? ''" />
           </Transition>
         </RouterView>
       </main>
@@ -147,19 +147,12 @@ const jobsStore = useJobsStore()
   width: 100%;
 }
 
-/* 路由切换过渡 */
-.page-enter-active,
-.page-leave-active {
-  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+/* 路由切换过渡: enter-only 快速淡入(离场瞬时) — 恢复即时切页手感, 去掉位移settle感 */
+.page-enter-active {
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
 .page-enter-from {
   opacity: 0;
-  transform: translateY(8px);
-}
-
-.page-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
 }
 </style>

@@ -224,6 +224,10 @@ async function submitFactorTest(): Promise<void> {
         </span>
       </div>
 
+      <div class="list-head">
+        <span class="list-title">因子明细</span>
+        <span class="list-count num">{{ run.factors.length }} 个因子</span>
+      </div>
       <div class="table-wrap card">
         <table>
           <thead>
@@ -346,10 +350,36 @@ async function submitFactorTest(): Promise<void> {
   font-weight: 600;
 }
 
+.list-head {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+
+.list-title {
+  color: var(--text-3);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.list-count {
+  background: var(--bg-3);
+  border-radius: 10px;
+  color: var(--text-2);
+  font-size: 11.5px;
+  padding: 1px 8px;
+}
+
+/* 限高滚动 + 粘性表头: 长因子表不再铺满整屏, 滚动时列名常驻 */
 .table-wrap {
   margin-bottom: var(--gap);
-  overflow-x: auto;
-  padding: 6px 10px;
+  max-height: min(62vh, 620px);
+  overflow: auto;
+  padding: 0 10px;
 }
 
 table {
@@ -358,13 +388,17 @@ table {
 }
 
 th {
+  background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   color: var(--text-3);
   font-family: var(--font-display);
   font-size: 11.5px;
   padding: 8px 9px;
+  position: sticky;
+  top: 0;
   text-align: left;
   white-space: nowrap;
+  z-index: 1;
 }
 
 td {

@@ -226,31 +226,38 @@ function onFormDone(): void {
 
     <BacktestForm :strategy-meta="strategyMeta" @done="onFormDone" />
 
-    <!-- 回测列表: 倒序, 行点击进详情 -->
-    <div v-if="runs.length" class="runs card">
-      <button
-        v-for="r in runs"
-        :key="r.run_id"
-        type="button"
-        class="run-row"
-        :class="{ active: r.run_id === selectedRunId }"
-        data-testid="bt-run-row"
-        @click="selectRun(r.run_id)"
-      >
-        <span class="run-id num">{{ r.run_id }}</span>
-        <span class="run-strats">
-          <span v-for="(s, i) in r.strategies" :key="i" class="run-strat">{{ s.strategy }}</span>
-        </span>
-        <span class="run-date num">{{ (r.created_at ?? '').slice(0, 19) }}</span>
-      </button>
-    </div>
-    <p v-else class="empty t-muted" data-testid="bt-empty">
-      暂无回测入库 — 运行 <code>python -m src.interfaces.cli.run_backtest</code> 后自动写入 backtest_runs。
-    </p>
+    <!-- 工作区: 左轨(轮次列表, 限高滚动) + 右详情(图表主角) -->
+    <div v-if="runs.length" class="bt-workspace">
+      <aside class="run-rail card">
+        <div class="rail-head">
+          <span class="rail-title">回测轮次</span>
+          <span class="rail-count num">{{ runs.length }}</span>
+        </div>
+        <div class="run-scroll" data-testid="bt-run-list">
+          <button
+            v-for="r in runs"
+            :key="r.run_id"
+            type="button"
+            class="run-row"
+            :class="{ active: r.run_id === selectedRunId }"
+            data-testid="bt-run-row"
+            @click="selectRun(r.run_id)"
+          >
+            <span class="run-row-top">
+              <span class="run-id num">{{ r.run_id }}</span>
+              <span class="run-date num">{{ (r.created_at ?? '').slice(0, 16) }}</span>
+            </span>
+            <span class="run-strats">
+              <span v-for="(s, i) in r.strategies" :key="i" class="run-strat">{{ s.strategy }}</span>
+            </span>
+          </button>
+        </div>
+      </aside>
 
-    <!-- 详情 -->
-    <template v-if="selectedRun">
-      <div class="toolbar card">
+      <!-- 详情 -->
+      <div class="bt-detail">
+        <template v-if="selectedRun">
+          <div class="toolbar card">
         <label>
           <GlossaryTip term="benchmark">基准</GlossaryTip>
           <NSelect
@@ -346,12 +353,17 @@ function onFormDone(): void {
       <p class="chart-caption t-muted">
         <GlossaryTip term="trade_marker"><span class="marker-legend"><span class="t-buy">▲买</span> <span class="t-sell">▼卖</span> 为实际成交</span></GlossaryTip>
       </p>
-      <EquityChart
-        :run="selectedRun"
-        :bench-series="benchInfo.series"
-        :overlay-lines="overlayComputed.lines"
-      />
-    </template>
+          <EquityChart
+            :run="selectedRun"
+            :bench-series="benchInfo.series"
+            :overlay-lines="overlayComputed.lines"
+          />
+        </template>
+      </div>
+    </div>
+    <p v-else class="empty t-muted" data-testid="bt-empty">
+      暂无回测入库 — 运行 <code>python -m src.interfaces.cli.run_backtest</code> 后自动写入 backtest_runs。
+    </p>
   </section>
 </template>
 
@@ -372,23 +384,82 @@ function onFormDone(): void {
   margin: 0 0 var(--gap);
 }
 
-.runs {
+/* 工作区: 窄屏堆叠, 宽屏左轨(268px)+右详情; 图表始终随选即见, 不被长列表推走 */
+.bt-workspace {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: 1fr;
+  margin-bottom: var(--gap);
+}
+
+@media (min-width: 1080px) {
+  .bt-workspace {
+    align-items: start;
+    grid-template-columns: 268px minmax(0, 1fr);
+  }
+
+  .run-rail {
+    max-height: calc(100vh - 92px);
+    position: sticky;
+    top: 68px;
+  }
+
+  .run-scroll {
+    max-height: calc(100vh - 210px);
+  }
+}
+
+.run-rail {
   display: flex;
   flex-direction: column;
-  margin-bottom: var(--gap);
-  padding: 6px;
+  gap: 6px;
+  padding: 10px;
+}
+
+.rail-head {
+  align-items: baseline;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 6px 8px;
+}
+
+.rail-title {
+  color: var(--text-3);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.rail-count {
+  background: var(--bg-3);
+  border-radius: 10px;
+  color: var(--text-2);
+  font-size: 11.5px;
+  padding: 1px 8px;
+}
+
+.run-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 268px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .run-row {
-  align-items: center;
+  align-items: stretch;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text);
   cursor: pointer;
   display: flex;
-  gap: 14px;
-  padding: 9px 12px;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
   text-align: left;
   transition: background var(--dur-fast) var(--ease-out);
   width: 100%;
@@ -403,31 +474,40 @@ function onFormDone(): void {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+.run-row-top {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
 .run-id {
   color: var(--accent-blue);
   font-size: 12.5px;
-  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .run-strats {
   display: flex;
-  flex: 1;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
 }
 
 .run-strat {
   background: var(--bg-3);
   border-radius: var(--radius-sm);
-  font-size: 12px;
-  padding: 1px 8px;
+  font-size: 11.5px;
+  padding: 1px 7px;
 }
 
 .run-date {
   color: var(--text-3);
   flex: none;
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .empty {

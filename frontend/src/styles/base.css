@@ -22,6 +22,33 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 环境背景「量化坐标场」— 固定视口、置于内容之下、不拦点击。
+ * ::before = 细坐标网格(径向遮罩渐隐成雾), ::after = 暖辉光+蓝景深。
+ * 卡片不透明, fx 只在留白/栏距/卡间隙透出 → 克制的仪器台面质感。 */
+body::before,
+body::after {
+  content: '';
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+body::before {
+  background-image:
+    linear-gradient(var(--fx-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--fx-grid) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(ellipse 84% 70% at 50% 26%, #000 0%, transparent 82%);
+  mask-image: radial-gradient(ellipse 84% 70% at 50% 26%, #000 0%, transparent 82%);
+}
+
+body::after {
+  background-image:
+    radial-gradient(72% 54% at 50% -6%, var(--fx-glow), transparent 72%),
+    radial-gradient(50% 44% at 90% 4%, var(--fx-glow-2), transparent 78%);
+}
+
 h1,
 h2,
 h3,
