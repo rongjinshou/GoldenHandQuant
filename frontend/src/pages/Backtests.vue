@@ -234,28 +234,31 @@ function onFormDone(): void {
     <!-- 工作区: 左轨(轮次列表, 限高滚动) + 右详情(图表主角) -->
     <div v-else-if="runs.length" class="bt-workspace">
       <aside class="run-rail card">
-        <div class="rail-head">
-          <span class="rail-title">回测轮次</span>
-          <span class="rail-count num">{{ runs.length }}</span>
-        </div>
-        <div class="run-scroll" data-testid="bt-run-list">
-          <button
-            v-for="r in runs"
-            :key="r.run_id"
-            type="button"
-            class="run-row"
-            :class="{ active: r.run_id === selectedRunId }"
-            data-testid="bt-run-row"
-            @click="selectRun(r.run_id)"
-          >
-            <span class="run-row-top">
-              <span class="run-id num">{{ r.run_id }}</span>
-              <span class="run-date num">{{ (r.created_at ?? '').slice(0, 16) }}</span>
-            </span>
-            <span class="run-strats">
-              <span v-for="(s, i) in r.strategies" :key="i" class="run-strat">{{ s.strategy }}</span>
-            </span>
-          </button>
+        <!-- 内层宽屏下绝对定位: 左轨不参与撑高, 高度完全跟随右侧详情 → 两栏底边对齐 -->
+        <div class="rail-inner">
+          <div class="rail-head">
+            <span class="rail-title">回测轮次</span>
+            <span class="rail-count num">{{ runs.length }}</span>
+          </div>
+          <div class="run-scroll" data-testid="bt-run-list">
+            <button
+              v-for="r in runs"
+              :key="r.run_id"
+              type="button"
+              class="run-row"
+              :class="{ active: r.run_id === selectedRunId }"
+              data-testid="bt-run-row"
+              @click="selectRun(r.run_id)"
+            >
+              <span class="run-row-top">
+                <span class="run-id num">{{ r.run_id }}</span>
+                <span class="run-date num">{{ (r.created_at ?? '').slice(0, 16) }}</span>
+              </span>
+              <span class="run-strats">
+                <span v-for="(s, i) in r.strategies" :key="i" class="run-strat">{{ s.strategy }}</span>
+              </span>
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -398,28 +401,14 @@ function onFormDone(): void {
   margin-bottom: var(--gap);
 }
 
-@media (min-width: 1080px) {
-  .bt-workspace {
-    align-items: start;
-    grid-template-columns: 268px minmax(0, 1fr);
-  }
-
-  .run-rail {
-    max-height: calc(100vh - 92px);
-    position: sticky;
-    top: 68px;
-  }
-
-  .run-scroll {
-    max-height: calc(100vh - 210px);
-  }
+.run-rail {
+  padding: 10px;
 }
 
-.run-rail {
+.rail-inner {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px;
 }
 
 .rail-head {
@@ -453,6 +442,32 @@ function onFormDone(): void {
   max-height: 268px;
   overflow-y: auto;
   padding-right: 2px;
+}
+
+/* 宽屏双栏(置于基础定义之后, 覆盖生效): 左轨与右详情等高, 底边对齐 */
+@media (min-width: 1080px) {
+  .bt-workspace {
+    /* 默认 align-items:stretch → 两栏底边同线 */
+    grid-template-columns: 268px minmax(0, 1fr);
+  }
+
+  .run-rail {
+    /* detail 空/矮时兜底, 列表不塌陷 */
+    min-height: 320px;
+    position: relative;
+  }
+
+  /* 绝对定位脱离高度计算: 行高只由右侧决定, 左轨填满行高、列表内滚 */
+  .rail-inner {
+    inset: 10px;
+    position: absolute;
+  }
+
+  .run-scroll {
+    flex: 1;
+    max-height: none;
+    min-height: 0;
+  }
 }
 
 .run-row {
