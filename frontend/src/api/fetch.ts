@@ -21,6 +21,15 @@ export async function fetchJSON<T>(url: string): Promise<T> {
   return resp.json() as Promise<T>
 }
 
+export async function deleteJSON<T>(url: string): Promise<T> {
+  const resp = await fetch(url, { method: 'DELETE' })
+  if (!resp.ok) {
+    const body = await resp.text()
+    throw lockAwareError(resp.status, url, body)
+  }
+  return resp.json() as Promise<T>
+}
+
 export async function postJSON<T>(url: string, payload?: unknown): Promise<T> {
   const resp = await fetch(url, {
     method: 'POST',

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { NSelect } from 'naive-ui'
+import { NPopconfirm, NSelect } from 'naive-ui'
 import { computed, ref, shallowRef, watch } from 'vue'
 
-import { fetchJSON } from '@/api/fetch'
+import { deleteJSON, fetchJSON } from '@/api/fetch'
 import type { BacktestRun, BarsData, StrategyMeta } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
@@ -77,6 +77,22 @@ void loadBacktests()
 
 function selectRun(runId: string): void {
   selectedRunId.value = runId
+}
+
+/* 研究记录退役(设计 docs/feat/0705-research-retire) — 整轮硬删除, 无回收站;
+ * 重删的是当前选中项时, loadBacktests 重载后按既有语义自动落最新一条, 无需特判。 */
+const deletingId = ref<string | null>(null)
+
+async function deleteRun(runId: string): Promise<void> {
+  deletingId.value = runId
+  try {
+    await deleteJSON(`/api/research/backtests/${runId}`)
+    await loadBacktests()
+  } catch (e) {
+    error.value = (e as Error).message
+  } finally {
+    deletingId.value = null
+  }
 }
 
 /* run 业务化标题(设计 0705 §3.B) — 展示层纯函数, 不改 run_id/不入库 */
@@ -260,6 +276,21 @@ function onFormDone(): void {
                 <span class="run-subtitle">{{ runLabels.get(r.run_id)?.subtitle }}</span>
                 <span class="run-id num">{{ r.run_id }}</span>
               </span>
+              <NPopconfirm positive-text="删除" negative-text="取消" @positive-click.stop="deleteRun(r.run_id)">
+                <template #trigger>
+                  <span
+                    class="run-delete"
+                    data-testid="bt-run-delete"
+                    :title="`删除这轮回测: ${runLabels.get(r.run_id)?.title}`"
+                    @click.stop
+                  >✕</span>
+                </template>
+                <div class="confirm-body">
+                  <div>删除这轮回测？</div>
+                  <div><b>{{ runLabels.get(r.run_id)?.title }}</b></div>
+                  <div class="t-muted">{{ r.run_id }} · 不可恢复</div>
+                </div>
+              </NPopconfirm>
             </button>
           </div>
         </div>
@@ -488,6 +519,7 @@ function onFormDone(): void {
   flex-direction: column;
   gap: 5px;
   padding: 8px 10px;
+  position: relative;
   text-align: left;
   transition: background var(--dur-fast) var(--ease-out);
   width: 100%;
@@ -500,6 +532,41 @@ function onFormDone(): void {
 .run-row.active {
   background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* 删除入口: 常驻透明, hover 该行才显现, 避免列表常态视觉噪音 */
+.run-delete {
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  padding: 3px 6px;
+  position: absolute;
+  right: 6px;
+  top: 8px;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.run-row:hover .run-delete {
+  opacity: 1;
+}
+
+.run-delete:hover {
+  background: color-mix(in srgb, var(--c-fail) 14%, transparent);
+  color: var(--c-fail);
+}
+
+/* NPopconfirm 默认插槽是 flex 布局, <br/> 不生效 — 显式 block 分行 */
+.confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 260px;
 }
 
 /* 人话标题为主行(设计 0705 §3.B) — 机器 run_id 降级到副行小字, 不再是主标题 */
