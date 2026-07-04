@@ -64,6 +64,17 @@ class QmtRealtimeQuoteFetcher:
                 quotes[symbol] = quote
         return quotes
 
+    def get_instrument_name(self, symbol: str) -> str | None:
+        """实时证券名称(ST 闸用, 0704 真单前置 DD-3); 不可得返回 None(闸放行, 报价闸兜底)。"""
+        try:
+            detail = xtdata.get_instrument_detail(symbol)
+        except Exception:
+            return None
+        if not detail:
+            return None
+        name = detail.get("InstrumentName")
+        return name if isinstance(name, str) and name else None
+
     def subscribe_first_tick(self, symbol: str, timeout: float = 3.0) -> Quote | None:
         """订阅 tick 推送等首笔；超时回退快照。"""
         received: dict[str, Quote] = {}

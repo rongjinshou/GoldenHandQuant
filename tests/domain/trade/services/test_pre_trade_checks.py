@@ -9,6 +9,7 @@ from src.domain.trade.services.pre_trade_checks import (
     check_notional_cap,
     check_price_band,
     check_sell_volume,
+    check_st_name,
     check_symbol_scope,
     check_trading_session,
     run_pre_trade_gates,
@@ -83,6 +84,34 @@ class TestCapsAndFunds:
         assert check_daily_loss_block_buys(100000.0, 97999.0, limit_ratio=0.02) is True
         assert check_daily_loss_block_buys(100000.0, 98001.0, limit_ratio=0.02) is False
         assert check_daily_loss_block_buys(0.0, 0.0, limit_ratio=0.02) is False
+
+
+class TestStNameGate:
+    """实时 ST 闸(0704 真单前置 DD-3): 当日刚戴帽的股 T-1 数据不知情, 下单前实时名称校验。"""
+
+    def test_st_prefixes_rejected(self):
+        for name in ("ST 星源", "*ST深天", "SST前锋", "S*ST新亿", "st小写"):
+            assert check_st_name(name) is not None, name
+
+    def test_normal_or_none_passes(self):
+        assert check_st_name("平安银行") is None
+        assert check_st_name("") is None       # 空名不可判 → 放行(报价闸兜底)
+        assert check_st_name(None) is None     # 名称不可得 → 放行
+
+    def test_gate_blocks_buy_but_not_sell(self):
+        buy = run_pre_trade_gates(
+            symbol="601006.SH", direction=OrderDirection.BUY, volume=100,
+            quote=_quote(), now=WED, max_notional=1500.0, available_cash=1e6,
+            instrument_name="ST 星源",
+        )
+        assert not buy.passed and "ST" in buy.reject_reason
+
+        sell = run_pre_trade_gates(
+            symbol="601006.SH", direction=OrderDirection.SELL, volume=100,
+            quote=_quote(), now=WED, max_notional=1500.0, available_volume=100,
+            instrument_name="ST 星源",
+        )
+        assert sell.passed  # 退出持仓不拦
 
 
 class TestAggregateGates:

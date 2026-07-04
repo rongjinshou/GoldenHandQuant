@@ -38,6 +38,19 @@ def check_symbol_scope(symbol: str) -> str | None:
     return f"{symbol} 不在 v1 允许范围 (仅沪深主板 60xxxx/000xxx)"
 
 
+def check_st_name(name: str | None) -> str | None:
+    """实时 ST 名称闸(0704 真单前置 DD-3): 当日刚戴帽的股 T-1 数据不知情。
+
+    name 为 None/空 = 名称不可得 → 放行(不误拦; 停牌/断连由报价新鲜度闸兜底)。
+    前缀口径同 domain/strategy 的 filter_st(ST/*ST/SST/S*ST)。
+    """
+    if not name:
+        return None
+    if name.upper().startswith(("ST", "*ST", "SST", "S*ST")):
+        return f"实时名称含风险警示: {name} (当日戴帽? T-1 数据不知情)"
+    return None
+
+
 def check_trading_session(now: datetime) -> str | None:
     if now.weekday() >= 5:
         return f"非交易日: {now:%Y-%m-%d} (周{now.weekday() + 1})"
@@ -107,14 +120,18 @@ def run_pre_trade_gates(
     notional_ceiling: float = MAX_NOTIONAL_CEILING,
     available_cash: float | None = None,
     available_volume: int | None = None,
+    instrument_name: str | None = None,
 ) -> GateResult:
-    """六道闸逐序检查（自动循环用的聚合入口）。"""
+    """七道闸逐序检查（自动循环用的聚合入口）。"""
     if volume <= 0:
         return GateResult(passed=False, reject_reason=f"数量非法: {volume}")
     # 买入须 100 整数倍; 卖出允许零股(送配产生的不足一手持仓可一次性卖出)
     if direction == OrderDirection.BUY and volume % 100 != 0:
         return GateResult(passed=False, reject_reason=f"数量非法: {volume} (买入须为 100 整数倍)")
     if reason := check_symbol_scope(symbol):
+        return GateResult(passed=False, reject_reason=reason)
+    # 实时 ST 闸只拦买入: 退出持仓(卖出)不得被自身风险警示阻断
+    if direction == OrderDirection.BUY and (reason := check_st_name(instrument_name)):
         return GateResult(passed=False, reject_reason=reason)
     if reason := check_trading_session(now):
         return GateResult(passed=False, reject_reason=reason)

@@ -119,12 +119,13 @@ class FakeAccount:
         return self._positions
 
 
-def _service(tmp_path, *, displays, trade_gw=None, account=None, config=None):
+def _service(tmp_path, *, displays, trade_gw=None, account=None, config=None,
+             quotes=None):
     store = TradingStore(str(tmp_path / "t.db"))
     gw = trade_gw if trade_gw is not None else FakeTradeGateway()
     svc = AutoTradeAppService(
         signal_service=FakeSignalService(displays),
-        quote_fetcher=FakeQuotes(),
+        quote_fetcher=quotes if quotes is not None else FakeQuotes(),
         trade_gateway=gw,
         account_gateway=account or FakeAccount(),
         store=store,
@@ -170,6 +171,44 @@ class TestHappyPath:
 
         assert summary.orders_submitted == 1
         assert gw.placed[0].direction.value == "SELL"
+
+
+class _StQuotes(FakeQuotes):
+    """带实时名称能力的报价替身(0704 DD-3): 模拟当日刚戴帽。"""
+
+    def get_instrument_name(self, symbol):
+        return "ST 测试"
+
+
+class TestRealtimeStGate:
+    def test_buy_rejected_when_realtime_name_is_st(self, tmp_path):
+        svc, store, gw = _service(tmp_path, displays=[_display()], quotes=_StQuotes())
+
+        summary = svc.run_cycle()
+
+        assert summary.orders_rejected == 1 and gw.placed == []
+        recs = store.load_executions()
+        assert "风险警示" in recs[0]["reject_reason"]
+
+    def test_sell_passes_even_when_name_is_st(self, tmp_path):
+        pos = Position(account_id="t", ticker="601006.SH",
+                       total_volume=100, available_volume=100, average_cost=5.0)
+        svc, _, gw = _service(
+            tmp_path, displays=[_display(direction=SignalDirection.SELL)],
+            account=FakeAccount(positions=[pos]), quotes=_StQuotes())
+
+        summary = svc.run_cycle()
+
+        assert summary.orders_submitted == 1  # 退出持仓不被自身 ST 阻断
+        assert gw.placed[0].direction.value == "SELL"
+
+    def test_fetcher_without_name_capability_passes(self, tmp_path):
+        """FakeQuotes 无 get_instrument_name → 名称不可得 → 放行(既有行为回归)。"""
+        svc, _, gw = _service(tmp_path, displays=[_display()])
+
+        summary = svc.run_cycle()
+
+        assert summary.orders_submitted == 1 and len(gw.placed) == 1
 
 
 class TestFiltersAndBudget:

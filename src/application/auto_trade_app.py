@@ -253,6 +253,13 @@ class AutoTradeAppService:
             return self._reject(record, "当日亏损超限禁买 (仅放行卖出)")
 
         quote = self._quotes.subscribe_first_tick(d.symbol)
+        # 实时 ST 闸输入(DD-3): 名称仅买入需要; fetcher 无此能力/非 str 一律视为不可得
+        instrument_name: str | None = None
+        if direction == OrderDirection.BUY:
+            name_of = getattr(self._quotes, "get_instrument_name", None)
+            if callable(name_of):
+                raw = name_of(d.symbol)
+                instrument_name = raw if isinstance(raw, str) else None
         available_volume = 0
         if direction == OrderDirection.SELL:
             positions = {p.ticker: p for p in self._account.get_positions()}
@@ -261,6 +268,7 @@ class AutoTradeAppService:
         gate = run_pre_trade_gates(
             symbol=d.symbol, direction=direction, volume=d.suggested_volume,
             quote=quote, now=now, max_notional=self._cfg.per_order_notional_cap,
+            instrument_name=instrument_name,
             notional_ceiling=self._cfg.per_order_notional_ceiling,
             available_cash=cash_available,
             available_volume=available_volume,
