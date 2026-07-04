@@ -180,9 +180,15 @@ class MarketDataStore:
         )
         self._conn.unregister("_inst_in")
 
-    def load_symbols(self, source: str) -> list[str]:
+    def load_symbols(self, sources: str | tuple[str, ...]) -> list[str]:
+        """按 source(单个或多源并集)取宇宙; 多源用于 B1 含退市股宇宙(qmt+akshare)。"""
+        if isinstance(sources, str):
+            sources = (sources,)
+        placeholders = ", ".join("?" for _ in sources)
         rows = self._conn.execute(
-            "SELECT symbol FROM instruments WHERE source = ? ORDER BY symbol", [source]
+            f"SELECT DISTINCT symbol FROM instruments WHERE source IN ({placeholders}) "
+            "ORDER BY symbol",
+            list(sources),
         ).fetchall()
         return [r[0] for r in rows]
 

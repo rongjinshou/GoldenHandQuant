@@ -21,6 +21,7 @@ def build_backtest_cross_section(
     config_symbols: list[str] | None = None,
     db_path: str = DEFAULT_DB_PATH,
     max_universe: int | None = None,
+    include_sources: tuple[str, ...] = ("qmt",),
 ) -> tuple[FundamentalRegistry, list[str]]:
     """返回 (fundamental_registry, stock_universe)。
 
@@ -36,7 +37,7 @@ def build_backtest_cross_section(
 
         store = MarketDataStore(db_path, read_only=True)
         try:
-            universe = store.load_symbols("qmt")
+            universe = store.load_symbols(include_sources)
         finally:
             store.close()
         if max_universe is not None and len(universe) > max_universe:

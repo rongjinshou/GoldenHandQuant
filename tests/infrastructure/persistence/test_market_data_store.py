@@ -273,6 +273,22 @@ class TestInstruments:
         )
         assert store.load_symbols("qmt") == ["000001.SZ", "600000.SH"]
 
+    def test_load_symbols_multi_source(self, store):
+        """多 source 并集(B1 退市股回填: qmt 活股 + akshare 退市股)。"""
+        store.upsert_instruments(
+            [{"symbol": "000001.SZ", "name": "平安银行",
+              "list_date": "1991-04-03", "delist_date": None}],
+            source="qmt",
+        )
+        store.upsert_instruments(
+            [{"symbol": "600999.SH", "name": "退市样例",
+              "list_date": "2000-01-01", "delist_date": "2023-05-01"}],
+            source="akshare",
+        )
+        assert store.load_symbols("qmt") == ["000001.SZ"]  # str 兼容不变
+        assert store.load_symbols(("qmt", "akshare")) == ["000001.SZ", "600999.SH"]
+        assert store.load_symbols(("akshare",)) == ["600999.SH"]
+
 class TestSearchInstruments:
     """中文名联想 — instruments.name 历史只存代码, 以 fundamental_snapshots 回填。"""
 
