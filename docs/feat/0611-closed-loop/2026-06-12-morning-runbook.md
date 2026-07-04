@@ -58,10 +58,38 @@ $WIN_PY -m src.interfaces.cli.run_backtest        # 跑完自动入库 backtest_
 2. CLI 加 `--live`：`$WIN_PY -m src.interfaces.cli.quant auto-trade --once --live`
 
 防线（任一触发即拒单留痕）：主板白名单 / 交易时段 / 报价新鲜 / ±10% 涨跌停带 /
-单笔 ≤¥1500（硬顶 5000）/ 可用资金或持仓 / 单循环 ≤3 单 / 当日 ≤¥3000 /
+单笔金额闸（cap 与硬顶 ceiling 均在 trading.yaml，2026-07-04 起按 F01 影子盘重标定：9000/10000）/
+可用资金或持仓 / 单循环 ≤max_orders_per_cycle 单 / 当日 ≤daily_notional_cap /
 当日权益回撤 >2% 禁买 / 同标的同方向当日只一次 / 轮询 30s 超时自动撤单。
 
 **回滚动作**：Ctrl+C 停守护 → QMT 客户端手工撤未成单 → `enabled: false` 关总闸。
+
+## 5. F01 影子盘 · 调仓周二流程（2026-07-04 起，阶段 1）
+
+> 配置已切 `strategy: micro_value`（top20/只主板/dry_run），设计与验收见
+> `docs/feat/0626-mainboard-f01-shadow/2026-07-03-phase1-shadow-*.md`。
+
+```bash
+# 周二 09:30 后（其余交易日不需跑；1/4 月为空仓月，跑则预期全清仓信号=合法）
+# ① QMT 极简端登录，确认「行情」面板有跳动数据（不只交易登录——两条独立链路！）
+# ② 数据新鲜（把 fundamental as-of 滞后压到 ≤1 交易日）
+$WIN_PYTHON -m src.interfaces.cli.quant data refresh --start-date <上次末日> --end-date <今日>
+$WIN_PYTHON scripts/fetch_index_bars.py          # 指数 000852.SH 不在 refresh 宇宙内, 需单独刷
+# ③ 影子盘单循环（决策快照自动落 signal_snapshots）
+$WIN_PYTHON -m src.interfaces.cli.quant auto-trade --once --enable
+# ④ 收盘后：再 refresh（含当日）→ 一致性比对（QMT 实时决策 vs DuckDB 离线同输入重放）
+$WIN_PYTHON scripts/shadow_consistency_check.py                  # exit 0=逐位一致
+```
+
+**数据健康守卫（fail-fast，宁可停一周期不误清仓）**：装配/scan 期任一命中 →
+本周期不买不卖，`trading_cycles.note` 记 `scan failed: ...`，`signal_snapshots.data_health='fault'`：
+宇宙空 / 基本面滞后 >7 天或行数断崖 / 趋势闸指数 bars <20 / 个股行情探测全空。
+
+**行情断（xtdata）/交易通 —— 两条独立链路故障**：症状 = 启动即
+`xtdata 行情服务不可用(xtdatacenter 58610 未起?)`（ensure_ready 探针 fail-fast，不再半程抛栈）。
+处置：`$WIN_PYTHON scripts/test_qmt_connection.py` 分步定位（Step1 挂=行情侧）→ 极简端确认行情
+面板有数据，不行则彻底退出 QMT、杀残留 XtMiniQmt/miniquote 重启重登 →
+`netstat -ano | findstr 58610` 见 LISTENING 后复跑。忌：61001(miniquote) 能握手但非数据 API，不可 pin。
 
 ## 常见拒单原因对照
 
@@ -71,7 +99,7 @@ $WIN_PY -m src.interfaces.cli.run_backtest        # 跑完自动入库 backtest_
 | 非连续竞价时段 / 非交易日 | 盘外执行 | 等开盘；--once 盘外跑出此拒单也证明链路通 |
 | 拿不到有效实时报价 | 停牌/退市/QMT 行情断 | 查 QMT 客户端行情 |
 | 超出涨跌停带 | 报价已贴板 | 正常保护，不处置 |
-| 金额…超上限 | 单笔预算闸 | 调 `per_order_notional_cap`（硬顶 5000） |
+| 金额…超上限 | 单笔预算闸 | 调 `per_order_notional_cap`（硬顶 `per_order_notional_ceiling`，影子盘 10000） |
 | 可用资金…< 需求 | 现金不足（含 1% 费用 buffer） | 正常保护 |
 | 卖出量 > 可用持仓 | T+1 锁定 | 正常保护 |
 | 当日预算耗尽 | 日累计 ≥¥3000 | 次日自动重置 |
