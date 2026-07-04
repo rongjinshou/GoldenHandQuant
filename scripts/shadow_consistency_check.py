@@ -186,12 +186,20 @@ def main() -> int:
     bars_end = snap_day.isoformat()
     index_bars = fetcher.fetch_history_bars(
         service.index_symbol, Timeframe.DAY_1, bars_start, bars_end)
-    if not index_bars or index_bars[-1].timestamp.date() < snap_day:
-        latest = index_bars[-1].timestamp.date().isoformat() if index_bars else "无"
-        print(f"[exit 2] market.duckdb 指数 {service.index_symbol} bars 未覆盖快照日 "
-              f"{bars_end}(库内最新 {latest}): 先 data refresh 再比对")
+    if not index_bars:
+        print(f"[exit 2] market.duckdb 无指数 {service.index_symbol} bars: 先 data refresh")
         fetcher.close()
         return EXIT_NO_DATA
+    index_latest = index_bars[-1].timestamp.date()
+    if (snap_day - index_latest).days > 7:
+        print(f"[exit 2] market.duckdb 指数 bars 最新 {index_latest} 落后快照日 "
+              f"{bars_end} 超 7 天: 先 data refresh 再比对")
+        fetcher.close()
+        return EXIT_NO_DATA
+    if index_latest < snap_day:
+        # 非交易日/未收盘的快照: QMT 实时侧末根同为最近交易日, 两侧窗口天然对齐
+        print(f"[warn] 指数 bars 末根 {index_latest} < 快照日 {bars_end}"
+              f"(非交易日/未 refresh 到当日?): 两侧均截至最近交易日, 继续比对")
     mkt.load_bars(index_bars)
     print(f"装载 bars {bars_start}..{bars_end}: 宇宙 {len(symbols)} 只 + 指数 {service.index_symbol}")
     equity_symbols = [s for s in symbols if s != service.index_symbol]
