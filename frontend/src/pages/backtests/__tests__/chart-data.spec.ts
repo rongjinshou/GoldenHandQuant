@@ -11,6 +11,7 @@ import {
   esc,
   firstStrategy,
   groupTradeMarkers,
+  isDenseMarkers,
   markerSize,
   pct,
   rebaseOverlays,
@@ -191,10 +192,22 @@ describe('groupTradeMarkers', () => {
 })
 
 describe('markerSize', () => {
-  it('9 起步, 每多一笔 +1.6, 封顶 16', () => {
+  it('稀疏: 9 起步, 每多一笔 +1.6, 封顶 16', () => {
     expect(markerSize(1)).toBe(9)
     expect(markerSize(2)).toBeCloseTo(10.6, 5)
     expect(markerSize(100)).toBe(16)
+  })
+
+  it('密集: 恒 6px 不随笔数放大(高频截面策略免糊图)', () => {
+    expect(markerSize(1, true)).toBe(6)
+    expect(markerSize(100, true)).toBe(6)
+  })
+})
+
+describe('isDenseMarkers', () => {
+  it('买日+卖日 > 120 判密集, 恰 120 仍稀疏', () => {
+    expect(isDenseMarkers(60, 60)).toBe(false) // dual_ma 量级: 保持精致大标记
+    expect(isDenseMarkers(61, 60)).toBe(true) // 周调仓截面策略量级
   })
 })
 

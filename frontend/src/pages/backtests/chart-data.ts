@@ -182,8 +182,15 @@ export function groupTradeMarkers(
   return { BUY: toPoints(grouped.BUY), SELL: toPoints(grouped.SELL) }
 }
 
-/* 聚合笔数 → 符号尺寸: 9px 起步, 每多一笔 +1.6, 封顶 16 */
-export const markerSize = (n: number): number => Math.min(9 + (n - 1) * 1.6, 16)
+/* 密集判定: 有成交标记的日数(买日+卖日)超阈值 → 高频截面策略(如周调仓小市值)
+ * 沿用稀疏样式会重叠成一坨大箭头糊图, 退化为小符号 */
+export const DENSE_MARKER_DAYS = 120
+export const isDenseMarkers = (buyDays: number, sellDays: number): boolean =>
+  buyDays + sellDays > DENSE_MARKER_DAYS
+
+/* 聚合笔数 → 符号尺寸: 稀疏 9px 起步每多一笔 +1.6 封顶 16; 密集恒 6px 不随笔数放大 */
+export const markerSize = (n: number, dense = false): number =>
+  dense ? 6 : Math.min(9 + (n - 1) * 1.6, 16)
 
 /* path 字形(而非 triangle+rotate): 图例也能正确显示 ▲买/▼卖 区分形状 */
 export const MARKER_UP = 'path://M0,-9 L9,7 L-9,7 Z' // ▲ 顶点朝上

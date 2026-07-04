@@ -22,6 +22,7 @@ import {
   drawdown,
   firstStrategy,
   groupTradeMarkers,
+  isDenseMarkers,
   MARKER_DOWN,
   MARKER_UP,
   markerSize,
@@ -55,9 +56,12 @@ const props = defineProps<{
 
 const palette = useChartTheme()
 
-/* path 字形 buy/sell 散点(A股: 买红▲落线下方, 卖绿▼落线上方) */
+/* path 字形 buy/sell 散点(A股: 买红▲落线下方, 卖绿▼落线上方)
+ * 标记日超阈值(高频截面策略)切密集模式: 恒 6px 小符号/细边/无阴影/收拢偏移,
+ * 与稀疏轮次(如 dual_ma)的精致大标记两种形态各自可读 */
 function tradeScatters(s: BacktestStrategy, axisIdx: Map<string, number>, t: ChartPalette) {
   const { BUY, SELL } = groupTradeMarkers(s, axisIdx)
+  const dense = isDenseMarkers(BUY.length, SELL.length)
   const mk = (
     dir: 'BUY' | 'SELL',
     points: TradeMarkerPoint[],
@@ -70,16 +74,17 @@ function tradeScatters(s: BacktestStrategy, axisIdx: Map<string, number>, t: Cha
     xAxisIndex: 0,
     yAxisIndex: 0,
     symbol: sym,
-    symbolOffset: [0, offY],
+    symbolOffset: [0, dense ? Math.sign(offY) * 6 : offY],
     z: 14,
     itemStyle: {
       color,
       borderColor: t.panelBg,
-      borderWidth: 2,
-      shadowBlur: 6,
+      borderWidth: dense ? 0.5 : 2,
+      shadowBlur: dense ? 0 : 6,
       shadowColor: 'rgba(0,0,0,.4)',
     },
-    symbolSize: (_: unknown, q: { data: TradeMarkerPoint }) => markerSize(q.data.trades.length),
+    symbolSize: (_: unknown, q: { data: TradeMarkerPoint }) =>
+      markerSize(q.data.trades.length, dense),
     data: points,
   })
   const out: Record<string, unknown>[] = []
