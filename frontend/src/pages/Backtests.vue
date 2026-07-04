@@ -20,6 +20,7 @@ import {
   truncatedTradesStrategy,
 } from './backtests/chart-data'
 import EquityChart from './backtests/EquityChart.vue'
+import { buildRunLabel, sourceLabel } from './backtests/run-naming'
 
 /* 回测页 — 旧 backtests.js loadBacktests/renderBtRun 对等:
  * 回测列表(倒序, 同 run 多策略并排, 行点击进详情) + 详情(基准/叠加下拉 + meta 条 +
@@ -78,6 +79,9 @@ function selectRun(runId: string): void {
   selectedRunId.value = runId
 }
 
+/* run 业务化标题(设计 0705 §3.B) — 展示层纯函数, 不改 run_id/不入库 */
+const runLabels = computed(() => new Map(runs.value.map((r) => [r.run_id, buildRunLabel(r, strategyMeta.value)])))
+
 // ---- 基准: 同额买入持有(异步取 /bars 现算, seq 守卫过期丢弃) ----
 const benchRaw = shallowRef<{ series: (number | null)[] | null; note: string }>({
   series: null,
@@ -132,7 +136,7 @@ const benchInfo = computed<{
 // ---- 叠加对比: 另一轮重定基到当前 run(排除自身) ----
 const overlayOptions = computed(() =>
   runs.value.map((r, i) => ({
-    label: `${r.run_id}（${r.strategies.map((s) => s.strategy).join(', ')}）`,
+    label: `${runLabels.value.get(r.run_id)?.title ?? r.run_id}（${r.run_id}）`,
     value: i,
   })),
 )
@@ -153,7 +157,7 @@ const overlayComputed = computed<{ lines: OverlayLine[]; anyOverlap: boolean }>(
 
 // ---- meta 条 ----
 const createdAt = computed(() => (selectedRun.value?.created_at ?? '').slice(0, 19))
-const source = computed(() => String(first.value?.params?.source ?? '?'))
+const source = computed(() => sourceLabel(first.value?.params?.source as string | undefined))
 const initialCapitalText = computed(() => {
   const c = first.value?.initial_capital
   return c ? c.toLocaleString() : '?'
@@ -248,14 +252,13 @@ function onFormDone(): void {
               class="run-row"
               :class="{ active: r.run_id === selectedRunId }"
               data-testid="bt-run-row"
+              :title="r.run_id"
               @click="selectRun(r.run_id)"
             >
-              <span class="run-row-top">
+              <span class="run-title">{{ runLabels.get(r.run_id)?.title }}</span>
+              <span class="run-row-bottom">
+                <span class="run-subtitle">{{ runLabels.get(r.run_id)?.subtitle }}</span>
                 <span class="run-id num">{{ r.run_id }}</span>
-                <span class="run-date num">{{ (r.created_at ?? '').slice(0, 16) }}</span>
-              </span>
-              <span class="run-strats">
-                <span v-for="(s, i) in r.strategies" :key="i" class="run-strat">{{ s.strategy }}</span>
               </span>
             </button>
           </div>
@@ -271,6 +274,10 @@ function onFormDone(): void {
               <span class="rm"><i>入库</i><b class="num">{{ createdAt }}</b></span>
               <span class="rm"><i>来源</i><b>{{ source }}</b></span>
               <span class="rm"><i>初始资金</i><b class="num">{{ initialCapitalText }}</b></span>
+              <span class="rm">
+                <GlossaryTip term="bt_data_lineage"><i>数据</i></GlossaryTip>
+                <b>本地日线库<template v-if="anyCross"> · 截面特征</template></b>
+              </span>
               <span class="rm-div"></span>
               <span class="rm rm-wide">
                 <template v-for="(b, i) in targetBadges" :key="i">
@@ -319,8 +326,8 @@ function onFormDone(): void {
                   <b class="num">{{ pct(benchInfo.stats.benchReturn) }}</b>
                 </span>
                 <span class="rm">
-                  <i>超额</i>
-                  <b class="num" :class="benchInfo.stats.alpha >= 0 ? 't-pass' : 't-fail'">{{ pct(benchInfo.stats.alpha) }}</b>
+                  <i>{{ benchInfo.stats.alpha >= 0 ? '跑赢基准' : '跑输基准' }}</i>
+                  <b class="num" :class="benchInfo.stats.alpha >= 0 ? 't-pass' : 't-fail'">{{ pct(Math.abs(benchInfo.stats.alpha)) }}</b>
                 </span>
                 <span v-if="benchInfo.stats.fromDate" class="rm rm-note">自 {{ benchInfo.stats.fromDate }} 同窗口径</span>
               </template>
@@ -495,40 +502,38 @@ function onFormDone(): void {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.run-row-top {
-  align-items: baseline;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
+/* 人话标题为主行(设计 0705 §3.B) — 机器 run_id 降级到副行小字, 不再是主标题 */
+.run-title {
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.run-id {
-  color: var(--accent-blue);
-  font-size: 12.5px;
+.run-row-bottom {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.run-subtitle {
+  color: var(--text-3);
+  flex: 1;
+  font-size: 11px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.run-strats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  min-width: 0;
-}
-
-.run-strat {
-  background: var(--bg-3);
-  border-radius: var(--radius-sm);
-  font-size: 11.5px;
-  padding: 1px 7px;
-}
-
-.run-date {
+.run-id {
   color: var(--text-3);
   flex: none;
-  font-size: 11.5px;
+  font-size: 10.5px;
+  opacity: 0.75;
 }
 
 .empty {

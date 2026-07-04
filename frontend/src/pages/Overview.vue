@@ -7,6 +7,7 @@ import type { Job, OverviewData } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import JobCard from '@/components/JobCard.vue'
 import KpiCard from '@/components/KpiCard.vue'
+import PipelineMap from '@/components/PipelineMap.vue'
 
 /* 数据资产总览 — 旧 pages/overview.js 对等:
  * 单次加载 /api/research/overview; 四表卡片; 空态; 数据刷新表单(data-refresh job)。 */
@@ -94,8 +95,10 @@ function onRefreshDone(): void {
       <span v-if="metaLine" class="t-muted meta-line num">{{ metaLine }}</span>
     </header>
     <p class="guide t-muted">
-      本地行情库（DuckDB）四张核心表的规模与覆盖区间。回测、因子检验、特征查看都读这份离线数据——数据缺口会直接造成回测失真，先保证覆盖再谈结论。
+      本系统的研究工作是一条流水线：数据资产喂给因子判决，过闸因子组成策略去回测，回测通过的策略上纸面（实盘 dry_run）验证。下方四步即对应四个页签，点击可直接跳转。
     </p>
+
+    <PipelineMap :overview="data" />
 
     <ErrorBanner v-if="error" :msg="error" />
 
@@ -108,6 +111,9 @@ function onRefreshDone(): void {
       <div v-for="i in 4" :key="i" class="card kpi-skeleton"></div>
     </div>
 
+    <p v-if="data" class="section-label t-muted">
+      本地行情库（DuckDB）四张核心表 — 流水线①"数据资产"的明细
+    </p>
     <div v-if="data" class="kpi-row">
       <KpiCard
         v-for="(stat, table) in data.tables"
@@ -154,6 +160,11 @@ function onRefreshDone(): void {
 .guide {
   font-size: 13px;
   margin: 0 0 var(--gap);
+}
+
+.section-label {
+  font-size: 12px;
+  margin: 0 0 8px;
 }
 
 .kpi-row {

@@ -9,6 +9,7 @@ import GlossaryTip from '@/components/GlossaryTip.vue'
 import JobCard from '@/components/JobCard.vue'
 
 import { f2, f3, f4, gateClass, gradeClass, pct } from './verdicts/gates'
+import { buildVerdictRunLabel } from './verdicts/run-naming'
 
 /* 因子判决页 — 旧 pages/verdicts.js 对等:
  * 判决轮次下拉 + meta 条 + objective 切换联动表头/指标/格式化 + reasons 行;
@@ -42,12 +43,13 @@ void loadVerdicts()
 const run = computed(() => runs.value[selectedIdx.value] ?? null)
 const longOnly = computed(() => run.value?.params?.objective === 'long_only')
 
-/* 下拉时间前置: 同名多轮次靠时间区分, 避免截断后每项看起来一样 */
+/* 业务化标题(设计 0705 §3.B): "N 因子 · 口径 · 切分日" 为主, 时间+run_id 收尾括号 —
+ * 根治"下拉全是 MFCOMBO-日期, 看不懂业务"(用户原话) */
 const runOptions = computed(() =>
-  runs.value.map((r, i) => ({
-    label: `${(r.created_at ?? '').slice(0, 16)} · ${r.run_id}`,
-    value: i,
-  })),
+  runs.value.map((r, i) => {
+    const label = buildVerdictRunLabel(r)
+    return { label: `${label.title}（${(r.created_at ?? '').slice(5, 16)} · ${r.run_id}）`, value: i }
+  }),
 )
 
 // ---- reasons 降噪: 失败项常驻红 chip, 通过项折叠为摘要, 行点击展开全量 ----
@@ -80,7 +82,7 @@ const metaItems = computed(() => {
     { label: '切分', value: p.split ?? '无', gloss: 'split_date' },
     { label: '调仓', value: `${p.rebalance_days ?? 1} 日`, gloss: 'rebalance' },
     { label: '记分牌', value: longOnly.value ? '长多(Top超额)' : '多空', gloss: 'objective' },
-    { label: 'universe', value: `${p.universe_count ?? '?'} 只` },
+    { label: '覆盖股票池', value: `${p.universe_count ?? '?'} 只`, gloss: 'universe_lineage' },
     { label: '特征', value: `v${p.feature_version ?? '?'}` },
   ]
 })
@@ -301,9 +303,11 @@ async function submitFactorTest(): Promise<void> {
                   <span v-else class="gate-na">-</span>
                 </td>
                 <td>
-                  <span class="badge" :class="f.passed ? 'pass' : 'fail'">{{
-                    f.passed ? 'PASS' : 'FAIL'
-                  }}</span>
+                  <GlossaryTip :term="f.passed ? 'verdict_pass' : 'verdict_fail'" plain>
+                    <span class="badge" :class="f.passed ? 'pass' : 'fail'">{{
+                      f.passed ? 'PASS' : 'FAIL'
+                    }}</span>
+                  </GlossaryTip>
                 </td>
               </tr>
               <!-- 明细行: 折叠=失败项红chip+通过摘要; 展开=表达式+全部判定chips -->
