@@ -16,6 +16,21 @@ with sync_playwright() as p:
         page.click('[data-testid="explorer-load"]')
         page.wait_for_selector('[data-testid="kline-chart"] canvas', timeout=15_000)
         page.wait_for_timeout(1500)
+    if route == 'backtests':
+        # 逐行点击直到出现净值曲线(首行 shadow-paper 单日无曲线, 找有曲线的多日轮次)
+        rows = page.query_selector_all('[data-testid="bt-run-row"]')
+        drawn = False
+        for row in rows[:12]:
+            row.click()
+            try:
+                page.wait_for_selector('[data-testid="bt-chart"] canvas', timeout=4000)
+                drawn = True
+                break
+            except Exception:
+                continue
+        if not drawn:
+            print('  [backtests] 前 12 行均无净值曲线')
+        page.wait_for_timeout(1500)
     for theme in ('dark', 'light'):
         current = page.evaluate('() => document.documentElement.dataset.theme')
         if current != theme:
