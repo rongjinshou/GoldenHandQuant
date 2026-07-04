@@ -1,0 +1,275 @@
+<script setup lang="ts">
+import { LineChart, ScatterChart } from 'echarts/charts'
+import {
+  AxisPointerComponent,
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  TitleComponent,
+  TooltipComponent,
+} from 'echarts/components'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { computed } from 'vue'
+import VChart from 'vue-echarts'
+
+import type { BacktestRun, BacktestStrategy } from '@/api/types'
+import { type ChartPalette, useChartTheme, vGradient } from '@/composables/useChartTheme'
+
+import {
+  alignToAxis,
+  chartTooltipFormatter,
+  drawdown,
+  firstStrategy,
+  groupTradeMarkers,
+  MARKER_DOWN,
+  MARKER_UP,
+  markerSize,
+  type OverlayLine,
+  strategiesWithCurve,
+  type TradeMarkerPoint,
+  wan,
+} from './chart-data'
+
+use([
+  LineChart,
+  ScatterChart,
+  GridComponent,
+  TooltipComponent,
+  TitleComponent,
+  LegendComponent,
+  DataZoomComponent,
+  AxisPointerComponent,
+  CanvasRenderer,
+])
+
+/* 净值与回撤图 — 旧 backtests.js renderBtRun 的 setOption 部分对等:
+ * 策略净值线(主策略品牌渐变面积)/基准灰虚线/叠加重定基虚线/买卖 ▲▼path 字形标记/
+ * 回撤渐变子图; 配色全由 useChartTheme 提供, 主题切换即随 computed 重渲染换肤。
+ * 纯计算(轴对齐/标记聚合/超额)已抽 chart-data.ts, 此处只做 option 装配。 */
+const props = defineProps<{
+  run: BacktestRun
+  benchSeries: (number | null)[] | null
+  overlayLines: OverlayLine[]
+}>()
+
+const palette = useChartTheme()
+
+/* path 字形 buy/sell 散点(A股: 买红▲落线下方, 卖绿▼落线上方) */
+function tradeScatters(s: BacktestStrategy, axisIdx: Map<string, number>, t: ChartPalette) {
+  const { BUY, SELL } = groupTradeMarkers(s, axisIdx)
+  const mk = (
+    dir: 'BUY' | 'SELL',
+    points: TradeMarkerPoint[],
+    color: string,
+    sym: string,
+    offY: number,
+  ) => ({
+    name: `${dir === 'BUY' ? '买' : '卖'}·${s.strategy}`,
+    type: 'scatter',
+    xAxisIndex: 0,
+    yAxisIndex: 0,
+    symbol: sym,
+    symbolOffset: [0, offY],
+    z: 14,
+    itemStyle: {
+      color,
+      borderColor: t.panelBg,
+      borderWidth: 2,
+      shadowBlur: 6,
+      shadowColor: 'rgba(0,0,0,.4)',
+    },
+    symbolSize: (_: unknown, q: { data: TradeMarkerPoint }) => markerSize(q.data.trades.length),
+    data: points,
+  })
+  const out: Record<string, unknown>[] = []
+  // 买 红▲(t.up) 落线下方; 卖 绿▼(t.down) 落线上方
+  if (BUY.length) out.push(mk('BUY', BUY, t.up, MARKER_UP, 11))
+  if (SELL.length) out.push(mk('SELL', SELL, t.down, MARKER_DOWN, -11))
+  return out
+}
+
+const option = computed(() => {
+  const run = props.run
+  const first = firstStrategy(run)
+  const withCurve = strategiesWithCurve(run)
+  const dates = first?.equity_curve.dates ?? []
+  if (!first || !dates.length) return null
+
+  const t = palette.value
+  const axisIdx = new Map(dates.map((d, i) => [d, i]))
+  const seriesColor = (si: number): string => t.series[si % t.series.length]
+
+  const benchSeries = props.benchSeries
+    ? [
+        {
+          name: '基准买入持有',
+          type: 'line',
+          data: props.benchSeries,
+          smooth: 0.25,
+          showSymbol: false,
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          connectNulls: true,
+          lineStyle: { width: 1.5, type: 'dashed', color: t.benchmark },
+          itemStyle: { color: t.benchmark },
+          z: 4,
+        },
+      ]
+    : []
+
+  const overlaySeries = props.overlayLines.map((ln) => {
+    const color = t.overlay[ln.colorIdx % t.overlay.length]
+    return {
+      name: ln.name,
+      type: 'line',
+      data: ln.data,
+      smooth: 0.25,
+      showSymbol: false,
+      xAxisIndex: 0,
+      yAxisIndex: 0,
+      connectNulls: true,
+      lineStyle: { width: 1.2, type: 'dashed', opacity: 0.85, color },
+      itemStyle: { color },
+    }
+  })
+
+  return {
+    backgroundColor: 'transparent',
+    animation: false,
+    textStyle: { color: t.text },
+    color: t.series,
+    title: {
+      text: `净值与回撤 · ${run.run_id}`,
+      left: 14,
+      top: 10,
+      textStyle: { fontSize: 13, fontWeight: 600, color: t.text },
+    },
+    tooltip: {
+      trigger: 'axis',
+      formatter: chartTooltipFormatter,
+      backgroundColor: t.tipBg,
+      borderColor: t.tipBorder,
+      borderWidth: 1,
+      textStyle: { color: t.tipText, fontSize: 12 },
+      extraCssText:
+        'backdrop-filter: blur(6px); border-radius: 9px;' +
+        ' box-shadow: 0 10px 30px rgba(0,0,0,.28); padding: 8px 11px;',
+      axisPointer: { type: 'line', lineStyle: { color: t.axis, type: 'dashed' } },
+    },
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
+    legend: {
+      top: 9,
+      right: 14,
+      itemWidth: 16,
+      itemHeight: 8,
+      itemGap: 14,
+      textStyle: { color: t.dim, fontSize: 11 },
+    },
+    grid: [
+      { left: 66, right: 26, top: 46, height: '50%' },
+      { left: 66, right: 26, top: '72%', height: '19%' },
+    ],
+    xAxis: [
+      {
+        type: 'category',
+        data: dates,
+        gridIndex: 0,
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: t.axis } },
+        axisTick: { show: false },
+        axisLabel: { show: false },
+        splitLine: { show: false },
+      },
+      {
+        type: 'category',
+        data: dates,
+        gridIndex: 1,
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: t.axis } },
+        axisTick: { show: false },
+        axisLabel: { color: t.dim, fontSize: 11 },
+        splitLine: { show: false },
+      },
+    ],
+    yAxis: [
+      {
+        type: 'value',
+        scale: true,
+        gridIndex: 0,
+        axisLine: { lineStyle: { color: t.axis } },
+        splitLine: { lineStyle: { color: t.split } },
+        axisLabel: { color: t.dim, fontSize: 11, formatter: wan },
+      },
+      {
+        type: 'value',
+        gridIndex: 1,
+        max: 0,
+        axisLine: { lineStyle: { color: t.axis } },
+        splitLine: { lineStyle: { color: t.split } },
+        axisLabel: { color: t.dim, fontSize: 11, formatter: '{value}%' },
+      },
+    ],
+    dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }],
+    series: [
+      // 策略净值: 平滑; 主策略品牌渐变面积, 其余仅描线避免叠加糊面
+      ...withCurve.map((s, si) => ({
+        name: s.strategy,
+        type: 'line',
+        smooth: 0.25,
+        data: alignToAxis(dates, s, first, s.equity_curve.values ?? []),
+        showSymbol: false,
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        connectNulls: true,
+        z: 6 - si,
+        lineStyle: { color: seriesColor(si), width: si === 0 ? 2.4 : 1.6 },
+        itemStyle: { color: seriesColor(si) },
+        ...(si === 0
+          ? { areaStyle: { color: vGradient(t.brandArea[0], t.brandArea[1]) } }
+          : {}),
+      })),
+      ...benchSeries,
+      ...overlaySeries,
+      ...withCurve.flatMap((s) => tradeScatters(s, axisIdx, t)),
+      // 回撤子图: 各策略同轴联动, 渐变面积
+      ...withCurve.map((s, si) => ({
+        name: `回撤 ${s.strategy}`,
+        type: 'line',
+        smooth: 0.25,
+        data: alignToAxis(dates, s, first, drawdown(s.equity_curve.values ?? [])),
+        showSymbol: false,
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        connectNulls: true,
+        areaStyle: { color: vGradient(`${seriesColor(si)}33`, `${seriesColor(si)}00`) },
+        lineStyle: { width: 1, color: seriesColor(si) },
+        itemStyle: { color: seriesColor(si) },
+      })),
+    ],
+  }
+})
+</script>
+
+<template>
+  <div class="chart-card card" data-testid="bt-chart">
+    <VChart v-if="option" :option="option" autoresize class="chart" />
+    <p v-else class="t-muted empty">该轮次无净值曲线可绘</p>
+  </div>
+</template>
+
+<style scoped>
+.chart-card {
+  padding: 8px;
+}
+
+.chart {
+  height: 460px;
+  width: 100%;
+}
+
+.empty {
+  padding: 60px 0;
+  text-align: center;
+}
+</style>
