@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { NButton, NDatePicker, NInputNumber, NSelect } from 'naive-ui'
+import { NButton, NDatePicker, NInputNumber, NPopconfirm, NSelect } from 'naive-ui'
 import { computed, ref } from 'vue'
 
-import { fetchJSON, postJSON } from '@/api/fetch'
+import { deleteJSON, fetchJSON, postJSON } from '@/api/fetch'
 import type { Job, MetaFactor, VerdictFactor, VerdictRun } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
@@ -42,6 +42,23 @@ void loadVerdicts()
 
 const run = computed(() => runs.value[selectedIdx.value] ?? null)
 const longOnly = computed(() => run.value?.params?.objective === 'long_only')
+
+/* 研究记录退役(设计 docs/feat/0705-research-retire) — 整轮硬删除, 无回收站。 */
+const deletingRun = ref(false)
+
+async function deleteCurrentRun(): Promise<void> {
+  const id = run.value?.run_id
+  if (!id) return
+  deletingRun.value = true
+  try {
+    await deleteJSON(`/api/research/verdicts/${id}`)
+    await loadVerdicts()
+  } catch (e) {
+    error.value = (e as Error).message
+  } finally {
+    deletingRun.value = false
+  }
+}
 
 /* 业务化标题(设计 0705 §3.B): "N 因子 · 口径 · 切分日" 为主, 时间+run_id 收尾括号 —
  * 根治"下拉全是 MFCOMBO-日期, 看不懂业务"(用户原话) */
@@ -241,6 +258,21 @@ async function submitFactorTest(): Promise<void> {
         style="width: 420px"
         data-testid="run-select"
       />
+      <NPopconfirm
+        v-if="run"
+        positive-text="删除"
+        negative-text="取消"
+        @positive-click="deleteCurrentRun"
+      >
+        <template #trigger>
+          <NButton size="small" quaternary :loading="deletingRun" data-testid="verdict-delete">删除本轮</NButton>
+        </template>
+        <div class="confirm-body">
+          <div>删除这轮判决？</div>
+          <div><b>{{ runOptions[selectedIdx]?.label }}</b></div>
+          <div class="t-muted">不可恢复</div>
+        </div>
+      </NPopconfirm>
     </header>
     <p class="guide t-muted">
       每轮因子检验的预测力（IC/IR）、样本外表现与硬性闸门结论。<b class="t-pass">PASS</b>
@@ -706,5 +738,13 @@ td.num {
 
 .hint {
   font-size: 12.5px;
+}
+
+/* NPopconfirm 默认插槽是 flex 布局, <br/> 不生效 — 显式 block 分行(同回测页) */
+.confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 260px;
 }
 </style>
