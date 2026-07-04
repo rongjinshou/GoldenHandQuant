@@ -33,3 +33,11 @@ class IBacktestMarketGateway(IMarketGateway, Protocol):
         """
         ...
 
+    def last_bar_timestamp(self, symbol: str, timeframe: Timeframe) -> datetime | None:
+        """标的已加载数据的全局末根时间（不受回测当前时间截断）。
+
+        退市强平判定用（B1 DD-9）：全局末根=当日且非回测末日 → 此后永无行情。
+        停牌股复牌后仍有 bar，其全局末根在未来，不会被误判。
+        """
+        ...
+

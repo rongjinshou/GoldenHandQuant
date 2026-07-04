@@ -190,6 +190,40 @@ class BacktestAppService:
             except TradeError as e:
                 print(f"[{current_time}] Trade error for {target.symbol}: {e}")
 
+    def _liquidate_delisted(self, current_time: datetime, base_timeframe: Timeframe,
+                            account_id: str, backtest_last_ts: datetime) -> None:
+        """退市强平(B1 DD-9): 持仓股全局末根日=今日且非回测末日 → 按末根收盘全量卖出。
+
+        末根日后 bars 断流, 卖单将无执行价可发(僵尸持仓冻结市值); 停牌股复牌后
+        仍有 bar(全局末根在未来)不会被误强平; 活股末根=回测末日, 永不触发。
+        """
+        for pos in self.trade_gateway.get_positions():
+            if pos.total_volume <= 0:
+                continue
+            last = self.market_gateway.last_bar_timestamp(pos.ticker, base_timeframe)
+            if last is None or last != current_time or last >= backtest_last_ts:
+                continue
+            bars = self.market_gateway.get_recent_bars(pos.ticker, base_timeframe, 1)
+            if not bars:
+                continue
+            volume = pos.available_volume
+            if volume <= 0:
+                # 末根日恰为买入日(T+1 锁定)的极端边界: 残余成僵尸市值, 留痕不掩盖
+                print(f"[{current_time}] 退市强平受 T+1 限制: {pos.ticker} "
+                      f"总量 {pos.total_volume} 不可卖, 残余市值冻结(B1 report 已知边界)")
+                continue
+            order = Order(
+                order_id=f"DELIST_{current_time.strftime('%Y%m%d')}_{pos.ticker}",
+                account_id=account_id, ticker=pos.ticker,
+                direction=OrderDirection.SELL, price=bars[-1].close,
+                volume=volume, type=OrderType.LIMIT, status=OrderStatus.CREATED,
+                created_at=current_time, remark="delisted-liquidation",
+            )
+            try:
+                self.trade_gateway.place_order(order)
+            except TradeError as e:
+                print(f"[{current_time}] 退市强平失败 {pos.ticker}: {e}")
+
     def _settle_and_snapshot(self, current_time: datetime, current_prices: dict[str, float]) -> None:
         all_orders = self.trade_gateway.list_orders()
         all_positions = self.trade_gateway.get_positions()
@@ -247,6 +281,8 @@ class BacktestAppService:
             targets, close_prices = runner.evaluate(context)
 
             self._execute_targets(targets, current_time, account_id)
+            self._liquidate_delisted(current_time, base_timeframe,
+                                     account_id, valid_timestamps[-1])
             self._settle_and_snapshot(current_time, close_prices)
 
             # 盘后评估熔断器 + 分发事件

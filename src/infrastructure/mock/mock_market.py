@@ -118,6 +118,11 @@ class MockMarketGateway(IMarketGateway):
         for tf in self.data[symbol]:
             self.data[symbol][tf].sort(key=lambda x: x.timestamp)
 
+    def last_bar_timestamp(self, symbol: str, timeframe: Timeframe) -> datetime | None:
+        """已加载数据的全局末根时间(不受 current_time 截断) — 回测退市强平判定专用。"""
+        bars = self.data.get(symbol, {}).get(timeframe)
+        return bars[-1].timestamp if bars else None
+
     def get_all_timestamps(self, timeframe: Timeframe) -> list[datetime]:
         """获取指定周期下的所有去重时间戳。
 
