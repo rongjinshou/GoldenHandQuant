@@ -58,3 +58,19 @@ export interface MetaFactor {
   expression?: string | null
   field_ready?: boolean
 }
+
+export interface SymbolHit {
+  symbol: string
+  name: string
+}
+
+export interface BarsData {
+  dates: string[]
+  ohlc: [number, number, number, number][]
+  volume: number[]
+}
+
+export interface FeatureData {
+  dates: string[]
+  series: Record<string, (number | null)[]>
+}

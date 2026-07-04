@@ -85,7 +85,7 @@ class TestExecutions:
         s.save_execution(_exec_row("o2", status="REJECTED", notional=999.0))
         s.save_execution(_exec_row("o3", status="DRY_RUN", notional=300.0))
 
-        total = s.today_submitted_notional(today=T0.date().isoformat())
+        total = s.today_submitted_notional(today=T0.date().isoformat(), mode="dry_run")
 
         assert total == 800.0
 
@@ -94,20 +94,25 @@ class TestExecutions:
         s = _store(tmp_path)
         s.save_execution(_exec_row("o1", status="CANCELED", notional=1400.0))
 
-        assert s.today_submitted_notional(today=T0.date().isoformat()) == 1400.0
+        assert s.today_submitted_notional(today=T0.date().isoformat(), mode="dry_run") == 1400.0
 
-    def test_day_level_queries_ignore_mode(self, tmp_path):
-        """日级防线跨 mode 统计——dry_run/live 背后是同一真实账户 (评审发现 #9)。"""
+    def test_day_level_queries_isolated_by_mode(self, tmp_path):
+        """日级防线按 mode 隔离 (0704 真单前置 DD-1 重裁定): 影子盘常态化后
+        dry_run 是每周二例行大额意向流且永不成交, 不得占用/去重 live 真钱防线;
+        live 自身预算防线不受影响。"""
         s = _store(tmp_path)
         row = _exec_row("o1", status="DRY_RUN", notional=500.0)
         row["mode"] = "dry_run"
         s.save_execution(row)
-        row2 = _exec_row("o2", status="SUBMITTED", notional=300.0)
+        row2 = _exec_row("o2", symbol="600000.SH", status="SUBMITTED", notional=300.0)
         row2["mode"] = "live"
         s.save_execution(row2)
 
-        assert s.today_submitted_notional(today=T0.date().isoformat()) == 800.0
-        assert s.today_traded_keys(today=T0.date().isoformat()) == {"601006.SH:BUY"}
+        today = T0.date().isoformat()
+        assert s.today_submitted_notional(today=today, mode="live") == 300.0
+        assert s.today_submitted_notional(today=today, mode="dry_run") == 500.0
+        assert s.today_traded_keys(today=today, mode="live") == {"600000.SH:BUY"}
+        assert s.today_traded_keys(today=today, mode="dry_run") == {"601006.SH:BUY"}
 
     def test_today_traded_keys(self, tmp_path):
         s = _store(tmp_path)
@@ -115,7 +120,7 @@ class TestExecutions:
         s.save_execution(_exec_row("o2", symbol="600000.SH", direction="SELL",
                                    status="REJECTED"))
 
-        keys = s.today_traded_keys(today=T0.date().isoformat())
+        keys = s.today_traded_keys(today=T0.date().isoformat(), mode="dry_run")
 
         assert keys == {"601006.SH:BUY"}  # 拒单不算已交易
 

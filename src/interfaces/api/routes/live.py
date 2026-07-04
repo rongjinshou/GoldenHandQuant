@@ -200,10 +200,11 @@ def budget(db_path: str = Depends(get_trading_db_path),
         try:
             placeholders = ", ".join("?" for _ in _BUDGET_STATUSES)
             try:
+                # 与执行期防线同口径: 按 mode 隔离(0704 真单前置 DD-1), 展示当前配置 mode 的消耗
                 cur = conn.execute(
                     f"SELECT COALESCE(SUM(notional), 0) FROM execution_records "
-                    f"WHERE date(submitted_at)=? AND status IN ({placeholders})",
-                    (today, *_BUDGET_STATUSES))
+                    f"WHERE date(submitted_at)=? AND mode=? AND status IN ({placeholders})",
+                    (today, str(cfg.get("mode", "dry_run")), *_BUDGET_STATUSES))
                 submitted = float(cur.fetchone()[0])
             except sqlite3.OperationalError:
                 pass

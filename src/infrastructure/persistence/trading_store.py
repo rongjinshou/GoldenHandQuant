@@ -118,24 +118,24 @@ class TradingStore:
         )
         return [dict(r) for r in cur.fetchall()]
 
-    def today_submitted_notional(self, *, today: str) -> float:
-        """当日已提交金额——跨 mode 统计: dry_run/live 背后是同一真实账户,
-        切换模式不得重置日级预算防线。"""
+    def today_submitted_notional(self, *, today: str, mode: str) -> float:
+        """当日已提交金额——按 mode 隔离(0704 真单前置 DD-1): 影子盘常态化后
+        dry_run 是例行大额意向流且永不成交, 不得占用 live 真钱预算; 反之亦然。"""
         cur = self._db.execute(
             f"""SELECT COALESCE(SUM(notional), 0) FROM execution_records
-                WHERE date(submitted_at)=?
+                WHERE date(submitted_at)=? AND mode=?
                   AND status IN ({', '.join('?' for _ in _BUDGET_STATUSES)})""",
-            (today, *_BUDGET_STATUSES),
+            (today, mode, *_BUDGET_STATUSES),
         )
         return float(cur.fetchone()[0])
 
-    def today_traded_keys(self, *, today: str) -> set[str]:
-        """当日已交易 symbol:direction——同样跨 mode, 防模式切换后重复下单。"""
+    def today_traded_keys(self, *, today: str, mode: str) -> set[str]:
+        """当日已交易 symbol:direction——按 mode 隔离(同 DD-1), dry_run 意向不去重 live。"""
         cur = self._db.execute(
             f"""SELECT DISTINCT symbol || ':' || direction FROM execution_records
-                WHERE date(submitted_at)=?
+                WHERE date(submitted_at)=? AND mode=?
                   AND status IN ({', '.join('?' for _ in _BUDGET_STATUSES)})""",
-            (today, *_BUDGET_STATUSES),
+            (today, mode, *_BUDGET_STATUSES),
         )
         return {r[0] for r in cur.fetchall()}
 

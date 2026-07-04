@@ -11,6 +11,11 @@ with sync_playwright() as p:
     page = browser.new_page(viewport={'width': 1440, 'height': 900})
     page.goto(f'{base}#/{route}')
     page.wait_for_load_state('networkidle')
+    if route == 'explorer':
+        page.fill('[data-testid="explorer-symbol-input"] input', '000021.SZ')
+        page.click('[data-testid="explorer-load"]')
+        page.wait_for_selector('[data-testid="kline-chart"] canvas', timeout=15_000)
+        page.wait_for_timeout(1500)
     for theme in ('dark', 'light'):
         current = page.evaluate('() => document.documentElement.dataset.theme')
         if current != theme:

@@ -116,10 +116,11 @@ class TestAudit:
 class TestBudget:
     def test_mirrors_trading_store_semantics(self, client) -> None:
         body = client.get("/api/live/budget").json()
-        # o1(DRY_RUN)+o3(FILLED) 计入, o2(REJECTED) 不计 — 镜像 _BUDGET_STATUSES
-        assert body["submitted_notional"] == 2000.0
+        # 按配置 mode(dry_run) 隔离(0704 DD-1): 只计 o1(DRY_RUN,1000);
+        # o3(live,FILLED) 属另一 mode 不计, o2(REJECTED) 不占 — 镜像 _BUDGET_STATUSES
+        assert body["submitted_notional"] == 1000.0
         assert body["daily_notional_cap"] == 3000.0
-        assert body["remaining"] == 1000.0
+        assert body["remaining"] == 2000.0
         assert body["per_order_notional_cap"] == 1500.0
 
 

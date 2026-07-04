@@ -195,7 +195,8 @@ class AutoTradeAppService:
     # ------------------------------------------------------------- selection
     def _select(self, displays: list[SignalDisplay], now: datetime) -> list[SignalDisplay]:
         passed = [d for d in displays if d.confidence_score >= self._cfg.min_confidence]
-        done = self._store.today_traded_keys(today=now.date().isoformat())
+        done = self._store.today_traded_keys(today=now.date().isoformat(),
+                                             mode=self._cfg.mode)
         fresh = [d for d in passed if f"{d.symbol}:{d.direction.value}" not in done]
         fresh.sort(key=lambda d: (0 if d.direction == SignalDirection.SELL else 1,
                                   -d.confidence_score))
@@ -267,7 +268,8 @@ class AutoTradeAppService:
         if not gate.passed:
             return self._reject(record, gate.reject_reason)
 
-        spent = self._store.today_submitted_notional(today=now.date().isoformat())
+        spent = self._store.today_submitted_notional(today=now.date().isoformat(),
+                                                      mode=self._cfg.mode)
         if spent + gate.notional > self._cfg.daily_notional_cap:
             return self._reject(
                 record,
