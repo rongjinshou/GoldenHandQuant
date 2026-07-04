@@ -156,3 +156,17 @@ GoldenHandQuant/
 ## 附：评审记录
 
 4 视角（架构/前端技术/迁移完整性/YAGNI 一致性）并行评审产出 25 条去重 findings；对抗验证阶段因 session 限额未完成，改由主循环逐条批判性吸收：约 20 条成立并已并入上文（DD-2 降级、DD-4/DD-5 新增、DataTable 裁定自研、Naive UI 接线纠正、字体方案重定、5.2 流程纪律、5.3 契约修正、语义色正名等），2 条为正面确认（hash 路由兼容、清单方向正确），其余为实施级细节移交实施计划展开。
+
+## 7. 实施记录（2026-07-04 完成）
+
+**版本矩阵（实测锁定）**：Vue 3.5.39 / Vite 8.1.3 / vue-router 5.1.0 / Pinia 3.0.4 / Naive UI 2.44.1 / echarts 6.1.0 × vue-echarts 8.0.1（peer 核对通过）/ TypeScript 5.9.3 / Vitest 4.1.9；拉丁字体 @fontsource poppins/lora/jetbrains-mono，中文走系统栈（CJK vendored 实测 40MB 已否决）。
+
+**产出规模**：`frontend/` Vite 工程；六页全迁（Overview/Verdicts/Explorer/Backtests/Live/Jobs）+ 7 基础组件 + 3 composables + 2 stores；99 个 Vitest 用例（含 chart-data 22 例、logic、usePolling 隐藏暂停/迟到守卫、DataTable 展开态、gates、format 等纯逻辑）。构建产物入库 `src/interfaces/api/static/`（92 assets），旧手写前端（js/style.css/vendor）退役。
+
+**多智能体编排**：设计对抗评审 workflow（4 视角）；实施分两批 fan-out——批一 Jobs（独立完成），批二 Backtests+Live（migrate→独立契约 reviewer pipeline）。reviewer 共出 4 条 minor 缺口，全部修补：null 默认参数渲染、叠加无重叠警示边界、Live 空态 KPI 占位常显、Live 错误横幅聚合全端点。
+
+**验收（全绿）**：vue-tsc 0 error、Vitest 99 passed、ESLint 0 error、check_frontend_fresh OK、ruff all pass、pytest 1369 passed（后端零回归）、ui_smoke --deep PASS（6 页 0 console 错误 + 真回测 succeeded）、双主题逐页读图确认品牌视觉落地。
+
+**关键实现决策落地**：DataTable 自研（分页/展开态跨轮询保持/staggered 入场）；Naive UI 收窄到表单/弹层/反馈族，主题双驱动（data-theme attribute 供自有 CSS + n-config-provider 两套 themeOverrides）；usePolling 统一轮询（隐藏暂停/迟到丢弃/首载失败置 error 后续 tick 静默）；语义色正名 token（--c-up/down/buy/sell/pass/fail 按语义对号，根治旧 CSS 类名反用）；漂移防线 .build-stamp + check_frontend_fresh 进验收链。
+
+**阶段 2 就绪**：新架构可承接影子盘页（/#/shadow 路由已占位），signal_snapshots 决策快照 + shadow_consistency_check 比对历史为新架构第一个增量页面。

@@ -71,10 +71,21 @@ $WIN_PYTHON -m src.interfaces.cli.quant factor-test --factors P0 --split-date 20
 
 # 投研驾驶舱（http://127.0.0.1:8501/ui/, 可交互: 网页内直接跑回测/因子检验/数据刷新/ML,
 # 任务页看实时日志; 交易侧保持只读, Web 永不下单）
+# 前端=Vue3+Vite 工程(frontend/), 生产=FastAPI 托管构建产物 src/interfaces/api/static/(入库);
+# dashboard 命令不变, 起服即读 static/ 已构建产物, 无需 node。设计: docs/feat/0704-frontend-framework/
 $WIN_PYTHON -m src.interfaces.cli.quant dashboard
 
-# 驾驶舱 UI 冒烟 + 截图（Playwright 无头浏览器; 6 页签截图到 data/ui_screenshots/ 供
-# Claude 读图自查; --deep 附加真提交一个小回测走完任务卡闭环; 需先起 dashboard）
+# 前端开发（Vue3+Vite+TS, Anthropic 品牌视觉 v5; 六页原生JS已迁移）
+# 铁律: npm 一律 Windows 侧(powershell 包装), WSL 直跑会毒化 node_modules(preinstall 有 win32 守卫)
+powershell.exe -NoProfile -Command "cd C:\Codes\GoldenHandQuant\frontend; npm run dev"      # Vite dev :5173, /api 代理→:8501, HMR
+powershell.exe -NoProfile -Command "cd C:\Codes\GoldenHandQuant\frontend; npm run build"     # 构建→static/(入库)+写.build-stamp; 改前端后必跑
+powershell.exe -NoProfile -Command "cd C:\Codes\GoldenHandQuant\frontend; npm run test"      # Vitest 组件/纯逻辑
+powershell.exe -NoProfile -Command "cd C:\Codes\GoldenHandQuant\frontend; npm run typecheck" # vue-tsc; npm run lint = ESLint
+$WIN_PYTHON scripts/check_frontend_fresh.py   # 漂移防线: frontend/src 改了没 build 则退出1(进验收链)
+# 开发期读图自查: frontend/scripts/shot.py <route> 截 dev server(:5173)双主题图到 data/ui_dev_shots/
+
+# 驾驶舱 UI 冒烟 + 截图（Playwright 无头浏览器; 6 页签 data-testid 锚点截图到 data/ui_screenshots/
+# 供 Claude 读图自查; --deep 附加真提交一个小回测走完任务卡闭环; 需先起 dashboard; UI_BASE 环境变量可指 :5173）
 # WSL 为 mirrored 网络, WSL 内 Claude 可直接 curl http://127.0.0.1:8501 打到 Windows 服务
 $WIN_PYTHON scripts/ui_smoke.py --deep
 
