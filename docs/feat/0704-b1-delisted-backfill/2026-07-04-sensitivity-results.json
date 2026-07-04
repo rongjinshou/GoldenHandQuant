@@ -1,0 +1,146 @@
+{
+ "基线(qmt)·严格ST·闸OFF·全窗": {
+  "return": 0.8562022693943985,
+  "mdd": 0.20068023073072627,
+  "sharpe": 0.7620144007346533,
+  "trades": 4885,
+  "delisted": {
+   "symbols": 0,
+   "buy_notional": 0,
+   "realized_pnl": 0,
+   "forced_liquidations": 0
+  }
+ },
+ "基线(qmt)·严格ST·闸OFF·OOS": {
+  "return": 0.4410716326833056,
+  "mdd": 0.21172048324302145,
+  "sharpe": 0.971254111016796,
+  "trades": 2958,
+  "delisted": {
+   "symbols": 0,
+   "buy_notional": 0,
+   "realized_pnl": 0,
+   "forced_liquidations": 0
+  }
+ },
+ "基线(qmt)·严格ST·闸ON·全窗": {
+  "return": 1.451937754079619,
+  "mdd": 0.1065745507657235,
+  "sharpe": 1.5053646418500228,
+  "trades": 3025,
+  "delisted": {
+   "symbols": 0,
+   "buy_notional": 0,
+   "realized_pnl": 0,
+   "forced_liquidations": 0
+  }
+ },
+ "基线(qmt)·严格ST·闸ON·OOS": {
+  "return": 0.6338108603870843,
+  "mdd": 0.11536707815999687,
+  "sharpe": 1.7279999951028686,
+  "trades": 1804,
+  "delisted": {
+   "symbols": 0,
+   "buy_notional": 0,
+   "realized_pnl": 0,
+   "forced_liquidations": 0
+  }
+ },
+ "含退市·严格ST·闸OFF·全窗": {
+  "return": 1.1497448513753203,
+  "mdd": 0.21390300074355045,
+  "sharpe": 0.8496237235896555,
+  "trades": 7246,
+  "delisted": {
+   "symbols": 40,
+   "buy_notional": 2966638,
+   "realized_pnl": 18160,
+   "forced_liquidations": 2
+  }
+ },
+ "含退市·严格ST·闸OFF·OOS": {
+  "return": 0.34564617582321466,
+  "mdd": 0.20787704273870256,
+  "sharpe": 0.8458396372141432,
+  "trades": 2656,
+  "delisted": {
+   "symbols": 0,
+   "buy_notional": 0,
+   "realized_pnl": 0,
+   "forced_liquidations": 0
+  }
+ },
+ "含退市·严格ST·闸ON·全窗": {
+  "return": 1.6135450829135434,
+  "mdd": 0.10735488076627023,
+  "sharpe": 1.5792707458757498,
+  "trades": 3378,
+  "delisted": {
+   "symbols": 38,
+   "buy_notional": 2251061,
+   "realized_pnl": 30383,
+   "forced_liquidations": 1
+  }
+ },
+ "含退市·严格ST·闸ON·OOS": {
+  "return": 0.599845731057865,
+  "mdd": 0.11536707815999687,
+  "sharpe": 1.6592340239222398,
+  "trades": 1793,
+  "delisted": {
+   "symbols": 0,
+   "buy_notional": 0,
+   "realized_pnl": 0,
+   "forced_liquidations": 0
+  }
+ },
+ "含退市·宽松ST·闸OFF·全窗": {
+  "return": 0.7629775937304346,
+  "mdd": 0.20631581314859712,
+  "sharpe": 0.7072400724441584,
+  "trades": 5166,
+  "delisted": {
+   "symbols": 44,
+   "buy_notional": 2397621,
+   "realized_pnl": 4705,
+   "forced_liquidations": 1
+  }
+ },
+ "含退市·宽松ST·闸OFF·OOS": {
+  "return": 0.32992879134049075,
+  "mdd": 0.20361555129083755,
+  "sharpe": 0.8021517781887545,
+  "trades": 2824,
+  "delisted": {
+   "symbols": 0,
+   "buy_notional": 0,
+   "realized_pnl": 0,
+   "forced_liquidations": 0
+  }
+ },
+ "含退市·宽松ST·闸ON·全窗": {
+  "return": 1.0925049704282763,
+  "mdd": 0.10085172969222536,
+  "sharpe": 1.284669029891287,
+  "trades": 3261,
+  "delisted": {
+   "symbols": 44,
+   "buy_notional": 2121893,
+   "realized_pnl": 7192,
+   "forced_liquidations": 1
+  }
+ },
+ "含退市·宽松ST·闸ON·OOS": {
+  "return": 0.5739028430941622,
+  "mdd": 0.1117011287436435,
+  "sharpe": 1.6247693175853961,
+  "trades": 1852,
+  "delisted": {
+   "symbols": 0,
+   "buy_notional": 0,
+   "realized_pnl": 0,
+   "forced_liquidations": 0
+  }
+ }
+}

@@ -78,6 +78,7 @@ def test_delisted_position_liquidated_on_last_bar_day():
     liq = sells_b[-1]
     assert liq.execute_at.date() == bars_b[-1].timestamp.date()  # 末根日当日
     assert abs(liq.price - bars_b[-1].close) / bars_b[-1].close < 0.005  # 按末根收盘(容滑点)
+    assert liq.remark.startswith("delisted-liquidation")  # 标记透传, 供敏感性统计辨识强平
 
     positions = {p.ticker: p for p in trade_gw.get_positions()}
     assert positions.get("600B00.SH") is None or positions["600B00.SH"].total_volume == 0

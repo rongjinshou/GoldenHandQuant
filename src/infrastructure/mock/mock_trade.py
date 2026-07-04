@@ -347,7 +347,9 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             volume=volume,
             commission=commission + tax + transfer_fee, # 汇总费用
             realized_pnl=realized_pnl,
-            remark=f"Slippage: {self.SLIPPAGE_BUY if order.direction==OrderDirection.BUY else self.SLIPPAGE_SELL:.1%}"
+            # order.remark 前置透传(退市强平 'delisted-liquidation' 等标记可被下游统计)
+            remark=(f"{order.remark}; " if order.remark else "")
+                   + f"Slippage: {self.SLIPPAGE_BUY if order.direction==OrderDirection.BUY else self.SLIPPAGE_SELL:.1%}"
         )
         self.trade_records.append(record)
 

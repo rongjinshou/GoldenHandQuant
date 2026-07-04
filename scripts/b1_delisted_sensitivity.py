@@ -59,7 +59,7 @@ def _delisted_stats(trade_gw, delisted: set[str]) -> dict:
             buys += notional
         else:
             sells += notional
-            if getattr(t, "remark", "") == "delisted-liquidation":
+            if getattr(t, "remark", "").startswith("delisted-liquidation"):
                 liq += 1
     return {"symbols": len(syms), "buy_notional": round(buys),
             "realized_pnl": round(sells - buys), "forced_liquidations": liq}
