@@ -8,7 +8,7 @@ build 时退出码 1。进验收链（改了 frontend/ 必须重新 build 才能
 """
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -44,7 +44,7 @@ def main() -> int:
     stamp_time = datetime.fromisoformat(STAMP.read_text().strip()).timestamp()
     src_time, src_path = latest_source_mtime()
     if src_time > stamp_time + GRACE_SECONDS:
-        dt = datetime.fromtimestamp(src_time, tz=timezone.utc).isoformat(timespec="seconds")
+        dt = datetime.fromtimestamp(src_time, tz=UTC).isoformat(timespec="seconds")
         print(f"[fresh] FAIL: {src_path} ({dt}) 晚于 build stamp — 改了 frontend/ 未重新 build")
         return 1
     print("[fresh] OK: 产物不落后于源码")
