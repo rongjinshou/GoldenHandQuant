@@ -37,7 +37,7 @@ const stubs = {
   // 不接受含 undefined 的联合类型, 但运行时 naive-ui 组件恒有 name, 用 as string 收窄即可, 不影响任何
   // 运行时行为(纯类型断言, 编译后代码不变); 与 Jobs.spec.ts 现状 stub 命名习惯保持一致(按组件名字符串)。
   [NModal.name as string]: defineComponent({
-    props: ['show'],
+    props: { show: Boolean },
     template: '<div v-if="show"><slot /></div>',
   }),
 }
