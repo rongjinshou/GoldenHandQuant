@@ -38,6 +38,9 @@ class EqualWeightSizer(IPositionSizer):
         # 扣除预留现金后再均分
         deployable = asset.total_asset * (1 - self._cash_buffer)
         target_value_per_symbol = deployable / self._n_symbols
+        if target_value_per_symbol <= 0:
+            return 0
+
         current_value = (position.total_volume * price) if position else 0.0
         deviation = (current_value - target_value_per_symbol) / target_value_per_symbol
 

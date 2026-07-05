@@ -34,6 +34,19 @@ def test_equal_weight_mismatched_signal_direction_returns_zero():
     assert volume == 0
 
 
+def test_equal_weight_zero_total_asset_returns_zero_instead_of_crashing():
+    """confirmed-bug(2026-07-05 全项目排查发现): calculate_target() 是实盘路径
+    (strategy_runner.py/live_signal_service.py 唯一调用), total_asset=0(新开户
+    尚未同步资金/账户被打光都是真实可达状态)会让 target_value_per_symbol 精确为 0,
+    直接 ZeroDivisionError 崩到调用方——calculate_targets() 批量法早有同款
+    `target_value_per > 0` 守卫, 单数法一直缺这一条。"""
+    sizer = EqualWeightSizer(n_symbols=5, rebalance_threshold=0.05)
+    signal = Signal(symbol="000001.SZ", direction=OrderDirection.BUY, generated_at=datetime(2026, 1, 1))
+    asset = Asset(account_id="TEST", total_asset=0.0, available_cash=0.0, frozen_cash=0)
+    volume = sizer.calculate_target(signal, price=10.0, asset=asset, position=None)
+    assert volume == 0
+
+
 from src.domain.portfolio.entities.order_target import OrderTarget
 
 def _signal(symbol, direction=OrderDirection.BUY):
