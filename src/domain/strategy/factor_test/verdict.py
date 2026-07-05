@@ -9,6 +9,7 @@ from src.domain.strategy.factor_test.gates_config import (
     EXCESS_IR_MIN,
     EXCESS_POSITIVE_RATE_MIN,
     IC_MIN,
+    IC_POSITIVE_RATE_MIN,
     IR_MIN,
     LONG_SHORT_MIN,
     MONOTONICITY_MIN,
@@ -108,9 +109,9 @@ def judge_factor(
         else:
             reasons.append(f"超额正率={r.excess_positive_rate:.1%} ✓")
     else:
-        if r.ic_positive_rate < 0.52:
+        if r.ic_positive_rate < IC_POSITIVE_RATE_MIN:
             passed = False
-            reasons.append(f"IC正率={r.ic_positive_rate:.1%} < 52% (偏离不足)")
+            reasons.append(f"IC正率={r.ic_positive_rate:.1%} < {IC_POSITIVE_RATE_MIN:.0%} (偏离不足)")
         else:
             reasons.append(f"IC正率={r.ic_positive_rate:.1%} ✓")
 

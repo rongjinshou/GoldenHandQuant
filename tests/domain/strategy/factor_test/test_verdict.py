@@ -1,5 +1,6 @@
 """Tests for factor verdict judgment logic."""
 
+from src.domain.strategy.factor_test import verdict as verdict_module
 from src.domain.strategy.factor_test.report import FactorTestReport, ScoredFactorTestReport
 from src.domain.strategy.factor_test.verdict import judge_factor
 
@@ -103,6 +104,16 @@ class TestJudgeFactor:
         verdict = judge_factor(report, neutralized_ic=0.03)
         assert verdict.passed is True
         assert verdict.neutralized_ic == 0.03
+
+    def test_ic_positive_rate_gate_reads_from_gates_config(self, monkeypatch):
+        """债 D2 遗留(2026-07-05 全项目排查发现): IC正率闸此前仍硬编码 0.52 字面量,
+        未从 gates_config 读取, 与模块顶部"单一真相源"docstring 承诺不符——调阈值会
+        静默失配。patch 常量后判决须跟着变, 而不是继续用编译时冻结的字面量。"""
+        report = _make_report(ic_positive_rate=0.6)
+        monkeypatch.setattr(verdict_module, "IC_POSITIVE_RATE_MIN", 0.9)
+        v = judge_factor(report, factor_id="F02", factor_name="短期反转")
+        assert v.passed is False
+        assert any("IC正率" in r for r in v.reasons)
 
 
 class TestJudgeFactorLongOnly:
