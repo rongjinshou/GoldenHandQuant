@@ -25,7 +25,7 @@ def _build_notification_hub(settings):
     from src.application.notification_hub import NotificationHub
     from src.infrastructure.notification.factory import create_notification_gateway
 
-    gw = create_notification_gateway(settings.notification)
+    gw = create_notification_gateway(settings.risk.notification)
     if gw is None:
         return None
     return NotificationHub(gateways=[gw])

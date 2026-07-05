@@ -330,8 +330,33 @@ def load_trading_config(path: str = "resources/trading.yaml") -> AppSettings:
     multi_account_data = data.get("multi_account", {})
     multi_account = MultiAccountSettings(**multi_account_data)
 
+    # 解析 risk 配置(confirmed-bug 2026-07-05: 此前完全不解析, risk 恒为默认值——
+    # auto_trade 入口靠 settings.risk.notification 装配 NotificationHub, trading.yaml
+    # 里配置的 wechat/email 渠道因此永远不会生效; 写法对齐 load_backtest_config 的
+    # 既有解析逻辑)
+    risk_data = data.get("risk", {})
+    system_gate_dict = risk_data.pop("system_gate", {})
+    stop_loss_dict = risk_data.pop("stop_loss", {})
+    cb_dict = risk_data.pop("circuit_breaker", {})
+    notif_dict = risk_data.pop("notification", {})
+    wechat_dict = notif_dict.pop("wechat", {})
+    email_dict = notif_dict.pop("email", {})
+    notification_settings = NotificationSettings(
+        wechat=WeChatNotificationSettings(**wechat_dict),
+        email=EmailNotificationSettings(**email_dict),
+        **notif_dict,
+    )
+    risk_settings = RiskSettings(
+        system_gate=SystemGateSettings(**system_gate_dict),
+        stop_loss=StopLossSettings(**stop_loss_dict),
+        circuit_breaker=CircuitBreakerSettings(**cb_dict),
+        notification=notification_settings,
+        **risk_data,
+    )
+
     return AppSettings(
         qmt=qmt,
+        risk=risk_settings,
         live_trade=live_trade,
         monitor=monitor,
         auto_trade=auto_trade,

@@ -92,6 +92,36 @@ def test_auto_trade_new_fields_defaults():
     assert at.per_order_notional_ceiling == 5000.0
 
 
+def test_load_trading_config_parses_risk_section(tmp_path):
+    """confirmed-bug(2026-07-05 全项目排查发现): load_trading_config 此前完全不解析
+    trading.yaml 的 risk 段(system_gate/stop_loss/circuit_breaker/notification/policies),
+    AppSettings 恒为默认值——auto_trade 入口通过 settings.risk.notification 装配
+    NotificationHub 时, 配置的 wechat/email 渠道永远不会生效, 只会拿到默认 console-only。"""
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        "risk:\n"
+        "  policies:\n"
+        "    - SimpleRiskPolicy\n"
+        "  notification:\n"
+        "    console: false\n"
+        "    wechat:\n"
+        "      enabled: true\n"
+        "      webhook_url: https://example.com/hook\n"
+        "    email:\n"
+        "      enabled: true\n"
+        "      smtp_host: smtp.example.com\n"
+        "      receivers:\n"
+        "        - a@example.com\n",
+        encoding="utf-8")
+    s = load_trading_config(str(p))
+    assert s.risk.policies == ["SimpleRiskPolicy"]
+    assert s.risk.notification.console is False
+    assert s.risk.notification.wechat.enabled is True
+    assert s.risk.notification.wechat.webhook_url == "https://example.com/hook"
+    assert s.risk.notification.email.enabled is True
+    assert s.risk.notification.email.receivers == ["a@example.com"]
+
+
 def test_load_trading_config_parses_shadow_fields(tmp_path):
     p = tmp_path / "t.yaml"
     p.write_text(
