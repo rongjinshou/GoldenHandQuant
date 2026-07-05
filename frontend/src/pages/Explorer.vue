@@ -10,15 +10,19 @@ import {
 } from 'echarts/components'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { NButton, NCheckbox, NDatePicker, NInput } from 'naive-ui'
-import { computed, ref, shallowRef, watch } from 'vue'
+import { NButton } from 'naive-ui'
+import { computed, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
 
 import { fetchJSON } from '@/api/fetch'
-import type { BarsData, FeatureData, SymbolHit } from '@/api/types'
+import type { BarsData, FeatureData } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
-import { axisStyle, tooltipStyle, useChartTheme } from '@/composables/useChartTheme'
+import { useChartTheme } from '@/composables/useChartTheme'
+
+import { useSymbolChips } from './backtests/useSymbolChips'
+import { buildKlineOption, DEFAULT_FEATURES, symbolColor, type SymbolMeta } from './explorer/chart-options'
+import FeaturePanel from './explorer/FeaturePanel.vue'
 
 use([
   CandlestickChart,
@@ -33,113 +37,140 @@ use([
   CanvasRenderer,
 ])
 
-/* 个股查看页 — 旧 pages/explorer.js 对等:
- * 标的联想(200ms 防抖, 失败静默)/日期区间/加载=K线+特征并行/13特征选择即重载/主题重渲染。 */
-
-const DEFAULT_FEATURES = ['return_20d', 'volatility_20d']
-/* 特征中文标签 + glossary 词条(term=特征名) — 勾选框不再裸英文变量名 */
-const FEATURE_META: { name: string; label: string }[] = [
-  { name: 'return_5d', label: '5日收益' },
-  { name: 'return_20d', label: '20日收益' },
-  { name: 'return_60d', label: '60日收益' },
-  { name: 'volatility_20d', label: '20日波动' },
-  { name: 'volatility_60d', label: '60日波动' },
-  { name: 'turnover_rate', label: '换手率' },
-  { name: 'avg_turnover_20d', label: '20日均换手' },
-  { name: 'rsi_14', label: 'RSI(14)' },
-  { name: 'macd', label: 'MACD' },
-  { name: 'ma_20', label: '20日均线' },
-  { name: 'skewness_20d', label: '20日偏度' },
-  { name: 'illiquidity_20d', label: '非流动性' },
-  { name: 'obv_slope_20d', label: 'OBV斜率' },
-]
-
-function featureLabel(name: string): string {
-  return FEATURE_META.find((f) => f.name === name)?.label ?? name
-}
+/* 个股查看页 — 多标的叠加改造(设计 docs/feat/0705-explorer-multi-symbol):
+ * 标的输入换成 chip(复用 backtests useSymbolChips, 每个 chip 加一枚标的配色圆点);
+ * K 线区 option 交给 buildKlineOption 按标的数内部分支(1 个=蜡烛+成交量, 零回归;
+ * 2+ 个=涨跌幅对比折线图); 特征区可"新增呈现框"平铺多个 FeaturePanel, 各自独立勾选,
+ * 共享 featuresBySymbol 缓存, 拉取时用全部呈现框已勾选特征名的并集(featureUnion)。
+ * 去时间选择器: 前端永远不传 start/end, 吃后端 _default_range 默认近一年窗口。
+ *
+ * loadedSymbols 世代快照(2026-07-05 复核修复 confirmed-bug): chip 输入框的实时数组
+ * (chips.symbols)只决定下一次点击"加载"会请求什么 —— 图表分支判定(buildKlineOption 的
+ * 标的数)、FeaturePanel 的 symbols prop、refetchFeatures 的请求标的清单, 一律读 loadedSymbols
+ * (上一次成功落定的加载轮次快照), 绝不直接读 chips.symbols.value。否则 chip 增删会在点"加载"
+ * 之前就让已渲染图表的分支/自动重拉的请求目标瞬间跳变(已复现: 加完第二个 chip 还没点加载,
+ * K 线图就从蜡烛图跳成对比折线图; 勾选新特征会连从未加载过的标的一起发请求)。symbolMetas
+ * (chip 圆点预览色)例外 —— 设计 §3.1 明确允许圆点用实时数组下标, 点加载前颜色与图表暂不一致
+ * 是可接受的纯装饰性差异。 */
 
 const palette = useChartTheme()
 const error = ref('')
 const loadingData = ref(false)
+const hasLoaded = ref(false)
 
-const symbolInput = ref('')
-const startDate = ref<string | null>(null)
-const endDate = ref<string | null>(null)
-const pickedFeatures = ref<string[]>([...DEFAULT_FEATURES])
-const suggestions = ref<SymbolHit[]>([])
+const chips = useSymbolChips()
 
-const lastKline = shallowRef<{ symbol: string; data: BarsData } | null>(null)
-const lastFeature = shallowRef<{ symbol: string; names: string[]; data: FeatureData } | null>(null)
+let panelSeq = 1 // id 0 已被首个呈现框占用; 简单递增计数器(不用 Date.now()/Math.random())
+const panels = ref<{ id: number; features: string[] }[]>([{ id: 0, features: [...DEFAULT_FEATURES] }])
 
-function pickedSymbol(): string {
-  return (symbolInput.value || '').split(/\s/)[0].trim()
+const barsBySymbol = ref<Map<string, BarsData>>(new Map())
+const featuresBySymbol = ref<Map<string, FeatureData>>(new Map())
+/* 上一次实际发起过 features 请求(首次加载或自动重拉)时用的并集名字 — 判断"并集是否有新增"的基准 */
+let lastFeatureNames: string[] = []
+/* features 请求世代守卫(confirmed-bug 修复): loadAll 首拉、watch(featureUnion) 触发的自动重拉
+ * 共用同一个计数器 —— 每次发起自增并捕获, settle 时比对世代号, 落后的一批(已被更晚一次触发
+ * 超越)整批静默丢弃, 不写 featuresBySymbol/lastFeatureNames、不报错(它不代表真实失败, 只是
+ * 过期响应)。避免"先发后至"的旧响应覆盖"后发先至"的新响应, 导致已勾选特征的曲线凭空消失。 */
+let featureFetchGen = 0
+
+/* 已加载标的快照 —— 上一次成功落定的加载轮次锁定的标的集合。klineOption/FeaturePanel 的
+ * symbols prop/refetchFeatures 的请求清单一律读这个, 只在 loadAll 成功或清空时更新。 */
+const loadedSymbols = ref<string[]>([])
+
+const symbolMetas = computed<SymbolMeta[]>(() =>
+  chips.symbols.value.map((symbol, i) => ({ symbol, color: symbolColor(palette.value, i) })),
+)
+
+/* 图表/请求真正消费的"当前标的" —— 下标同样按 symbolColor 取色, 但序数来自 loadedSymbols
+ * 而非实时 chips, 使 K 线对比图与特征图在同一时刻对同一标的着色一致(设计 §3.2)。 */
+const loadedSymbolMetas = computed<SymbolMeta[]>(() =>
+  loadedSymbols.value.map((symbol, i) => ({ symbol, color: symbolColor(palette.value, i) })),
+)
+
+const featureUnion = computed<string[]>(() => {
+  const names = new Set<string>()
+  for (const p of panels.value) for (const n of p.features) names.add(n)
+  return [...names]
+})
+
+const klineOption = computed(() => buildKlineOption(palette.value, loadedSymbolMetas.value, barsBySymbol.value))
+/* K 线 VChart 固定 update-options={notMerge:true}(confirmed-bug 修复, 2026-07-05): 1 标的分支
+ * (蜡烛+成交量双 pane, 数组形 xAxis/yAxis/grid)与 2+ 标的分支(单 pane 对比折线图, 对象形)形状
+ * 迥异 —— vue-echarts 默认 merge 语义下, 已存在的 ECharts 实例跨越 1↔2+ 标的边界收到新 option 时
+ * 会因合并不到旧组件引用而抛 `xAxis "0" not found` 等运行时错误, 且此后持续处于损坏渲染状态
+ * (含"新增呈现框"等其他响应式更新一并失效)。notMerge:true 让每次 option 变化整份替换, 规避
+ * 该合并路径; FeaturePanel.vue 的特征图同理处理。 */
+
+function onSymInput(e: Event): void {
+  chips.input.value = (e.target as HTMLInputElement).value
+  chips.onInput(e)
 }
-
-/* 联想: 200ms 防抖, 失败静默; seq 守卫 — 加载/选中/失焦后迟到的响应丢弃不再弹出 */
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-let suggestSeq = 0
-function onSymbolInput(): void {
-  if (searchTimer) clearTimeout(searchTimer)
-  const q = symbolInput.value.trim()
-  if (!q) return
-  const mySeq = ++suggestSeq
-  searchTimer = setTimeout(async () => {
-    try {
-      const hits = await fetchJSON<SymbolHit[]>(
-        `/api/research/symbols?q=${encodeURIComponent(q)}`,
-      )
-      if (mySeq === suggestSeq) suggestions.value = hits
-    } catch {
-      /* 联想失败静默 */
-    }
-  }, 200)
-}
-
-function closeSuggestions(): void {
-  suggestSeq++ // 使飞行中的联想请求作废
-  if (searchTimer) clearTimeout(searchTimer)
-  suggestions.value = []
-}
-
-function pickSuggestion(s: SymbolHit): void {
-  symbolInput.value = s.symbol
-  closeSuggestions()
-}
-
-function rangeParams(): URLSearchParams {
-  const params = new URLSearchParams()
-  if (startDate.value) params.set('start', startDate.value)
-  if (endDate.value) params.set('end', endDate.value)
-  return params
-}
-
-async function loadKline(): Promise<void> {
-  const symbol = pickedSymbol()
-  if (!symbol) return
-  const data = await fetchJSON<BarsData>(`/api/research/bars/${symbol}?${rangeParams()}`)
-  lastKline.value = { symbol, data }
-}
-
-async function loadFeatures(): Promise<void> {
-  const symbol = pickedSymbol()
-  if (!symbol) return
-  const names = pickedFeatures.value
-  if (!names.length) {
-    lastFeature.value = null // 全取消勾选 → 清图, 不残留旧曲线
-    return
+function onSymKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    chips.onEnter()
+  } else if (e.key === 'Backspace') {
+    chips.onBackspace()
   }
-  const params = rangeParams()
-  params.set('names', names.join(','))
+}
+
+function addPanel(): void {
+  panels.value.push({ id: panelSeq++, features: [] })
+}
+
+function removePanel(id: number): void {
+  if (panels.value.length <= 1) return
+  panels.value = panels.value.filter((p) => p.id !== id)
+}
+
+async function fetchBarsFor(symbol: string): Promise<[string, BarsData]> {
+  const data = await fetchJSON<BarsData>(`/api/research/bars/${symbol}`)
+  return [symbol, data]
+}
+
+async function fetchFeaturesFor(symbol: string, names: string[]): Promise<[string, FeatureData]> {
+  const params = new URLSearchParams({ names: names.join(',') })
   const data = await fetchJSON<FeatureData>(`/api/research/features/${symbol}?${params}`)
-  lastFeature.value = { symbol, names, data }
+  return [symbol, data]
+}
+
+/* names 为空(所有呈现框都清空了勾选)不发请求, 直接给空 Map — 对等旧版"全取消勾选 → 清图" */
+async function fetchFeatureMap(symbols: string[], names: string[]): Promise<Map<string, FeatureData>> {
+  if (!names.length) return new Map()
+  const entries = await Promise.all(symbols.map((s) => fetchFeaturesFor(s, names)))
+  return new Map(entries)
 }
 
 async function loadAll(): Promise<void> {
   error.value = ''
-  closeSuggestions() // 加载即收起联想下拉(含飞行中请求)
+  const symbols = chips.symbols.value
+  if (symbols.length === 0) {
+    barsBySymbol.value = new Map()
+    featuresBySymbol.value = new Map()
+    hasLoaded.value = false
+    loadedSymbols.value = []
+    lastFeatureNames = []
+    featureFetchGen++ // 让任何仍在途的旧 features 请求(若有)在落定时被判定过期, 不回填已清空的状态
+    return
+  }
   loadingData.value = true
+  const names = featureUnion.value
+  const myFeatureGen = ++featureFetchGen // 与 refetchFeatures 共用同一世代计数器
   try {
-    await Promise.all([loadKline(), loadFeatures()])
+    const [barsEntries, featureMap] = await Promise.all([
+      Promise.all(symbols.map((s) => fetchBarsFor(s))),
+      fetchFeatureMap(symbols, names),
+    ])
+    // bars/loadedSymbols/hasLoaded 不受 features 世代竞争影响 —— 本轮"加载"点击本身就是权威动作
+    // (按钮在 loadingData 期间禁用, 不存在并发的第二次"加载"), 只有 features 缓存的落地需要
+    // 世代守卫, 防止期间插入的一次自动重拉(针对旧 loadedSymbols)后发先至覆盖本轮结果。
+    barsBySymbol.value = new Map(barsEntries)
+    loadedSymbols.value = symbols
+    hasLoaded.value = true
+    if (myFeatureGen === featureFetchGen) {
+      featuresBySymbol.value = featureMap
+      lastFeatureNames = names
+    }
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -147,142 +178,29 @@ async function loadAll(): Promise<void> {
   }
 }
 
-/* 失焦延迟收起联想(留点击选项的时间窗) */
-function onSymbolBlur(): void {
-  setTimeout(closeSuggestions, 160)
+/* 特征并集扩大(较上次实际请求过的并集有新增特征名)且此前已成功加载过 → 对当前标的集合重新拉一次
+ * features(不重拉 bars); 仅缩小(去勾选/删呈现框) → 直接用现有缓存重渲染, 不发请求。watch 默认非
+ * immediate, 不会在初始挂载/首次 loadAll 之外被误触发(loadAll 本身不改 panels, 不会自举触发)。 */
+watch(featureUnion, (names) => {
+  if (!hasLoaded.value) return
+  const hasNew = names.some((n) => !lastFeatureNames.includes(n))
+  if (!hasNew) return
+  void refetchFeatures(names)
+})
+
+async function refetchFeatures(names: string[]): Promise<void> {
+  error.value = ''
+  const myFeatureGen = ++featureFetchGen // 与 loadAll 首拉共用同一世代计数器(见上方声明处说明)
+  try {
+    const map = await fetchFeatureMap(loadedSymbols.value, names)
+    if (myFeatureGen !== featureFetchGen) return // 已被更晚一次触发超越, 整批静默丢弃(不写缓存不报错)
+    featuresBySymbol.value = map
+    lastFeatureNames = names
+  } catch (e) {
+    if (myFeatureGen !== featureFetchGen) return // 过期请求的失败不代表当前真实状态, 不提示
+    error.value = (e as Error).message
+  }
 }
-
-/* 特征勾选变化即重载特征图(对等旧 change 监听) */
-watch(pickedFeatures, () => {
-  if (lastFeature.value) void loadFeatures().catch((e) => (error.value = (e as Error).message))
-})
-
-const klineOption = computed(() => {
-  const k = lastKline.value
-  if (!k) return null
-  const t = palette.value
-  return {
-    backgroundColor: 'transparent',
-    animation: false,
-    textStyle: { color: t.text },
-    title: {
-      text: `${k.symbol} 前复权日线`,
-      left: 8,
-      top: 10,
-      textStyle: { fontSize: 13, fontWeight: 600, color: t.text },
-    },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'cross', lineStyle: { color: t.axis } },
-      ...tooltipStyle(t),
-    },
-    axisPointer: { link: [{ xAxisIndex: 'all' }] },
-    grid: [
-      { left: 58, right: 22, top: 46, height: '54%' },
-      { left: 58, right: 22, top: '74%', height: '17%' },
-    ],
-    xAxis: [
-      {
-        type: 'category',
-        data: k.data.dates,
-        gridIndex: 0,
-        ...axisStyle(t),
-        splitLine: { show: false },
-      },
-      {
-        type: 'category',
-        data: k.data.dates,
-        gridIndex: 1,
-        ...axisStyle(t),
-        axisLabel: { show: false },
-        splitLine: { show: false },
-      },
-    ],
-    yAxis: [
-      { scale: true, gridIndex: 0, ...axisStyle(t) },
-      { gridIndex: 1, ...axisStyle(t), axisLabel: { show: false }, splitLine: { show: false } },
-    ],
-    dataZoom: [
-      { type: 'inside', xAxisIndex: [0, 1] },
-      {
-        type: 'slider',
-        xAxisIndex: [0, 1],
-        height: 16,
-        bottom: 8,
-        borderColor: 'transparent',
-        fillerColor: `${t.brand}22`,
-        handleStyle: { color: t.brand },
-        textStyle: { color: t.dim },
-      },
-    ],
-    series: [
-      {
-        name: k.symbol,
-        type: 'candlestick',
-        data: k.data.ohlc,
-        // A 股: 涨红跌绿
-        itemStyle: { color: t.up, color0: t.down, borderColor: t.up, borderColor0: t.down },
-      },
-      {
-        name: '成交量',
-        type: 'bar',
-        data: k.data.volume,
-        xAxisIndex: 1,
-        yAxisIndex: 1,
-        itemStyle: { color: t.vol },
-      },
-    ],
-  }
-})
-
-const featureOption = computed(() => {
-  const f = lastFeature.value
-  if (!f) return null
-  const t = palette.value
-  return {
-    backgroundColor: 'transparent',
-    animation: false,
-    textStyle: { color: t.text },
-    color: t.series,
-    title: {
-      text: `${f.symbol} 截面特征（T-1 信息口径）`,
-      left: 8,
-      top: 10,
-      textStyle: { fontSize: 13, fontWeight: 600, color: t.text },
-    },
-    tooltip: {
-      trigger: 'axis',
-      ...tooltipStyle(t),
-      axisPointer: { type: 'line', lineStyle: { color: t.axis, type: 'dashed' } },
-    },
-    legend: {
-      top: 9,
-      right: 14,
-      itemWidth: 16,
-      itemHeight: 8,
-      textStyle: { color: t.dim, fontSize: 11 },
-    },
-    grid: { left: 58, right: 22, top: 46, bottom: 40 },
-    xAxis: {
-      type: 'category',
-      data: f.data.dates,
-      boundaryGap: false,
-      ...axisStyle(t),
-      splitLine: { show: false },
-    },
-    yAxis: { type: 'value', scale: true, ...axisStyle(t) },
-    dataZoom: [{ type: 'inside' }],
-    series: f.names.map((n) => ({
-      name: featureLabel(n), // 图例/悬浮提示用中文标签
-      type: 'line',
-      data: f.data.series[n],
-      smooth: 0.2,
-      showSymbol: false,
-      connectNulls: false,
-      lineStyle: { width: 1.6 },
-    })),
-  }
-})
 </script>
 
 <template>
@@ -293,86 +211,63 @@ const featureOption = computed(() => {
       <GlossaryTip term="t1"><span class="t-muted">T-1 口径</span></GlossaryTip>
     </header>
     <p class="guide t-muted">
-      查看本地库内任一标的的 K 线与预计算截面特征。特征即因子检验用的原料——悬停任一特征名可看它衡量什么、怎么读数。
+      查看本地库内标的的 K 线与预计算截面特征（近一年窗口），支持添加多个标的叠加对比。特征即因子检验用的原料——悬停任一特征名可看它衡量什么、怎么读数。
     </p>
 
     <ErrorBanner v-if="error" :msg="error" />
 
     <div class="controls card">
-      <label class="ctl-field">
+      <label class="sym-field">
         标的
-        <div class="symbol-box" data-testid="explorer-symbol-input">
-          <NInput
-            v-model:value="symbolInput"
-            placeholder="代码/名称联想, 如 000021.SZ"
-            clearable
-            @input="onSymbolInput"
-            @blur="onSymbolBlur"
-            @keyup.enter="loadAll"
+        <div class="chips-box" data-testid="explorer-symbol-input">
+          <span v-for="meta in symbolMetas" :key="meta.symbol" class="chip">
+            <span class="chip-dot" :style="{ background: meta.color }" />
+            {{ meta.symbol }}
+            <button class="chip-x" type="button" @click="chips.remove(meta.symbol)">×</button>
+          </span>
+          <input
+            class="chip-input"
+            :value="chips.input.value"
+            placeholder="代码/名称联想，回车或点选添加，可多个叠加对比"
+            autocomplete="off"
+            @input="onSymInput"
+            @keydown="onSymKeydown"
           />
-          <ul v-if="suggestions.length" class="suggest card">
-            <li v-for="s in suggestions" :key="s.symbol" @click="pickSuggestion(s)">
-              <span class="num">{{ s.symbol }}</span> {{ s.name }}
+          <ul v-if="chips.suggestions.value.length" class="suggest card">
+            <li v-for="hit in chips.suggestions.value" :key="hit.symbol" @click="chips.pickSuggestion(hit)">
+              <span class="num">{{ hit.symbol }}</span> {{ hit.name }}
             </li>
           </ul>
         </div>
       </label>
-      <label class="ctl-field">
-        起始
-        <NDatePicker
-          v-model:formatted-value="startDate"
-          value-format="yyyy-MM-dd"
-          type="date"
-          placeholder="最早"
-          clearable
-          style="width: 160px"
-        />
-      </label>
-      <label class="ctl-field">
-        结束
-        <NDatePicker
-          v-model:formatted-value="endDate"
-          value-format="yyyy-MM-dd"
-          type="date"
-          placeholder="最新"
-          clearable
-          style="width: 160px"
-        />
-      </label>
       <NButton type="primary" :loading="loadingData" :disabled="loadingData" data-testid="explorer-load" @click="loadAll">加载</NButton>
     </div>
-
-    <!-- 标签列固定, 复选框自成一列换行对齐; 中文标签+悬停术语解释 -->
-    <div class="feature-picker card">
-      <span class="t-muted picker-label">特征</span>
-      <div class="feature-list">
-        <NCheckbox
-          v-for="fm in FEATURE_META"
-          :key="fm.name"
-          :checked="pickedFeatures.includes(fm.name)"
-          size="small"
-          @update:checked="
-            (v: boolean) => {
-              pickedFeatures = v
-                ? [...pickedFeatures, fm.name]
-                : pickedFeatures.filter((x) => x !== fm.name)
-            }
-          "
-        >
-          <GlossaryTip :term="fm.name"><span class="feature-name">{{ fm.label }}</span></GlossaryTip>
-        </NCheckbox>
-      </div>
-    </div>
+    <p v-if="chips.err.value" class="form-hint sym-err t-warn">{{ chips.err.value }}</p>
 
     <div class="chart-card card" data-testid="kline-chart">
-      <VChart v-if="klineOption" :option="klineOption" autoresize class="chart chart-kline" />
-      <p v-else class="t-muted empty">输入标的并点击加载 — K 线与成交量</p>
+      <VChart
+        v-if="klineOption"
+        :option="klineOption"
+        :update-options="{ notMerge: true }"
+        autoresize
+        class="chart chart-kline"
+      />
+      <p v-else class="t-muted empty">添加标的并点击加载 — K 线与成交量</p>
     </div>
 
-    <div class="chart-card card" data-testid="feature-chart">
-      <VChart v-if="featureOption" :option="featureOption" autoresize class="chart chart-feature" />
-      <p v-else class="t-muted empty">暂无特征曲线 — 勾选上方特征并点击加载。</p>
-    </div>
+    <FeaturePanel
+      v-for="(p, i) in panels"
+      :key="p.id"
+      v-model="p.features"
+      :symbols="loadedSymbolMetas"
+      :features-by-symbol="featuresBySymbol"
+      :removable="panels.length > 1"
+      :panel-index="i"
+      @remove="removePanel(p.id)"
+    />
+    <button type="button" class="add-panel-btn" data-testid="explorer-add-panel" @click="addPanel">
+      + 新增呈现框
+    </button>
   </section>
 </template>
 
@@ -402,29 +297,89 @@ const featureOption = computed(() => {
   padding: 12px 16px;
 }
 
-.ctl-field {
+.sym-field {
   color: var(--text-3);
   display: flex;
+  flex: 1;
   flex-direction: column;
   font-size: 12.5px;
   gap: 6px;
+  min-width: 280px;
 }
 
-.symbol-box {
+.chips-box {
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 38px;
+  padding: 5px 8px;
   position: relative;
-  width: 260px;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.chips-box:focus-within {
+  border-color: var(--accent);
+}
+
+.chip {
+  align-items: center;
+  background: var(--accent-soft);
+  border-radius: 14px;
+  color: var(--accent);
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  gap: 4px;
+  padding: 2px 6px 2px 10px;
+}
+
+.chip-dot {
+  border-radius: 50%;
+  flex: none;
+  height: 8px;
+  width: 8px;
+}
+
+.chip-x {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.chip-x:hover {
+  color: var(--c-fail);
+}
+
+.chip-input {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  flex: 1;
+  font-family: var(--font-body);
+  font-size: 13px;
+  min-width: 180px;
+  outline: none;
+  padding: 4px 2px;
 }
 
 .suggest {
   left: 0;
   list-style: none;
-  margin: 4px 0 0;
+  margin: 0;
   max-height: 260px;
   overflow-y: auto;
   padding: 4px;
   position: absolute;
   right: 0;
-  top: 100%;
+  top: calc(100% + 4px);
   z-index: 50;
 }
 
@@ -440,30 +395,9 @@ const featureOption = computed(() => {
   background: var(--accent-soft);
 }
 
-.feature-picker {
-  align-items: baseline;
-  display: flex;
+.form-hint {
   font-size: 12.5px;
-  gap: 14px;
-  margin-bottom: var(--gap);
-  padding: 10px 16px;
-}
-
-.picker-label {
-  flex: none;
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.feature-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-}
-
-.feature-name {
-  font-size: 12px;
+  margin: 6px 0 var(--gap);
 }
 
 .chart-card {
@@ -479,12 +413,29 @@ const featureOption = computed(() => {
   height: 480px;
 }
 
-.chart-feature {
-  height: 320px;
-}
-
 .empty {
   padding: 60px 0;
   text-align: center;
+}
+
+.add-panel-btn {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-3);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 16px;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+  width: 100%;
+}
+
+.add-panel-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 </style>
