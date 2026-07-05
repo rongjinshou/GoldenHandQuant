@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+import pytest
+
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.factor_test.evaluator import FactorExpressionEvaluator
 from src.domain.strategy.factor_test.expressions import (
@@ -159,4 +161,21 @@ class TestEvaluatorFunctions:
 class TestEvaluatorEmpty:
     def test_empty_snapshots(self):
         result = _parse_and_eval("pe_ratio", [])
+        assert result == {}
+
+
+class TestEvaluatorUnknownField:
+    """F10 教训回归测试: 未知字段名须在求值时立即报错，不能静默产出空结果。"""
+
+    def test_unknown_field_raises(self):
+        from src.domain.strategy.factor_test.field_mapping import UnknownFactorFieldError
+
+        snapshots = [_make_snapshot("A", pe_ratio=10.0)]
+        with pytest.raises(UnknownFactorFieldError, match="gross_margni"):
+            _parse_and_eval("gross_margni", snapshots)  # 拼写错误, 非真实字段
+
+    def test_known_but_all_none_field_still_returns_empty(self):
+        """已知字段名但恰好全为 None(如未接入的技术指标)——非本次要校验的错误类, 保持原有跳过行为。"""
+        snapshots = [_make_snapshot("A"), _make_snapshot("B")]
+        result = _parse_and_eval("rsi_14", snapshots)
         assert result == {}

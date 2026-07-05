@@ -151,3 +151,22 @@ def test_cross_section_matches_object_evaluator(expr_str: str):
         assert set(vec_out) == set(obj_out), f"{expr_str}@{date}: 股票集不一致"
         for sym in obj_out:
             assert vec_out[sym] == pytest.approx(obj_out[sym], abs=1e-12), f"{expr_str}@{date}@{sym}"
+
+
+class TestVectorizedEvaluatorUnknownField:
+    """F10 教训回归测试: 向量化路径与对象式路径对未知字段名一致报错(而非静默全 NaN)。"""
+
+    def test_unknown_field_raises(self):
+        from src.domain.strategy.factor_test.field_mapping import UnknownFactorFieldError
+
+        df = _panel_df()
+        expr = _parse("gross_margni")  # 拼写错误, 非真实字段
+        with pytest.raises(UnknownFactorFieldError, match="gross_margni"):
+            VectorizedEvaluator().evaluate(expr, df)
+
+    def test_known_field_missing_from_this_panel_returns_nan(self):
+        """已知字段名但本次面板未含该列(窄面板)——非 F10 式错误, 保持 NaN 兜底。"""
+        df = _panel_df()
+        expr = _parse("rsi_14")  # 合法字段, 但 _panel_df() 未建此列
+        series = VectorizedEvaluator().evaluate(expr, df)
+        assert series.isna().all()

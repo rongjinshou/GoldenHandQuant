@@ -3,6 +3,18 @@
 已注册因子名可直接在表达式中使用，系统自动映射到对应字段。
 """
 
+from src.domain.market.value_objects.stock_snapshot import KNOWN_FIELDS
+
+
+class UnknownFactorFieldError(ValueError):
+    """因子表达式引用的字段名无法解析为任何已知 StockSnapshot 字段。
+
+    F10(毛利率)教训: 未校验时，无法解析的字段被求值器静默跳过/置空，
+    因子在全部日期上拿不到任何真实数据，最终以近乎全 0/NaN 的记分牌数字
+    误判为"FAIL"，而非报出"这个字段根本不存在"的真实原因。
+    """
+
+
 FACTOR_FIELD_MAP: dict[str, str] = {
     # 价值因子
     "pb_value": "pb_ratio",
@@ -59,3 +71,18 @@ def resolve_field_name(name: str) -> str:
     if name in FACTOR_FIELD_MAP:
         return FACTOR_FIELD_MAP[name]
     return name
+
+
+def resolve_and_validate_field_name(name: str) -> str:
+    """解析字段名，并校验解析结果确为已知 StockSnapshot 字段。
+
+    未知字段名(拼写错误/映射表遗漏/字段从未在 StockSnapshot 声明)会在此
+    立即抛出 UnknownFactorFieldError，而不是被求值器悄悄产出空结果(F10 教训)。
+    """
+    resolved = resolve_field_name(name)
+    if resolved not in KNOWN_FIELDS:
+        raise UnknownFactorFieldError(
+            f"因子字段 {name!r}(解析为 {resolved!r}) 不是任何已知 StockSnapshot 字段 —— "
+            f"检查因子表达式拼写，或 FACTOR_FIELD_MAP 是否需要补充映射。"
+        )
+    return resolved

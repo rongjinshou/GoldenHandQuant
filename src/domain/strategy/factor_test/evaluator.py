@@ -10,7 +10,7 @@ from src.domain.strategy.factor_test.expressions import (
     LiteralExpr,
     UnaryFuncExpr,
 )
-from src.domain.strategy.factor_test.field_mapping import resolve_field_name
+from src.domain.strategy.factor_test.field_mapping import resolve_and_validate_field_name
 
 
 class EvaluationError(Exception):
@@ -36,7 +36,7 @@ class FactorExpressionEvaluator:
                 return {s.symbol: v for s in snapshots}
 
             case FactorRefExpr(field_name=name):
-                resolved = resolve_field_name(name)
+                resolved = resolve_and_validate_field_name(name)
                 result: dict[str, float] = {}
                 for s in snapshots:
                     val = getattr(s, resolved, None)

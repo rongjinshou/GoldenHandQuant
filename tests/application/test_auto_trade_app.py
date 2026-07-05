@@ -75,6 +75,10 @@ class FakeQuotes:
     def subscribe_first_tick(self, symbol, timeout=3.0):
         return self._q
 
+    def get_quotes(self, symbols):
+        """债D4: run_cycle 循环前批量拉取, 替代逐候选 subscribe_first_tick。"""
+        return {s: self._q for s in symbols}
+
 
 class FakeTradeGateway:
     """终态可编程的网关替身。
@@ -302,22 +306,28 @@ class TestSafetyHardening:
         assert "可用资金" in rejected[0]["reject_reason"]
 
     def test_per_order_exception_isolated_and_cycle_finalized(self, tmp_path):
-        """评审发现 #3: 单笔异常不得炸穿循环; 快照与 finalize 必达。"""
-        class BoomQuotes:
+        """评审发现 #3: 单笔异常不得炸穿循环; 快照与 finalize 必达。
+
+        债D4批量拉取行情后, 报价不再是逐候选故障点; 改用下单网关在第一单
+        抛出非 OrderSubmitError 异常(如断线), 验证 _execute_one 仍逐单隔离。
+        """
+        class BoomGateway(FakeTradeGateway):
             def __init__(self):
+                super().__init__()
                 self.calls = 0
-            def subscribe_first_tick(self, symbol, timeout=3.0):
+
+            def place_order(self, order):
                 self.calls += 1
                 if self.calls == 1:
-                    raise RuntimeError("行情断连")
-                return FakeQuotes()._q
+                    raise RuntimeError("下单网关断连")
+                return super().place_order(order)
 
         store = TradingStore(str(tmp_path / "t.db"))
-        gw = FakeTradeGateway()
+        gw = BoomGateway()
         svc = AutoTradeAppService(
             signal_service=FakeSignalService(
                 [_display(symbol="600000.SH"), _display(symbol="601006.SH")]),
-            quote_fetcher=BoomQuotes(), trade_gateway=gw,
+            quote_fetcher=FakeQuotes(), trade_gateway=gw,
             account_gateway=FakeAccount(), store=store,
             audit=AuditService(SqliteAuditLogRepository(store.db)),
             config=AutoTradeConfig(mode="dry_run"),

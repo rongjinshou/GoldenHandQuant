@@ -15,7 +15,7 @@ from src.domain.strategy.factor_test.expressions import (
     LiteralExpr,
     UnaryFuncExpr,
 )
-from src.domain.strategy.factor_test.field_mapping import resolve_field_name
+from src.domain.strategy.factor_test.field_mapping import resolve_and_validate_field_name
 
 
 class VectorizedEvaluationError(Exception):
@@ -40,8 +40,10 @@ class VectorizedEvaluator:
                 return pd.Series(float(v), index=df.index, dtype=float)
 
             case FactorRefExpr(field_name=name):
-                col = resolve_field_name(name)
+                col = resolve_and_validate_field_name(name)
                 if col not in df.columns:
+                    # 字段名合法，但本次面板未含该列(如窄面板只取部分列)——
+                    # 与对象式"该股无此字段跳过"等价，非 F10 式字段名错误。
                     return pd.Series(np.nan, index=df.index, dtype=float)
                 return pd.to_numeric(df[col], errors="coerce").astype(float)
 

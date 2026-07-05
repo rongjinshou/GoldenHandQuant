@@ -64,6 +64,9 @@ _FUNDAMENTAL_FIELDS = {f.name for f in FundamentalData.__dataclass_fields__.valu
 _TECHNICAL_FIELDS = {f.name for f in TechnicalIndicators.__dataclass_fields__.values()}
 _SUB_OBJECT_FIELDS = _PRICE_VOLUME_FIELDS | _FUNDAMENTAL_FIELDS | _TECHNICAL_FIELDS
 
+# 公开只读视图: 全部已知合法字段名(供 factor_test/field_mapping.py 校验字段引用用, F10 教训)
+KNOWN_FIELDS = frozenset(_SUB_OBJECT_FIELDS)
+
 
 class StockSnapshot:
     """Bar + FundamentalSnapshot 合并视图，过滤器的标准输入。

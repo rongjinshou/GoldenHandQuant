@@ -18,6 +18,7 @@ from datetime import datetime
 
 from src.application.live_signal_service import LiveSignalService, SignalDisplay
 from src.domain.common.services.audit_service import AuditService
+from src.domain.market.value_objects.quote import Quote
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.trade.entities.order import Order
 from src.domain.trade.exceptions import OrderSubmitError
@@ -148,8 +149,18 @@ class AutoTradeAppService:
             block_buys, asset = self._prepare_baseline_and_loss_check(now)
             cash_available = asset.available_cash if asset else 0.0
 
+            # 债D4修复: 循环前一次性批量拉取候选行情快照(单次API调用)，
+            # 替代逐候选串行 subscribe_first_tick(每单最坏3秒等待推送)。
+            # 批量调用异常不得炸穿整循环: 退化为空报价, 各候选走"拿不到有效报价"闸拒单。
+            quotes: dict[str, Quote] = {}
+            if candidates:
+                try:
+                    quotes = self._quotes.get_quotes([d.symbol for d in candidates])
+                except Exception as e:
+                    logger.error("批量行情拉取失败(本循环全部候选按无报价处理): %s", e, exc_info=True)
+
             for d in candidates:
-                record = self._execute_one(d, cycle_id, now, block_buys, cash_available)
+                record = self._execute_one(d, cycle_id, now, block_buys, cash_available, quotes)
                 self._store.save_execution(record)
                 match record["status"]:
                     case "REJECTED":
@@ -254,7 +265,8 @@ class AutoTradeAppService:
 
     # ------------------------------------------------------------- execution
     def _execute_one(self, d: SignalDisplay, cycle_id: str, now: datetime,
-                     block_buys: bool, cash_available: float) -> dict:
+                     block_buys: bool, cash_available: float,
+                     quotes: dict[str, Quote]) -> dict:
         """单笔执行(异常自隔离): 任何异常以 FAILED 留痕, 不波及循环内其他订单。"""
         direction = (OrderDirection.BUY if d.direction == SignalDirection.BUY
                      else OrderDirection.SELL)
@@ -270,7 +282,7 @@ class AutoTradeAppService:
         }
         try:
             return self._execute_guarded(d, record, now, direction,
-                                         block_buys, cash_available)
+                                         block_buys, cash_available, quotes)
         except Exception as e:
             logger.error("订单执行异常: %s - %s", d.symbol, e, exc_info=True)
             record.update({"status": "FAILED", "reject_reason": f"执行异常: {e}"})
@@ -279,11 +291,11 @@ class AutoTradeAppService:
 
     def _execute_guarded(self, d: SignalDisplay, record: dict, now: datetime,
                          direction: OrderDirection, block_buys: bool,
-                         cash_available: float) -> dict:
+                         cash_available: float, quotes: dict[str, Quote]) -> dict:
         if block_buys and direction == OrderDirection.BUY:
             return self._reject(record, "当日亏损超限禁买 (仅放行卖出)")
 
-        quote = self._quotes.subscribe_first_tick(d.symbol)
+        quote = quotes.get(d.symbol)
         # 实时 ST 闸输入(DD-3): 名称仅买入需要; fetcher 无此能力/非 str 一律视为不可得
         instrument_name: str | None = None
         if direction == OrderDirection.BUY:
