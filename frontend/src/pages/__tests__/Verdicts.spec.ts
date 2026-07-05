@@ -55,8 +55,9 @@ const stubs = {
   // 判决页轮次删除入口(commit 8dc2558, 与本次卡片化重排并行落地于同一文件) — 本页测试
   // 前此前从未覆盖过它, 这里仍按仓库既有惯例(FactorTestForm.spec.ts/FactorDetailModal.spec.ts)
   // stub 掉 naive-ui 组件, 只保留可断言的最小结构(trigger 插槽 + 一个确认按钮触发 positive-click)。
+  // 不写 @click="$emit('click')"(同上 FactorCard stub 的教训, 避免与 attrs fallthrough 重复触发)
   [NButton.name as string]: {
-    template: '<button type="button" @click="$emit(\'click\')"><slot /></button>',
+    template: '<button type="button"><slot /></button>',
   },
   [NPopconfirm.name as string]: {
     emits: ['positive-click'],
