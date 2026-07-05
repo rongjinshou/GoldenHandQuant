@@ -271,17 +271,17 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
 
         # 1. 资金结算
         if order.direction == OrderDirection.BUY:
-            # 计算本次成交对应的冻结资金比例 (按数量比例释放)
-            # 注意: frozen_amount 是按委托价预估的总成本
-            if order.volume > 0:
-                ratio = volume / order.volume
-                used_frozen = frozen_amount * ratio
-            else:
-                used_frozen = 0.0
-
-            # 解冻本次成交部分
+            # frozen_amount 已经是按本次实际成交量 volume(=fill_volume, 非 order.volume)
+            # 算出的成本(见 place_order: _calculate_costs(exec_price, fill_volume, ...))，
+            # 不需要再按 volume/order.volume 比例二次折算——之前按该比例二次折算是双重
+            # 打折的 bug(2026-07-05 confirmed-bug): 满额成交时 ratio 恰好=1 掩盖了问题，
+            # 只在容量限制生效(fill_volume < order.volume)的部分成交场景才会暴露，表现为
+            # 超额冻结资金永久卡死在 frozen_cash(该订单终态 PARTIAL_CANCELED, 不在任何
+            # 后续撤单/日终解冻扫描范围内)，可用资金被永久低估，严重时还会触发下方本不该
+            # 触发的"Overdraw prevented"熔断误拒真实可承受的订单。
+            #
             # 确保不超额解冻 (防御性编程)
-            to_unfreeze = min(used_frozen, self.asset.frozen_cash)
+            to_unfreeze = min(frozen_amount, self.asset.frozen_cash)
             self.asset.deduct_frozen_cash(to_unfreeze)
 
             # 扣除实际成本 (在 _calculate_costs 中已包含本金+费用)
