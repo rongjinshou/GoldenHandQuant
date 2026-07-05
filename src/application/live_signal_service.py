@@ -113,6 +113,24 @@ class LiveSignalService:
         self.min_fundamental_rows = min_fundamental_rows
         self.last_snapshot: ScanSnapshot | None = None
 
+    def refresh_fundamental_alias(self) -> None:
+        """刷新基本面数据的 as-of 别名到当前日期。
+
+        解决影子盘跨日长跑问题: 原先 as-of 别名只在装配期算一次,
+        跨日后 get_all_at_date(now) 返回空导致 fault abort。
+        每次 scan 前调用此方法, 将最新可用日期别名到今天。
+        """
+        if self.fundamental_registry is None:
+            return
+        now = self.clock()
+        # 如果今天已有数据, 无需刷新
+        if self.fundamental_registry.get_all_at_date(now):
+            return
+        latest = self.fundamental_registry.latest_date_at_or_before(now)
+        if latest is not None:
+            self.fundamental_registry.alias_date(latest, now)
+            logger.debug("基本面别名刷新: %s → %s", latest, now)
+
     def scan(self, strategy_name: str, symbols: list[str]) -> list[SignalDisplay]:
         """扫描信号并返回展示列表。"""
         # create_strategy(name, params=None) 与原单参调用等价 → None 时行为不变
@@ -127,6 +145,7 @@ class LiveSignalService:
         positions = self.account_gateway.get_positions()
 
         if config.strategy_type == "cross_section":
+            self.refresh_fundamental_alias()
             return self._scan_cross_sectional(
                 strategy, strategy_name, symbols, positions, asset,
             )

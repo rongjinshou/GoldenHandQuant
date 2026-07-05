@@ -1,7 +1,19 @@
-"""因子验证判决 — 硬门槛判定(§7)。"""
+"""因子验证判决 — 硬门槛判定(§7)。
+
+债 D2 修复: 闸门阈值统一从 gates_config.py 读取(单一真相源)。
+"""
 
 from dataclasses import dataclass
 
+from src.domain.strategy.factor_test.gates_config import (
+    EXCESS_IR_MIN,
+    EXCESS_POSITIVE_RATE_MIN,
+    IC_MIN,
+    IR_MIN,
+    LONG_SHORT_MIN,
+    MONOTONICITY_MIN,
+    TOP_EXCESS_MIN,
+)
 from src.domain.strategy.factor_test.report import ScoredFactorTestReport
 
 
@@ -40,17 +52,6 @@ class FactorVerdict:
             object.__setattr__(self, "reasons", [])
 
 
-# --- Hard thresholds from §7 ---
-IC_MIN = 0.02
-IR_MIN = 0.30
-MONOTONICITY_MIN = 0.6       # 5层时即需 ≥3/4 相邻递增, 明显高于随机(~0.5)
-LONG_SHORT_MIN = 0.0         # must be positive after costs
-OOS_IC_SIGN_FLIP = False     # IC sign must not flip OOS
-
-# --- long-only 记分牌门槛 (pre-registered, 设计文档 §四) ---
-EXCESS_IR_MIN = 0.50            # Top 超额年化信息比 (替代多空 IC-IR)
-EXCESS_POSITIVE_RATE_MIN = 0.52  # Top 超额正率 (替代 IC 正率)
-TOP_EXCESS_MIN = 0.0           # Top 层超额扣成本后须为正
 
 
 def judge_factor(

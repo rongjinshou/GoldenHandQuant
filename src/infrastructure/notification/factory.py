@@ -1,6 +1,7 @@
 from src.domain.notification.interfaces.notification_gateway import INotificationGateway
 from src.domain.risk.interfaces.notification import IRiskNotifier
 from src.infrastructure.config.settings import NotificationSettings
+from src.infrastructure.notification.composite_gateway import CompositeNotificationGateway
 from src.infrastructure.notification.console_notifier import ConsoleNotifier
 from src.infrastructure.notification.email_notifier import EmailNotifier
 from src.infrastructure.notification.risk_notifier_adapter import RiskNotifierAdapter
@@ -30,9 +31,14 @@ def create_notifiers(settings: NotificationSettings) -> list[IRiskNotifier]:
 
 
 def create_notification_gateway(settings: NotificationSettings) -> INotificationGateway | None:
-    """创建 INotificationGateway 适配器（桥接 IRiskNotifier -> INotificationGateway）。"""
+    """创建 INotificationGateway 适配器（桥接 IRiskNotifier -> INotificationGateway）。
+
+    TD-03 修复: 所有配置的通知渠道都会被启用，不再只取 notifiers[0]。
+    """
     notifiers = create_notifiers(settings)
     if not notifiers:
         return None
-    # 使用第一个通知器作为底层实现
-    return RiskNotifierAdapter(notifiers[0])
+    gateways = [RiskNotifierAdapter(n) for n in notifiers]
+    if len(gateways) == 1:
+        return gateways[0]
+    return CompositeNotificationGateway(gateways)

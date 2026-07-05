@@ -44,3 +44,14 @@ def factors() -> dict:
     for item in items:
         groups.setdefault(item["priority"], []).append(item["factor_id"])
     return {"factors": items, "groups": groups}
+
+
+@router.get("/gates")
+def gates() -> dict:
+    """判决闸门阈值 — D2 单一真相源端点。
+
+    前端 gates.ts 从此端点获取阈值，不再硬编码。
+    """
+    from src.domain.strategy.factor_test.gates_config import get_all_gates
+
+    return get_all_gates()

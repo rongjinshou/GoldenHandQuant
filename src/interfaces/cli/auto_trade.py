@@ -20,6 +20,17 @@ from src.infrastructure.config.settings import AutoTradeSettings, load_trading_c
 logger = logging.getLogger(__name__)
 
 
+def _build_notification_hub(settings):
+    """装配 NotificationHub — 接线所有配置的通知渠道。"""
+    from src.application.notification_hub import NotificationHub
+    from src.infrastructure.notification.factory import create_notification_gateway
+
+    gw = create_notification_gateway(settings.notification)
+    if gw is None:
+        return None
+    return NotificationHub(gateways=[gw])
+
+
 def resolve_mode(settings: AutoTradeSettings, *, live_flag: bool) -> str:
     """live 三重确认: 配置 mode=live + 配置 enabled=true + CLI --live。"""
     if settings.mode == "live" and settings.enabled and live_flag:
@@ -95,6 +106,7 @@ def _build_service(settings, mode: str):
         store=store,
         audit=AuditService(SqliteAuditLogRepository(store.db)),
         config=config,
+        notification_hub=_build_notification_hub(settings),
     )
 
 

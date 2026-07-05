@@ -11,13 +11,16 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from src.domain.market.value_objects.quote import Quote
+from src.domain.trade.services.trading_sessions import CONTINUOUS_SESSIONS
 from src.domain.trade.value_objects.order_direction import OrderDirection
 
 PRICE_BAND = 0.10                 # 主板涨跌停带
 MAX_NOTIONAL_CEILING = 5000.0     # 单笔金额上限的硬顶
 CASH_FEE_BUFFER = 1.01            # 买入资金费用 buffer
 MAX_QUOTE_AGE_SECONDS = 180.0     # 报价新鲜度: 超龄视为停牌/断连的陈旧快照
-_SESSIONS = (("09:30", "11:30"), ("13:00", "15:00"))
+
+# D3 修复: 交易时段统一从 trading_sessions.py 读取(单一真相源)
+_SESSIONS = CONTINUOUS_SESSIONS
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -54,8 +57,8 @@ def check_st_name(name: str | None) -> str | None:
 def check_trading_session(now: datetime) -> str | None:
     if now.weekday() >= 5:
         return f"非交易日: {now:%Y-%m-%d} (周{now.weekday() + 1})"
-    hm = now.strftime("%H:%M")
-    if any(start <= hm <= end for start, end in _SESSIONS):
+    t = now.time()
+    if any(start <= t <= end for start, end in _SESSIONS):
         return None
     return f"非连续竞价时段: {now:%Y-%m-%d %H:%M} (9:30-11:30/13:00-15:00)"
 

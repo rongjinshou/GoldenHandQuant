@@ -1,5 +1,9 @@
+import logging
+
 from src.domain.risk.interfaces.notification import IRiskNotifier
 from src.domain.risk.value_objects.risk_event import RiskEvent
+
+logger = logging.getLogger(__name__)
 
 
 class RiskEventDispatcher:
@@ -18,8 +22,12 @@ class RiskEventDispatcher:
         for notifier in self._notifiers:
             try:
                 notifier.notify(event)
-            except Exception:
-                pass  # 通知失败不阻塞交易
+            except Exception as e:
+                # TD-04 修复: 不再静默吞异常，记录警告日志以保证可观测性
+                logger.warning(
+                    "通知器 %s 分发失败: %s (event=%s)",
+                    type(notifier).__name__, e, event.event_type,
+                )
 
     def dispatch_all(self, events: list[RiskEvent]) -> None:
         for event in events:

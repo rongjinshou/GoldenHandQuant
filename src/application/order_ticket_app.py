@@ -139,18 +139,17 @@ class OrderTicketAppService:
         self, order_id: str, timeout: float
     ) -> tuple[str, list[dict]]:
         """轮询订单状态至终态/超时。返回 (终态, 状态轨迹)。"""
-        trail: list[dict] = []
-        deadline = self._clock().timestamp() + timeout
-        last_state: str | None = None
-        while self._clock().timestamp() < deadline:
-            state = self._trade.query_order_status(order_id)
-            if state and state != last_state:
-                trail.append({"t": self._clock().isoformat(), "status": state})
-                last_state = state
-            if state in ("FILLED", "CANCELED", "REJECTED"):
-                return state, trail
-            self._sleep(2.0)
-        return last_state or "TIMEOUT", trail
+        from src.domain.trade.services.order_poller import poll_order_until_terminal
+
+        result = poll_order_until_terminal(
+            order_id,
+            query_status=self._trade.query_order_status,
+            timeout_seconds=timeout,
+            clock=lambda: self._clock().timestamp(),
+            sleep=self._sleep,
+            cancel_on_timeout=False,  # ticket 手动下单不撤单
+        )
+        return result.final_status, result.trail
 
     @staticmethod
     def _reject(ticket: dict, reason: str) -> OrderTicketResult:

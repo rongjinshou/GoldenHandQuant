@@ -11,11 +11,23 @@ class EqualWeightSizer(IPositionSizer):
 
     将总资金均分给 N 个标的，每个标的目标市值 = total_asset / n_symbols。
     根据当前持仓偏离度生成买入/卖出信号以达到等权重。
+
+    阶段1设计项修复: 新增 cash_buffer 参数，预留现金应对手续费/滑点/尾差，
+    避免满仓边界反复触发"资金不足"。
     """
 
-    def __init__(self, n_symbols: int, rebalance_threshold: float = 0.05) -> None:
+    # 默认预留 1% 现金（覆盖佣金+印花税+滑点的典型值 ~0.3%）
+    DEFAULT_CASH_BUFFER = 0.01
+
+    def __init__(
+        self,
+        n_symbols: int,
+        rebalance_threshold: float = 0.05,
+        cash_buffer: float = DEFAULT_CASH_BUFFER,
+    ) -> None:
         self._n_symbols = n_symbols
         self._threshold = rebalance_threshold
+        self._cash_buffer = cash_buffer
 
     def calculate_target(
         self, signal: Signal, price: float, asset: Asset, position: Position | None
@@ -23,7 +35,9 @@ class EqualWeightSizer(IPositionSizer):
         if asset is None or price <= 0 or self._n_symbols <= 0:
             return 0
 
-        target_value_per_symbol = asset.total_asset / self._n_symbols
+        # 扣除预留现金后再均分
+        deployable = asset.total_asset * (1 - self._cash_buffer)
+        target_value_per_symbol = deployable / self._n_symbols
         current_value = (position.total_volume * price) if position else 0.0
         deviation = (current_value - target_value_per_symbol) / target_value_per_symbol
 
@@ -72,7 +86,8 @@ class EqualWeightSizer(IPositionSizer):
             return targets
 
         n = len(buy_signals)
-        target_value_per = asset.total_asset / n
+        deployable = asset.total_asset * (1 - self._cash_buffer)
+        target_value_per = deployable / n
         target_symbols = {s.symbol for s in buy_signals}
 
         for sig in buy_signals:

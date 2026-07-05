@@ -144,20 +144,29 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
             return None
 
     def cancel_order(self, order_id: str) -> bool:
-        """按 QMT 委托号撤单。返回是否受理(异步撤单, 受理≠已撤)。"""
+        """按 QMT 委托号撤单。返回是否受理(异步撤单, 受理≠已撤)。
+
+        真单前置注意事项(2026-07-05 债务台账):
+        本方法自 R1(0628) 补入协议后，从未经过真实盘中撤单验证。
+        首次真单撤单时需人工确认: 1) QMT 返回码含义 2) 撤单后状态轮询验证。
+        """
         if not self._check_initialized():
+            logger.warning("撤单失败: QMT 网关未初始化 (order_id=%s)", order_id)
             return False
         try:
             result = self.xt_trader.cancel_order_stock(
                 self.account, int(order_id)
             )
             if result == 0:
-                logger.info(f"Cancel accepted for order {order_id}")
+                logger.info("撤单已受理: order_id=%s (异步, 需轮询确认)", order_id)
                 return True
-            logger.warning(f"Cancel rejected for order {order_id}: {result}")
+            logger.warning("撤单被拒: order_id=%s QMT返回码=%s", order_id, result)
+            return False
+        except ValueError:
+            logger.error("撤单失败: order_id=%s 非有效委托号", order_id)
             return False
         except Exception as e:
-            logger.error(f"Error canceling order {order_id}: {e}", exc_info=True)
+            logger.error("撤单异常: order_id=%s error=%s", order_id, e, exc_info=True)
             return False
 
     def place_order(self, order: Order) -> str:

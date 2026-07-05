@@ -1,20 +1,88 @@
-/* 判决闸门与评分等级 — 旧 pages/verdicts.js 纯逻辑抽取。
- * 阈值与 verdict.py 同步; 单一真相源收敛留作债 D2(前端复制沿现状)。 */
+/* 判决闸门与评分等级 — D2 单一真相源修复。
+ *
+ * 阈值从 /api/meta/gates 动态获取（后端 gates_config.py 是唯一定义处），
+ * 启动时 fetch 一次并缓存；API 不可用时回退到硬编码默认值（防御性）。
+ */
 
 import type { VerdictFactor } from '@/api/types'
 
+/** 闸门阈值结构 — 与后端 get_all_gates() 返回值对齐。 */
+interface GatesConfig {
+  ic_min: number
+  ir_min: number
+  ic_positive_rate_min: number
+  monotonicity_min: number
+  long_short_min: number
+  excess_ir_min: number
+  excess_positive_rate_min: number
+  top_excess_min: number
+}
+
+/** 硬编码回退值 — 仅在 API 不可达时使用，修改请同步 gates_config.py。 */
+const FALLBACK: GatesConfig = {
+  ic_min: 0.02,
+  ir_min: 0.30,
+  ic_positive_rate_min: 0.52,
+  monotonicity_min: 0.6,
+  long_short_min: 0.0,
+  excess_ir_min: 0.50,
+  excess_positive_rate_min: 0.52,
+  top_excess_min: 0.0,
+}
+
+let _cached: GatesConfig | null = null
+
+/** 获取闸门阈值（启动时 fetch 一次，后续走缓存）。 */
+export async function loadGates(): Promise<GatesConfig> {
+  if (_cached) return _cached
+  try {
+    const res = await fetch('/api/meta/gates')
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    _cached = {
+      ic_min: data.ic_min,
+      ir_min: data.ir_min,
+      ic_positive_rate_min: data.ic_positive_rate_min,
+      monotonicity_min: data.monotonicity_min,
+      long_short_min: data.long_short_min,
+      excess_ir_min: data.excess_ir_min,
+      excess_positive_rate_min: data.excess_positive_rate_min,
+      top_excess_min: data.top_excess_min,
+    }
+    return _cached
+  } catch {
+    console.warn('[gates] API 不可达，使用回退阈值')
+    _cached = { ...FALLBACK }
+    return _cached
+  }
+}
+
+/** 同步获取已缓存的阈值（必须先调用 loadGates）。 */
+function getGates(): GatesConfig {
+  if (!_cached) {
+    console.warn('[gates] loadGates() 尚未完成，使用回退阈值')
+    return FALLBACK
+  }
+  return _cached
+}
+
+/** 供测试用：重置缓存。 */
+export function _resetGatesCache(): void {
+  _cached = null
+}
+
 export const GATES: Record<string, (v: number) => boolean> = {
-  ic_mean: (v) => v >= 0.02,
-  ir: (v) => v >= 0.3,
-  ic_positive_rate: (v) => v >= 0.52,
-  monotonicity_score: (v) => v >= 0.6,
-  long_short_return: (v) => v > 0,
-  oos_long_short_return: (v) => v > 0,
+  ic_mean: (v) => v >= getGates().ic_min,
+  ir: (v) => v >= getGates().ir_min,
+  ic_positive_rate: (v) => v >= getGates().ic_positive_rate_min,
+  monotonicity_score: (v) => v >= getGates().monotonicity_min,
+  long_short_return: (v) => v > getGates().long_short_min,
+  oos_long_short_return: (v) => v > getGates().long_short_min,
   // long-only 记分牌门槛
-  excess_ir: (v) => v >= 0.5,
-  excess_positive_rate: (v) => v >= 0.52,
-  top_excess_return: (v) => v > 0,
-  oos_top_excess_return: (v) => v > 0,
+  excess_ir: (v) => v >= getGates().excess_ir_min,
+  excess_positive_rate: (v) => v >= getGates().excess_positive_rate_min,
+  top_excess_return: (v) => v > getGates().top_excess_min,
+  oos_top_excess_return: (v) => v > getGates().top_excess_min,
 }
 
 /* 闸门单元格语义类: 无值 na / 过闸 pass / 未过 fail; 非闸门指标无着色 */

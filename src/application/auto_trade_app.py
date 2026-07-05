@@ -32,7 +32,6 @@ from src.infrastructure.persistence.trading_store import TradingStore
 
 logger = logging.getLogger(__name__)
 
-_TERMINAL = ("FILLED", "CANCELED", "REJECTED", "DRY_RUN")
 _AUDIT_USER = "auto-trade"
 
 
@@ -82,6 +81,7 @@ class AutoTradeAppService:
         config: AutoTradeConfig,
         clock: Callable[[], datetime] = datetime.now,
         sleep: Callable[[float], None] = time.sleep,
+        notification_hub=None,
     ) -> None:
         if config.mode not in ("dry_run", "live"):
             raise ValueError(f"非法 mode: {config.mode!r} (仅 dry_run/live)")
@@ -99,6 +99,23 @@ class AutoTradeAppService:
         self._cfg = config
         self._clock = clock
         self._sleep = sleep
+        self._hub = notification_hub
+
+    def _notify(self, title: str, body: str, level: str = "info") -> None:
+        """通过 NotificationHub 发送通知 — 静默失败不阻塞交易。"""
+        if self._hub is None:
+            return
+        try:
+            from src.domain.notification.value_objects.notification_message import (
+                NotificationLevel,
+                NotificationMessage,
+            )
+            lvl = getattr(NotificationLevel, level.upper(), NotificationLevel.INFO)
+            self._hub.notify(NotificationMessage(
+                title=title, body=body, level=lvl, category="trade",
+            ))
+        except Exception as e:
+            logger.debug("通知发送失败(忽略): %s", e)
 
     # ------------------------------------------------------------------ cycle
     def run_cycle(self) -> CycleSummary:
@@ -137,10 +154,24 @@ class AutoTradeAppService:
                 match record["status"]:
                     case "REJECTED":
                         summary.orders_rejected += 1
+                        self._notify(
+                            f"订单拒绝: {record['symbol']}",
+                            f"方向: {record['direction']} | 原因: {record.get('reject_reason', '未知')}",
+                            level="warning",
+                        )
                     case "FAILED":
                         summary.orders_failed += 1
+                        self._notify(
+                            f"订单失败: {record['symbol']}",
+                            f"方向: {record['direction']} | 异常: {record.get('reject_reason', '未知')}",
+                            level="warning",
+                        )
                     case _:
                         summary.orders_submitted += 1
+                        self._notify(
+                            f"订单提交: {record['symbol']}",
+                            f"方向: {record['direction']} | 金额: ¥{record.get('notional', 0):.2f}",
+                        )
                         notional = record["notional"] or 0.0
                         summary.notional_submitted += notional
                         if record["direction"] == OrderDirection.BUY.value:
@@ -308,27 +339,25 @@ class AutoTradeAppService:
         return record
 
     def _poll(self, order_id: str) -> tuple[str, list[dict]]:
-        trail: list[dict] = []
-        deadline = self._clock().timestamp() + self._cfg.poll_timeout_seconds
-        last: str | None = None
-        while True:
-            state = self._trade.query_order_status(order_id)
-            if state and state != last:
-                trail.append({"t": self._clock().isoformat(), "status": state})
-                last = state
-            if state in _TERMINAL:
-                return state, trail
-            if self._clock().timestamp() >= deadline:
-                break
-            self._sleep(2.0)
-        # 超时: 主动撤单 (不留收盘前意外敞口; 网关撤单是异步受理)
-        if self._trade.cancel_order(order_id):
+        """轮询订单状态至终态/超时, 超时后自动撤单。"""
+        from src.domain.trade.services.order_poller import poll_order_until_terminal
+
+        result = poll_order_until_terminal(
+            order_id,
+            query_status=self._trade.query_order_status,
+            cancel_order=self._trade.cancel_order,
+            timeout_seconds=self._cfg.poll_timeout_seconds,
+            clock=lambda: self._clock().timestamp(),
+            sleep=self._sleep,
+            cancel_on_timeout=True,  # auto-trade 超时撤单
+        )
+        if result.canceled:
             self._audit.log_action(
                 user_id=_AUDIT_USER, action="cancel_order", resource_type="Order",
                 resource_id=order_id, details={"reason": "poll timeout"})
-            return "TIMEOUT_CANCELED", trail
-        logger.error("订单 %s 超时且撤单未受理, 需人工处理!", order_id)
-        return "TIMEOUT_UNCANCELED", trail
+        elif result.final_status == "TIMEOUT_UNCANCELED":
+            logger.error("订单 %s 超时且撤单未受理, 需人工处理!", order_id)
+        return result.final_status, result.trail
 
     # ----------------------------------------------------------- persistence
     def _reject(self, record: dict, reason: str | None) -> dict:

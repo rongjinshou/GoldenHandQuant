@@ -13,5 +13,9 @@ import { createApp } from 'vue'
 
 import App from './App.vue'
 import { router } from './router'
+import { loadGates } from './pages/verdicts/gates'
+
+// D2: 启动时预加载闸门阈值（失败有回退，不阻塞渲染）
+loadGates()
 
 createApp(App).use(createPinia()).use(router).mount('#app')

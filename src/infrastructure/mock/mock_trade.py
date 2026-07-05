@@ -5,6 +5,7 @@ from src.domain.account.interfaces.gateways.account_gateway import IAccountGatew
 from src.domain.backtest.value_objects.trade_record import TradeRecord
 from src.domain.market.interfaces.gateways.market_gateway import IMarketGateway
 from src.domain.market.value_objects.price_limit import calculate_price_limits, get_price_limit_ratio
+from src.domain.market.value_objects.suspension import StockStatusRegistry
 from src.domain.trade.entities.order import Order
 from src.domain.trade.exceptions import OrderSubmitError
 from src.domain.trade.interfaces.gateways.trade_gateway import ITradeGateway
@@ -45,6 +46,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         market_gateway: IMarketGateway,
         initial_capital: float = 1_000_000.0,
         default_account_id: str = DEFAULT_ACCOUNT_ID,
+        stock_status_registry: StockStatusRegistry | None = None,
     ) -> None:
         """初始化模拟账户。
 
@@ -52,6 +54,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
             market_gateway: 行情网关，用于获取当前价格和成交量。
             initial_capital: 初始资金。
             default_account_id: 默认账户 ID。
+            stock_status_registry: DD-6 修复: 股票状态注册表,用于查询 ST 涨跌停幅度。
         """
         self.market_gateway = market_gateway
         self._repo = AccountRepository()
@@ -60,6 +63,7 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         self._active_account_id = default_account_id
         self.trade_records: list[TradeRecord] = []
         self.orders: dict[str, Order] = {}
+        self._stock_status_registry = stock_status_registry
 
     @property
     def asset(self) -> Asset:
@@ -166,7 +170,13 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         if len(prev_bars) >= 2:
             prev_close = prev_bars[-2].close  # 前复权: 涨跌停比例判断不受复权影响
             if prev_close > 0:
-                ratio = get_price_limit_ratio(order.ticker)
+                # DD-6 修复: 查询 ST 状态以使用正确的涨跌停幅度
+                is_st = False
+                if self._stock_status_registry is not None:
+                    status = self._stock_status_registry.get_status(order.ticker, bar.timestamp)
+                    if status is not None:
+                        is_st = status.is_st or status.is_star_st
+                ratio = get_price_limit_ratio(order.ticker, is_st=is_st)
                 limits = calculate_price_limits(prev_close, ratio)
                 if order.direction == OrderDirection.BUY and not limits.can_buy(exec_price):
                     order.status = OrderStatus.REJECTED

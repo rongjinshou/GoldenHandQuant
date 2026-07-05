@@ -8,7 +8,7 @@ import logging
 import threading
 import time as time_mod
 from collections.abc import Callable
-from datetime import datetime, time
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -106,12 +106,11 @@ class TradingScheduler:
 
     def _is_trading_hour(self, now: datetime) -> bool:
         """检查是否在交易时段内（工作日 9:25-11:30, 13:00-15:00）。"""
+        from src.domain.trade.services.trading_sessions import is_scheduler_session
+
         if now.weekday() >= 5:
             return False
-        t = now.time()
-        morning = time(9, 25) <= t <= time(11, 30)
-        afternoon = time(13, 0) <= t <= time(15, 0)
-        return morning or afternoon
+        return is_scheduler_session(now)
 
     def _should_execute(self, now: datetime) -> bool:
         """检查当前时间是否匹配执行时间（旧接口, AutoTradingEngine 兼容用）。"""
