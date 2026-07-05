@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { NButton, NDatePicker, NInputNumber, NSelect } from 'naive-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import FactorTestForm from '../FactorTestForm.vue'
@@ -16,11 +17,17 @@ function jsonResp(body: unknown) {
   return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body), text: () => Promise.resolve('') })
 }
 
+// naive-ui 组件运行时 .name 不带 N 前缀(如 NSelect.name === 'Select'), 字符串字面量 key
+// 匹配不上、真实组件会穿透渲染——按 Task 7 整体复核发现的同类问题, 统一用 [Component.name as string]。
 const stubs = {
-  NDatePicker: true,
-  NInputNumber: true,
-  NSelect: true,
-  NButton: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
+  [NDatePicker.name as string]: true,
+  [NInputNumber.name as string]: true,
+  [NSelect.name as string]: true,
+  // 只用 <slot/>, 不额外写 @click="$emit('click')": 那样会和 attrs fallthrough
+  // 的原生 click 监听同时触发, 导致父层 @click 处理函数被调用两次(此 stub 之前因
+  // key 匹配不上从未真正生效, 修 key 后才暴露; 修复方式同 Verdicts.spec.ts 里
+  // FactorCard stub 的同款教训)。
+  [NButton.name as string]: { template: '<button><slot /></button>' },
 }
 
 function mountForm(lastSplitHint: string | null = null) {

@@ -301,7 +301,8 @@ watch([filterKey, sortKey], () => { modalOpen.value = false })
 .factor-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  /* auto-fill(非 auto-fit): 少量因子时卡片保持 ~240px 扫读宽度, 不被拉伸铺满整行 */
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   margin-bottom: var(--gap-lg);
 }
 

@@ -123,3 +123,4 @@ pre,
 .t-fail { color: var(--c-fail); }
 .t-warn { color: var(--c-warn); }
 .t-muted { color: var(--text-3); }
+.gate-na { color: var(--text-3); }

@@ -189,8 +189,13 @@ naive-ui 已是运行时依赖（表单组件在用），NModal 免费提供 foc
 规范固化（后续页面复用同参数）：
 
 - 尺寸 `width: min(760px, 92vw)`，`max-height: 84vh`，内容区 `overflow-y: auto`；
-- 遮罩 `rgba(0,0,0,.4)` + `backdrop-filter: blur(2px)`（深浅主题同参）；
-- 容器 `--bg-1` 底、1px `--border`、`border-radius: var(--radius-lg)`、24px 内边距；
+- 遮罩 `rgba(0,0,0,.4)`（naive-ui 默认色，天然吻合，无需覆盖）+ `backdrop-filter: blur(2px)`
+  （深浅主题同参；实现记录：NModal 非 preset 模式下组件自身的 `style`/`overlay-style`
+  落到内容子节点而非遮罩元素上，遮罩模糊需要一段非 scoped CSS 直接命中 naive-ui 内部
+  的 `.n-modal-mask` 类名才能生效——见 `FactorDetailModal.vue` 实现）；
+- 容器 `--bg-2` 底（`--bg-1` 不存在，token 表最浅一级是 `--bg-2`）、1px `--border`、
+  `border-radius: var(--radius)`（`--radius-lg` 不存在，token 表只有 `--radius`/`--radius-sm`
+  两级）、24px 内边距；
 - 关闭途径：Esc / 遮罩点击 / 右上关闭钮，三者等价；
 - 进出场沿 NModal 默认 scale-fade，不另配。
 

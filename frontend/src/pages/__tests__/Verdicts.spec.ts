@@ -31,8 +31,11 @@ function mkRun(o: Partial<VerdictRun> = {}): VerdictRun {
 const stubs = {
   FactorTestForm: { props: ['lastSplitHint'], emits: ['refresh'], template: '<div data-testid="stub-form" />' },
   FactorCard: {
+    // 不写 @click="$emit('click')": 会和 attrs fallthrough 的原生 click 同时触发,
+    // 父层 @click="openModal(i)" 被调两次(此处因 openModal 幂等而无害, 但同款写法
+    // 在 FactorTestForm.spec.ts 里真的让提交按钮触发了两次——统一去掉更稳妥)。
     props: ['factor', 'longOnly', 'hasSplit'],
-    template: '<button type="button" class="stub-card" @click="$emit(\'click\')">{{ factor.factor_id }}</button>',
+    template: '<button type="button" class="stub-card">{{ factor.factor_id }}</button>',
   },
   FactorDetailModal: {
     props: ['show', 'factors', 'index', 'longOnly', 'hasSplit', 'runTitle'],

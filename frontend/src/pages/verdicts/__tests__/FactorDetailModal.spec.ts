@@ -40,6 +40,8 @@ const stubs = {
     props: { show: Boolean },
     template: '<div v-if="show"><slot /></div>',
   }),
+  // 同 Jobs.spec.ts 既有惯例: GlossaryTip 内部按术语查字典渲染 NPopover, 测试里只关心插槽文本本身。
+  GlossaryTip: { template: '<span><slot /></span>' },
 }
 
 describe('FactorDetailModal', () => {
