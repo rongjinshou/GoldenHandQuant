@@ -89,7 +89,7 @@ function onKeydown(e: KeyboardEvent): void {
 <template>
   <NModal
     :show="show"
-    :overlay-style="{ background: 'rgba(0,0,0,.4)', backdropFilter: 'blur(2px)' }"
+    :style="{ background: 'rgba(0,0,0,.4)', backdropFilter: 'blur(2px)' }"
     @update:show="(v: boolean) => emit('update:show', v)"
   >
     <div v-if="factor" class="verdict-modal" data-testid="verdict-modal" @keydown="onKeydown">
