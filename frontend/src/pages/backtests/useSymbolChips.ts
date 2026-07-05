@@ -53,6 +53,16 @@ export function useSymbolChips(): UseSymbolChipsReturn {
   let suggestQ = ''
   let timer: ReturnType<typeof setTimeout> | null = null
 
+  /* 幽灵点击防护(2026-07-05 confirmed-bug): 鼠标点选联想候选后, 该候选 <li> 从 DOM 消失、
+   * 新 chip 的×按钮在同一屏幕坐标插入, 浏览器对 mouseup 的坐标命中测试发生在这次 DOM 更新
+   * 之后, 于是对新插入的×按钮补发一次原生 click——同一次点击手势里"选中"与"删除"背靠背
+   * 触发, 表现为点联想候选后 chip 秒加秒删, 搜索选中彻底不可用(已用 Playwright 手动分离
+   * mousedown/mouseup + 全局 click 监听逐层复现确认, 与 mousedown 或 click 触发本身无关)。
+   * 防护: 记一个 symbol 最近被 commitText 加入的时间, remove() 短窗口(250ms)内命中同一
+   * symbol 视为幽灵点击, 忽略——真实用户"加错了马上点×撤销"的手速也远不会快过这个窗口。 */
+  const GHOST_CLICK_GUARD_MS = 250
+  const recentlyAdded = new Map<string, number>()
+
   function clearPending(): void {
     if (timer) {
       clearTimeout(timer)
@@ -64,12 +74,17 @@ export function useSymbolChips(): UseSymbolChipsReturn {
   function commitText(text: string): string[] {
     const { ok, bad } = splitSymbolTokens(text)
     for (const sym of ok) {
-      if (!symbols.value.includes(sym)) symbols.value.push(sym)
+      if (!symbols.value.includes(sym)) {
+        symbols.value.push(sym)
+        recentlyAdded.set(sym, Date.now())
+      }
     }
     return bad
   }
 
   function remove(sym: string): void {
+    const addedAt = recentlyAdded.get(sym)
+    if (addedAt !== undefined && Date.now() - addedAt < GHOST_CLICK_GUARD_MS) return
     symbols.value = symbols.value.filter((s) => s !== sym)
   }
 
