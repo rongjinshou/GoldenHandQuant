@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from src.domain.account.entities.asset import Asset
@@ -12,6 +13,8 @@ from src.domain.risk.value_objects.risk_event import (
     RiskEventType,
     RiskSeverity,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class CircuitBreaker:
@@ -114,6 +117,13 @@ class CircuitBreaker:
                     daily_loss_rate=daily_loss_rate,
                 )
                 return self._state
+        else:
+            # confirmed-bug(2026-07-05): reset_daily() 未调用(或传了非正值)时哨兵值
+            # 会让本道检查静默跳过——熔断器看似 NORMAL, 实则没做任何单日亏损评估。
+            logger.warning(
+                "CircuitBreaker.evaluate() 跳过单日亏损检查: day_open_asset=%.2f 非正, "
+                "reset_daily() 可能尚未调用", self._day_open_asset,
+            )
 
         # 检查 2: 总回撤
         if snapshots and self._initial_capital > 0:
@@ -127,6 +137,11 @@ class CircuitBreaker:
                     reason=f"Total drawdown {current_dd:.2%} exceeds limit {self._max_total_drawdown:.2%}",
                 )
                 return self._state
+        elif snapshots and self._initial_capital <= 0:
+            logger.warning(
+                "CircuitBreaker.evaluate() 跳过总回撤检查: initial_capital=%.2f 非正, "
+                "set_initial_capital() 可能尚未调用", self._initial_capital,
+            )
 
         return self._state
 

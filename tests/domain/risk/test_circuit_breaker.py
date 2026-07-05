@@ -146,3 +146,22 @@ def test_zero_open_asset_skips_daily_check():
     breaker.evaluate(asset, [])
 
     assert breaker.state.status == BreakerStatus.NORMAL
+
+
+def test_evaluate_before_setup_logs_warning_instead_of_silently_skipping(caplog):
+    """confirmed-bug(2026-07-05 全项目排查发现): evaluate() 在 set_initial_capital()/
+    reset_daily() 均未调用前被调用时, 哨兵值(_day_open_asset=_initial_capital=0.0)
+    会让两道风控检查(单日亏损/总回撤)全部静默跳过——返回看起来正常的 NORMAL 状态,
+    但实际上没做任何风险评估。这种接线时序错误此前完全无声, 现补一条 warning 日志
+    让它在早期就能被发现, 而不是等真出险情时才发现熔断器形同虚设。"""
+    breaker = CircuitBreaker()  # 未调用 set_initial_capital()/reset_daily()
+
+    asset = Asset(account_id="test", total_asset=1_000_000)
+    snapshots = [DailySnapshot(date=datetime(2026, 1, 1), total_asset=1_000_000,
+                                available_cash=500_000, market_value=500_000)]
+
+    with caplog.at_level("WARNING", logger="src.domain.risk.services.circuit_breaker"):
+        state = breaker.evaluate(asset, snapshots)
+
+    assert state.status == BreakerStatus.NORMAL  # 行为不变: 仍不崩溃、仍返回 NORMAL
+    assert len(caplog.records) == 2  # 单日亏损检查 + 总回撤检查 各跳过各自告警一次
