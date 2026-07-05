@@ -25,7 +25,14 @@ const CellRender = defineComponent({
 })
 
 /* 自研分页长表(设计 §4.1 评审裁定) — 旧 live.js renderBounded 语义收敛:
- * 默认渲染前 pageSize 行, "显示全部 N 条"展开; 展开态组件内保持, 父级轮询重传 rows 不回折。 */
+ * 默认渲染前 pageSize 行, "显示全部 N 条"展开; 展开态组件内保持, 父级轮询重传 rows 不回折。
+ *
+ * "显示全部"按钮常驻不消失(2026-07-05 confirmed-bug, 同款问题已在
+ * pages/live/CyclesTable.vue/pages/backtests/useSymbolChips.ts 两处实测确认过机制):
+ * 若用 v-if 让按钮点击后消失, 表格因新增行变高会让某一新展开行占据按钮原屏幕位置,
+ * 浏览器对这次点击手势 mouseup 的坐标命中测试发生在 DOM 更新之后, 会对新行补发一次
+ * 原生 click, 误触发它的 rowClick。此组件当前虽无消费者接了 rowClick(隐患休眠), 但
+ * 接口已存在, 保持按钮常驻可从根上避免这个隐患将来被激活。 */
 const props = withDefaults(
   defineProps<{
     rows: Record<string, unknown>[]
@@ -44,7 +51,6 @@ const visible = computed(() =>
     ? props.rows
     : props.rows.slice(0, props.pageSize),
 )
-const hiddenCount = computed(() => props.rows.length - visible.value.length)
 </script>
 
 <template>
@@ -73,8 +79,14 @@ const hiddenCount = computed(() => props.rows.length - visible.value.length)
         </tr>
       </TransitionGroup>
     </table>
-    <button v-if="hiddenCount > 0" class="dt-expand" data-testid="dt-expand" type="button" @click="expanded = true">
-      显示全部 {{ rows.length }} 条 ▾
+    <button
+      v-if="rows.length > pageSize"
+      class="dt-expand"
+      data-testid="dt-expand"
+      type="button"
+      @click="expanded = !expanded"
+    >
+      {{ expanded ? '收起 ▴' : `显示全部 ${rows.length} 条 ▾` }}
     </button>
   </div>
 </template>
