@@ -42,7 +42,7 @@
 
 ## 3. Stage 2 — `apply.sh` 确定性修复引擎
 
-`work/fixer/apply.sh <target-root>`（默认 `/app/code/judge-assets/02_04_design_implementation_consistency`）对知识库的每一项：
+`work/fixer/apply.sh [target-root]`——目标根**可省略**：引擎会自动定位材料（从当前目录与脚本所在位置逐级向上查找含 `code/pom.xml` 的目录，再扫描常见评测根路径；找不到时报错并给出明确指引，绝不静默）。另提供**功能完全等价的 `apply.py`**（纯 python3 标准库），供 bash 不可用的执行环境使用；二者对同一材料产出逐字节一致的修复树。引擎对知识库的每一项：
 
 1. 读取目标工程中对应文件，算其 SHA-256；
 2. 与记录的**基线哈希**、**修复后内容哈希**比对；
@@ -52,7 +52,7 @@
    - 目标 == 基线（pristine 待修复态）→ **整份替换**；
    - 目标 == 两者皆非（意外变体）→ 仍整份替换并**标注告警**（知识库文件是权威的"设计一致版本"，整份替换本身安全）；
    - 删除清单中的文件 → 存在则删除（并清理空目录）。
-4. 结束打印 apply-report：`checked / applied(fix) / added / variant-imposed / already-fixed / deleted / del-absent / failed`。任何 `failed` 使退出码非 0。
+4. 结束打印 apply-report：`checked / applied(fix) / added / variant-imposed / already-fixed / deleted / del-absent / failed`。任何 `failed` 使退出码非 0。报告同时**落盘两份**（`work/fixer/apply-report.txt` 与材料根目录 `apply-report.txt`），使"确定性阶段是否发生、发生了什么"在评测产物中可直接取证。
 
 **为什么整份替换而非 unified diff / `git apply`**：diff 依赖上下文行匹配，目标材料哪怕一处空白/行尾差异就会导致 patch 失败；整份替换只要求文件路径存在，不依赖目标机有 `git` 或 `patch`，是最普适的机制。代价是产物体积更大，可接受。
 
@@ -64,7 +64,7 @@
 
 ## 4. Stage 3 — 在线复核（验证优先 + 护栏）
 
-`work/skills/design-consistency-fixer/SKILL.md` 作为普通 Markdown 被平台 agent 加载，在 `apply.sh` 之后执行：
+`work/skills/design-consistency-fixer/SKILL.md` 供**人工评审或本地开发复核**使用；平台自动评测路径**不调用**它（评测机上的必选动作只有确定性引擎一步——把任何自由发挥留给 agent 都会引入运行间差异，这正是稳定性分的天敌）。其流程：
 
 1. **验证优先**：`mvn -s maven-settings.xml -f <target>/code/pom.xml install -DskipTests` 后 `mvn -s maven-settings.xml -f test-cases/pom.xml test`。
 2. 全绿即完成——不做多余改动。
