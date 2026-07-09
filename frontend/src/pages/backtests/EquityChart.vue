@@ -14,7 +14,7 @@ import { computed } from 'vue'
 import VChart from 'vue-echarts'
 
 import type { BacktestRun, BacktestStrategy } from '@/api/types'
-import { type ChartPalette, useChartTheme, vGradient } from '@/composables/useChartTheme'
+import { type ChartPalette, tooltipStyle, useChartTheme, vGradient } from '@/composables/useChartTheme'
 
 import {
   alignToAxis,
@@ -153,13 +153,7 @@ const option = computed(() => {
     tooltip: {
       trigger: 'axis',
       formatter: chartTooltipFormatter,
-      backgroundColor: t.tipBg,
-      borderColor: t.tipBorder,
-      borderWidth: 1,
-      textStyle: { color: t.tipText, fontSize: 12 },
-      extraCssText:
-        'backdrop-filter: blur(6px); border-radius: 9px;' +
-        ' box-shadow: 0 10px 30px rgba(0,0,0,.28); padding: 8px 11px;',
+      ...tooltipStyle(t),
       axisPointer: { type: 'line', lineStyle: { color: t.axis, type: 'dashed' } },
     },
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
