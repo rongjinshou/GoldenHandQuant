@@ -55,7 +55,8 @@ function toggle(id: string): void {
     return
   }
   expanded.add(id)
-  if (!details.value[id]) void fetchDetail(id)
+  // 失败态是字符串 'error'(truthy) — 仅判 !details[id] 会让重展开不重拉, 故显式含 'error' 重试
+  if (!details.value[id] || details.value[id] === 'error') void fetchDetail(id)
 }
 
 /* 轮询重传: 已展开且仍在场者刷新明细, 已消失者剪除(对等旧 expandedCycles 维护) */
@@ -89,15 +90,15 @@ function dirText(d: string): string {
     <table>
       <thead>
         <tr>
-          <th>时刻</th>
-          <th>模式</th>
-          <th>策略</th>
-          <th class="right">信号</th>
-          <th class="right">提交</th>
-          <th class="right">拒绝</th>
-          <th class="right">失败</th>
-          <th class="right">金额</th>
-          <th>备注</th>
+          <th scope="col">时刻</th>
+          <th scope="col">模式</th>
+          <th scope="col">策略</th>
+          <th scope="col" class="right">信号</th>
+          <th scope="col" class="right">提交</th>
+          <th scope="col" class="right">拒绝</th>
+          <th scope="col" class="right">失败</th>
+          <th scope="col" class="right">金额</th>
+          <th scope="col">备注</th>
         </tr>
       </thead>
       <tbody>
@@ -105,10 +106,19 @@ function dirText(d: string): string {
           <td colspan="9" class="empty-cell t-muted">暂无循环</td>
         </tr>
         <template v-for="c in visible" :key="c.cycle_id">
-          <tr class="clickable" data-testid="cycle-row" @click="toggle(c.cycle_id)">
-            <!-- ▸/▾ 展开指示符: 行可点击展开这一交互此前无任何视觉暗示 -->
+          <tr data-testid="cycle-row" :class="{ expanded: expanded.has(c.cycle_id) }">
+            <!-- 展开由真 button 承载(键盘可达 2.1.1/4.1.2); ▸/▾ caret 纯装饰 aria-hidden -->
             <td class="num">
-              <span class="caret" aria-hidden="true">{{ expanded.has(c.cycle_id) ? '▾' : '▸' }}</span>{{ sliceTime(c.cycle_time) }}
+              <button
+                type="button"
+                class="cycle-toggle"
+                :aria-expanded="expanded.has(c.cycle_id)"
+                :aria-label="`${expanded.has(c.cycle_id) ? '收起' : '展开'} ${sliceTime(c.cycle_time)} 循环明细`"
+                data-testid="cycle-toggle"
+                @click="toggle(c.cycle_id)"
+              >
+                <span class="caret" aria-hidden="true">{{ expanded.has(c.cycle_id) ? '▾' : '▸' }}</span>{{ sliceTime(c.cycle_time) }}
+              </button>
             </td>
             <td><LvBadge :kind="c.mode === 'live' ? 'fail' : 'info'">{{ c.mode }}</LvBadge></td>
             <td>{{ c.strategy }}</td>
@@ -128,11 +138,11 @@ function dirText(d: string): string {
               <table v-else class="detail-table">
                 <thead>
                   <tr>
-                    <th>标的</th>
-                    <th>方向</th>
-                    <th>状态</th>
-                    <th class="right">金额</th>
-                    <th>拒绝原因</th>
+                    <th scope="col">标的</th>
+                    <th scope="col">方向</th>
+                    <th scope="col">状态</th>
+                    <th scope="col" class="right">金额</th>
+                    <th scope="col">拒绝原因</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -204,13 +214,33 @@ td {
   font-size: 12.5px;
 }
 
-.clickable {
-  cursor: pointer;
+/* 行 hover 高亮保留视觉分组; 实际交互落到首列 button(键盘可达) */
+tbody tr {
   transition: background var(--dur-fast) var(--ease-out);
 }
 
-.clickable:hover {
+tbody tr:hover,
+tbody tr.expanded {
   background: var(--accent-soft);
+}
+
+/* 展开 button: 视觉沿用原单元格外观(透明无框、继承字体), 撑满单元格便于点选 */
+.cycle-toggle {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.cycle-toggle:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .row-detail > td {

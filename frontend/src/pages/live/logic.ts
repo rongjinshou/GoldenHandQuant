@@ -129,6 +129,26 @@ export function positionRow(r: PositionSnapshot): PositionRowView {
   }
 }
 
+/* 权益曲线无障碍替代文本(WCAG 1.1.1) — ECharts 容器 role="img" 的 aria-label:
+ * 概述曲线条数(按 mode)、每条最新总资产、时间区间, 让读屏用户不看图也能获取要点。
+ * <2 快照(不成曲线)时返回未绘制说明。时间中的 'T' 换空格便于读屏断句。 */
+export function equityAriaLabel(series: AccountSnapshot[]): string {
+  if (series.length < 2) return '账户权益曲线，快照不足暂未绘制'
+  const fmt = (s: string): string => sliceTime(s).replace('T', ' ')
+  const sorted = [...series].sort((a, b) => (a.snapshot_time < b.snapshot_time ? -1 : 1))
+  const modes = [...new Set(sorted.map((r) => r.mode))]
+  const start = fmt(sorted[0].snapshot_time)
+  const end = fmt(sorted[sorted.length - 1].snapshot_time)
+  const parts = modes.map((m) => {
+    const rows = sorted.filter(
+      (r) => r.mode === m && r.total_asset !== null && r.total_asset !== undefined,
+    )
+    const last = rows.length ? rows[rows.length - 1].total_asset : null
+    return `${m} 最新总资产 ${num(last)}`
+  })
+  return `账户权益曲线，${modes.length} 条：${parts.join('；')}；区间 ${start} 至 ${end}`
+}
+
 /* ticket 键值面板: content 非对象 → null(渲染"内容不可读"); 空值字段跳过。
  * 方向买红卖绿(t-buy/t-sell), 终态含 FILLED 绿(t-pass)、REJECT/FAIL 红(t-fail)。 */
 export interface TicketCell {

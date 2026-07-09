@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { NButton, NDatePicker, NInput, NInputNumber } from 'naive-ui'
+import { NButton, NDatePicker, NInput, NInputNumber, NPopconfirm } from 'naive-ui'
 import { computed, nextTick, onUnmounted, ref } from 'vue'
 
+import type { ApiError } from '@/api/fetch'
 import { fetchJSON, postJSON } from '@/api/fetch'
 import type { Job } from '@/api/types'
+import AppBadge from '@/components/AppBadge.vue'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import JobCard from '@/components/JobCard.vue'
@@ -12,10 +14,12 @@ import { usePolling } from '@/composables/usePolling'
 import { useJobsStore } from '@/stores/jobs'
 
 import { STATUS_LABEL, TERMINAL_STATUS, durationOf, paramsSummary } from './jobs/format'
+import { isNearBottom, jobBadgeKind } from './jobs/ui'
 
-/* 任务中心 — 旧 jobs.js loadJobsPage/showJobLog/initMlForms 对等:
- * 列表 5s 轮询 + 活跃数写回 store; 行点击日志钻取(2s 轮询/终态停/5 连败停);
- * 取消静默容错后刷列表; ML 训练/评估表单 + JobCard 闭环(done 仅成功触发刷新)。 */
+/* 任务中心 — 旧 jobs.js loadJobsPage/showJobLog/initMlForms 对等 + 批二硬化:
+ * 列表 5s 轮询 + 活跃数写回 store; ID 单元格真 button 承载日志钻取(键盘可达 + aria-expanded);
+ * 取消套 NPopconfirm + 行内乐观「取消中…」; 日志仅近底跟随, 离底显「回到最新」;
+ * ML 训练/评估提交 pending 排重; JobCard 闭环(done 仅成功触发刷新 + 终态弹通知)。 */
 
 interface JobsListResponse {
   jobs: Job[]
@@ -44,13 +48,22 @@ const {
 const jobs = computed(() => listData.value?.jobs ?? [])
 const bannerMsg = computed(() => error.value || listError.value?.message || '')
 
+// 取消: 套 NPopconfirm 二次确认 + 行内乐观「取消中…」并禁钮; 仅静默 404/409, 其余走 ErrorBanner
+const cancelingIds = ref(new Set<string>())
+
 async function cancelJob(id: string): Promise<void> {
+  cancelingIds.value.add(id)
   try {
     await postJSON(`/api/jobs/${id}/cancel`)
-  } catch {
-    /* 已结束(404/409) — 对等旧版静默 */
+  } catch (e) {
+    const status = (e as ApiError).status
+    if (status !== 404 && status !== 409) {
+      error.value = (e as Error).message // 已结束(404/409)静默, 其余暴露到横幅
+    }
+  } finally {
+    await refresh()
+    cancelingIds.value.delete(id)
   }
-  void refresh()
 }
 
 // ---- 日志钻取面板(旧 showJobLog 对等) ----
@@ -59,6 +72,7 @@ const logTitle = ref('')
 const logText = ref('选择任务查看日志')
 const logLive = ref(false)
 const logEl = ref<HTMLPreElement | null>(null)
+const logAtBottom = ref(true) // 日志是否在底部附近(离底时显「回到最新」浮钮)
 // 零任务时终端框纯噪音 — 占位文案联动引导, 不藏区块保布局稳定
 const logDisplay = computed(() =>
   listData.value && jobs.value.length === 0 && selectedId.value === null
@@ -67,6 +81,21 @@ const logDisplay = computed(() =>
 )
 let logTimer: ReturnType<typeof setInterval> | null = null
 let logSeq = 0 // 切换任务后丢弃前一任务迟到响应
+
+function measureLogAtBottom(): boolean {
+  const el = logEl.value
+  return !el || isNearBottom(el.scrollHeight, el.scrollTop, el.clientHeight)
+}
+
+function onLogScroll(): void {
+  logAtBottom.value = measureLogAtBottom()
+}
+
+function scrollLogToBottom(): void {
+  const el = logEl.value
+  if (el) el.scrollTop = el.scrollHeight
+  logAtBottom.value = true
+}
 
 function stopLogPolling(): void {
   logLive.value = false
@@ -79,6 +108,7 @@ function stopLogPolling(): void {
 function openLog(jobId: string): void {
   stopLogPolling()
   selectedId.value = jobId
+  logAtBottom.value = true // 新钻取默认贴底跟随
   const mySeq = ++logSeq
   let failCount = 0
   logLive.value = true
@@ -100,10 +130,13 @@ function openLog(jobId: string): void {
     if (mySeq !== logSeq) return
     failCount = 0
     logTitle.value = `${jobId} · ${STATUS_LABEL[job.status] ?? job.status}`
+    const stick = measureLogAtBottom() // 更新内容前测量(此刻 DOM 仍为旧内容)
     logText.value = (job.log_tail ?? []).join('\n') || '（无输出）'
     if (TERMINAL_STATUS.has(job.status)) stopLogPolling()
     await nextTick()
-    if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight // 滚动跟随
+    // 仅当用户在底部附近才跟随滚底, 否则保留其滚动位置并显「回到最新」
+    if (stick) scrollLogToBottom()
+    else logAtBottom.value = measureLogAtBottom()
   }
 
   void tick()
@@ -121,9 +154,13 @@ const mlTrials = ref<number | null>(50)
 const mleStart = ref<string | null>('2025-01-01')
 const mleEnd = ref<string | null>('2025-12-31')
 const mlJobIds = ref<string[]>([])
+// 提交 pending: :loading + 禁钮防双击排重(照 Overview 样板)
+const trainSubmitting = ref(false)
+const evalSubmitting = ref(false)
 
 async function submitTrain(): Promise<void> {
   error.value = ''
+  trainSubmitting.value = true
   try {
     const job = await postJSON<Job>('/api/jobs/ml-train', {
       start_date: mlStart.value ?? '',
@@ -135,11 +172,14 @@ async function submitTrain(): Promise<void> {
     mlJobIds.value.unshift(job.job_id)
   } catch (e) {
     error.value = (e as Error).message
+  } finally {
+    trainSubmitting.value = false
   }
 }
 
 async function submitEval(): Promise<void> {
   error.value = ''
+  evalSubmitting.value = true
   try {
     const job = await postJSON<Job>('/api/jobs/ml-evaluate', {
       model_name: mlModel.value.trim(),
@@ -149,6 +189,8 @@ async function submitEval(): Promise<void> {
     mlJobIds.value.unshift(job.job_id)
   } catch (e) {
     error.value = (e as Error).message
+  } finally {
+    evalSubmitting.value = false
   }
 }
 
@@ -176,7 +218,7 @@ function onMlDone(): void {
         <label>标的 <NInput v-model:value="mlSymbols" style="width: 140px" data-testid="ml-symbols" /></label>
         <label><GlossaryTip term="model_name">模型名</GlossaryTip> <NInput v-model:value="mlModel" style="width: 170px" data-testid="ml-model" /></label>
         <label><GlossaryTip term="n_trials">调参次数 (n-trials)</GlossaryTip> <NInputNumber v-model:value="mlTrials" :min="1" :max="200" style="width: 100px" data-testid="ml-trials" /></label>
-        <NButton type="primary" class="row-end" data-testid="ml-train-submit" @click="submitTrain">训练</NButton>
+        <NButton type="primary" class="row-end" :loading="trainSubmitting" :disabled="trainSubmitting" data-testid="ml-train-submit" @click="submitTrain">训练</NButton>
       </div>
       <div class="form-row">
         <label>评估起 <NDatePicker v-model:formatted-value="mleStart" value-format="yyyy-MM-dd" type="date" clearable data-testid="mle-start" /></label>
@@ -184,7 +226,7 @@ function onMlDone(): void {
         <!-- 评估静默复用首行「模型名」— 常驻小字把依赖显式化, 避免评错模型; 评估降为次级钮与训练分主次 -->
         <div class="row-end eval-group">
           <span class="t-muted eval-model-hint" data-testid="ml-eval-model">评估模型：{{ mlModel || '未填' }}</span>
-          <NButton data-testid="ml-eval-submit" @click="submitEval">评估</NButton>
+          <NButton :loading="evalSubmitting" :disabled="evalSubmitting" data-testid="ml-eval-submit" @click="submitEval">评估</NButton>
         </div>
       </div>
     </details>
@@ -198,13 +240,13 @@ function onMlDone(): void {
       <table data-testid="jobs-table">
         <thead>
           <tr>
-            <th>ID</th>
-            <th>类型</th>
-            <th>参数</th>
-            <th>状态</th>
-            <th>创建</th>
-            <th>耗时</th>
-            <th>操作</th>
+            <th scope="col">ID</th>
+            <th scope="col">类型</th>
+            <th scope="col">参数</th>
+            <th scope="col">状态</th>
+            <th scope="col">创建</th>
+            <th scope="col">耗时</th>
+            <th scope="col">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -216,24 +258,51 @@ function onMlDone(): void {
             data-testid="job-row"
             @click="openLog(j.job_id)"
           >
-            <td><code>{{ j.job_id }}</code></td>
+            <td>
+              <!-- C1: ID 单元格真 button 承载日志钻取(键盘可达), aria-expanded 标注是否选中 -->
+              <button
+                type="button"
+                class="id-btn"
+                :aria-expanded="j.job_id === selectedId"
+                aria-controls="job-log-panel"
+                :aria-label="`查看任务 ${j.job_id} 日志`"
+                data-testid="job-row-drill"
+                @click.stop="openLog(j.job_id)"
+              ><code>{{ j.job_id }}</code></button>
+            </td>
             <td>{{ j.job_type }}</td>
             <td class="params-cell" :title="paramsSummary(j)">{{ paramsSummary(j) }}</td>
             <td>
-              <span class="badge" :class="j.status">{{ STATUS_LABEL[j.status] ?? j.status }}</span>
+              <AppBadge :kind="jobBadgeKind(j.status)">{{ STATUS_LABEL[j.status] ?? j.status }}</AppBadge>
             </td>
             <td class="num">{{ (j.created_at ?? '').slice(5, 19) }}</td>
             <td class="num">{{ durationOf(j) }}</td>
             <td>
-              <button
-                v-if="j.status === 'queued' || j.status === 'running'"
-                class="cancel"
-                data-testid="job-row-cancel"
-                type="button"
-                @click.stop="cancelJob(j.job_id)"
-              >
-                取消
-              </button>
+              <template v-if="j.status === 'queued' || j.status === 'running'">
+                <span
+                  v-if="cancelingIds.has(j.job_id)"
+                  class="canceling t-muted"
+                  data-testid="job-row-canceling"
+                >取消中…</span>
+                <NPopconfirm
+                  v-else
+                  positive-text="确认取消"
+                  negative-text="返回"
+                  @positive-click="cancelJob(j.job_id)"
+                >
+                  <template #trigger>
+                    <button
+                      class="cancel"
+                      data-testid="job-row-cancel"
+                      type="button"
+                      @click.stop
+                    >
+                      取消
+                    </button>
+                  </template>
+                  <div class="confirm-body">取消任务 <code>{{ j.job_id }}</code>？</div>
+                </NPopconfirm>
+              </template>
             </td>
           </tr>
         </tbody>
@@ -250,7 +319,18 @@ function onMlDone(): void {
       <span v-if="logLive" class="live-dot" aria-hidden="true"></span>
       <span class="t-muted log-title num" data-testid="job-log-title">{{ logTitle }}</span>
     </h3>
-    <pre ref="logEl" class="job-log" data-testid="job-log">{{ logDisplay }}</pre>
+    <div class="log-wrap">
+      <pre ref="logEl" id="job-log-panel" class="job-log" data-testid="job-log" @scroll="onLogScroll">{{ logDisplay }}</pre>
+      <button
+        v-if="!logAtBottom"
+        class="jump-latest"
+        data-testid="job-log-jump"
+        type="button"
+        @click="scrollLogToBottom"
+      >
+        ↓ 回到最新
+      </button>
+    </div>
   </section>
 </template>
 
@@ -347,6 +427,17 @@ td code {
   font-size: 12px;
 }
 
+/* ID 钻取钮: 呈现为纯文本(承载键盘可达 + aria), 去按钮默认外观 */
+.id-btn {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+
 .job-row {
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out);
@@ -372,41 +463,6 @@ td code {
   white-space: nowrap;
 }
 
-/* 状态徽章: 与 JobCard 同一配方 */
-.badge {
-  border-radius: 20px;
-  font-family: var(--font-display);
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 3px 10px;
-  white-space: nowrap;
-}
-
-.badge.queued {
-  background: var(--bg-3);
-  color: var(--text-2);
-}
-
-.badge.running {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.badge.succeeded {
-  background: color-mix(in srgb, var(--c-pass) 16%, transparent);
-  color: var(--c-pass);
-}
-
-.badge.failed {
-  background: color-mix(in srgb, var(--c-fail) 16%, transparent);
-  color: var(--c-fail);
-}
-
-.badge.canceled {
-  background: var(--bg-3);
-  color: var(--text-3);
-}
-
 .cancel {
   background: transparent;
   border: 1px solid var(--c-fail);
@@ -414,6 +470,7 @@ td code {
   color: var(--c-fail);
   cursor: pointer;
   font-size: 12px;
+  min-height: 24px;
   padding: 3px 12px;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
@@ -421,6 +478,15 @@ td code {
 .cancel:hover {
   background: var(--c-fail);
   color: var(--bg);
+}
+
+.canceling {
+  font-size: 12px;
+}
+
+/* NPopconfirm 默认插槽是 flex 布局 — 显式约束宽度 */
+.confirm-body {
+  max-width: 240px;
 }
 
 .empty {
@@ -466,6 +532,10 @@ td code {
   }
 }
 
+.log-wrap {
+  position: relative;
+}
+
 .job-log {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -480,5 +550,21 @@ td code {
   padding: 10px 12px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* 离底时浮于日志右下: 一键回到最新(不再无条件抢滚动条) */
+.jump-latest {
+  background: var(--accent);
+  border: none;
+  border-radius: 14px;
+  bottom: 12px;
+  color: var(--text-on-accent);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  padding: 5px 14px;
+  position: absolute;
+  right: 16px;
+  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.25));
 }
 </style>

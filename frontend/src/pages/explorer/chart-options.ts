@@ -105,6 +105,7 @@ export function buildKlineOption(
     return {
       backgroundColor: 'transparent',
       animation: false,
+      aria: { enabled: true }, // 无障碍(设计 §8 S5): 容器 role=img 之外再让 ECharts 生成内部描述; 需 use(AriaComponent)
       textStyle: { color: t.text },
       title: {
         text: `${meta.symbol} 前复权日线`,
@@ -197,6 +198,7 @@ export function buildKlineOption(
   return {
     backgroundColor: 'transparent',
     animation: false,
+    aria: { enabled: true }, // 无障碍(设计 §8 S5): 多标的分支同启用 ECharts 内部描述; 需 use(AriaComponent)
     textStyle: { color: t.text },
     title: {
       text: `多标的涨跌幅对比 · ${unionDates[0]}～${unionDates[unionDates.length - 1]}`,
@@ -264,6 +266,7 @@ export function buildFeaturePanelOption(
     return {
       backgroundColor: 'transparent',
       animation: false,
+      aria: { enabled: true }, // 无障碍(设计 §8 S5): 容器 role=img 之外再让 ECharts 生成内部描述; 需 use(AriaComponent)
       textStyle: { color: t.text },
       color: t.series,
       title: {
@@ -328,6 +331,7 @@ export function buildFeaturePanelOption(
   return {
     backgroundColor: 'transparent',
     animation: false,
+    aria: { enabled: true }, // 无障碍(设计 §8 S5): 多标的分支同启用 ECharts 内部描述; 需 use(AriaComponent)
     textStyle: { color: t.text },
     title: {
       text: '多标的截面特征对比',
@@ -359,4 +363,22 @@ export function buildFeaturePanelOption(
     dataZoom: [{ type: 'inside' }],
     series,
   }
+}
+
+/* 图表容器 role=img 的动态 aria-label(设计 §8 S5) — 屏幕阅读器一句话摘要:
+ * 标的清单 + 图型 + 固定近一年窗口。纯函数, 与 build*Option 分支口径一致(单/多标的)。 */
+export function buildKlineAriaLabel(symbols: SymbolMeta[]): string {
+  if (symbols.length === 0) return '个股 K 线图，暂无标的'
+  if (symbols.length === 1) {
+    return `个股 K 线图：${symbols[0].symbol}，前复权日线含成交量，近一年窗口`
+  }
+  const names = symbols.map((s) => s.symbol).join('、')
+  return `多标的涨跌幅对比图：${names}，近一年窗口`
+}
+
+export function buildFeatureAriaLabel(symbols: SymbolMeta[], features: string[]): string {
+  if (symbols.length === 0 || features.length === 0) return '截面特征图，暂无数据'
+  const names = symbols.map((s) => s.symbol).join('、')
+  const feats = features.map((f) => featureLabel(f)).join('、')
+  return `截面特征图：${names}，特征 ${feats}，近一年窗口`
 }

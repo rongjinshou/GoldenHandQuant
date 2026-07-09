@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { NModal } from 'naive-ui'
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 import type { VerdictFactor } from '@/api/types'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 
-import { f2, f3, f4, gcell, gradeClass, isPassReason, pct } from './gates'
+import { f2, f3, f4, gradeClass, isPassReason, pct } from './gates'
+import { mcell } from './verdict-metric-cell'
 
 /* 因子详情弹框(设计 0705-verdict-cards §6) — 全站首个 modal, 规范:
  * 尺寸 min(760px,92vw)/84vh 滚动, 遮罩 rgba(0,0,0,.4)+blur(2px)。
@@ -49,35 +50,37 @@ const NA_CELL: MetricCell = { text: '—', cls: '' }
 
 /* gloss 术语沿旧表格口径(见 GLOSSARY): 'ir'/'ic_posrate'/'ls_is' 的释义文本本身
  * 已覆盖多空与长多两种口径, 不需要按 objective 分叉术语 key。 */
+/* 数值格子配色改走 mcell(设计 §6.1): Top超额/多空收益(IS 与 OOS)=带符号收益→行情色,
+ * IC/IR/超额信息比/各正率/单调性=预测力质量指标→中性; 判定色只留 PASS/FAIL 徽章。 */
 const metricRows = computed<MetricRow[]>(() => {
   const f = factor.value
   if (!f) return []
   const oosOr = (name: string, v: number | null, fmt: (x: number) => string): MetricCell =>
-    props.hasSplit ? gcell(name, v, fmt) : NA_CELL
+    props.hasSplit ? mcell(name, v, fmt) : NA_CELL
 
   if (props.longOnly) {
     return [
-      { label: 'IC均值', gloss: 'ic', is: gcell('ic_mean', f.ic_mean, f4), oos: oosOr('oos_ic_mean', f.oos_ic_mean, f4) },
-      { label: '超额信息比', gloss: 'ir', is: gcell('excess_ir', f.excess_ir, f2), oos: NA_CELL },
-      { label: '超额正率', gloss: 'ic_posrate', is: gcell('excess_positive_rate', f.excess_positive_rate, pct), oos: NA_CELL },
-      { label: '单调性', gloss: 'monotonicity', is: gcell('monotonicity_score', f.monotonicity_score, f2), oos: NA_CELL },
+      { label: 'IC均值', gloss: 'ic', is: mcell('ic_mean', f.ic_mean, f4), oos: oosOr('oos_ic_mean', f.oos_ic_mean, f4) },
+      { label: '超额信息比', gloss: 'ir', is: mcell('excess_ir', f.excess_ir, f2), oos: NA_CELL },
+      { label: '超额正率', gloss: 'ic_posrate', is: mcell('excess_positive_rate', f.excess_positive_rate, pct), oos: NA_CELL },
+      { label: '单调性', gloss: 'monotonicity', is: mcell('monotonicity_score', f.monotonicity_score, f2), oos: NA_CELL },
       {
         label: 'Top超额',
         gloss: 'ls_is',
-        is: gcell('top_excess_return', f.top_excess_return, pct),
+        is: mcell('top_excess_return', f.top_excess_return, pct),
         oos: oosOr('oos_top_excess_return', f.oos_top_excess_return, pct),
       },
     ]
   }
   return [
-    { label: 'IC均值', gloss: 'ic', is: gcell('ic_mean', f.ic_mean, f4), oos: oosOr('oos_ic_mean', f.oos_ic_mean, f4) },
-    { label: 'IR', gloss: 'ir', is: gcell('ir', f.ir, f3), oos: oosOr('oos_ir', f.oos_ir, f3) },
-    { label: 'IC正率', gloss: 'ic_posrate', is: gcell('ic_positive_rate', f.ic_positive_rate, pct), oos: NA_CELL },
-    { label: '单调性', gloss: 'monotonicity', is: gcell('monotonicity_score', f.monotonicity_score, f2), oos: NA_CELL },
+    { label: 'IC均值', gloss: 'ic', is: mcell('ic_mean', f.ic_mean, f4), oos: oosOr('oos_ic_mean', f.oos_ic_mean, f4) },
+    { label: 'IR', gloss: 'ir', is: mcell('ir', f.ir, f3), oos: oosOr('oos_ir', f.oos_ir, f3) },
+    { label: 'IC正率', gloss: 'ic_posrate', is: mcell('ic_positive_rate', f.ic_positive_rate, pct), oos: NA_CELL },
+    { label: '单调性', gloss: 'monotonicity', is: mcell('monotonicity_score', f.monotonicity_score, f2), oos: NA_CELL },
     {
       label: '多空收益',
       gloss: 'ls_is',
-      is: gcell('long_short_return', f.long_short_return, pct),
+      is: mcell('long_short_return', f.long_short_return, pct),
       oos: oosOr('oos_long_short_return', f.oos_long_short_return, pct),
     },
   ]
@@ -98,24 +101,36 @@ function onKeydown(e: KeyboardEvent): void {
     go(1)
   }
 }
+
+/* 打开后把焦点落到弹框容器(tabindex=-1): 否则焦点仍停在触发它的因子卡片上,
+ * ←/→ 翻因子的 keydown 落不到本弹框, 首次方向键失灵。 */
+const modalEl = ref<HTMLElement | null>(null)
+watch(
+  () => props.show,
+  (show) => {
+    if (show) nextTick(() => modalEl.value?.focus())
+  },
+)
 </script>
 
 <template>
   <NModal :show="show" @update:show="(v: boolean) => emit('update:show', v)">
     <div
       v-if="factor"
+      ref="modalEl"
       class="verdict-modal"
       data-testid="verdict-modal"
       role="dialog"
       aria-modal="true"
       aria-labelledby="vm-title"
+      tabindex="-1"
       @keydown="onKeydown"
     >
       <header class="vm-head">
-        <span id="vm-title">
+        <h3 id="vm-title">
           <span class="fid num">{{ factor.factor_id }}</span>
           <span class="fname">{{ factor.factor_name ?? '' }}</span>
-        </span>
+        </h3>
         <span
           v-if="factor.score !== null && factor.score !== undefined"
           class="grade-badge"
@@ -134,9 +149,9 @@ function onKeydown(e: KeyboardEvent): void {
       <table class="vm-metrics">
         <thead>
           <tr>
-            <th></th>
-            <th class="th-num">IS</th>
-            <th class="th-num">OOS</th>
+            <th scope="col"><span class="sr-only">指标</span></th>
+            <th class="th-num" scope="col">IS</th>
+            <th class="th-num" scope="col">OOS</th>
           </tr>
         </thead>
         <tbody>
@@ -187,11 +202,17 @@ function onKeydown(e: KeyboardEvent): void {
   gap: 10px;
 }
 
+/* h3(标题层级修 h2→h4 跳级): 归零全局标题的 margin/字号, 视觉与原 <span> 一致 —
+ * 内部 .fid/.fname 各自定字号, 标题块本身不承载可见文字。 */
 #vm-title {
   align-items: baseline;
   display: flex;
   flex: 1;
+  font-size: inherit;
+  font-weight: inherit;
   gap: 8px;
+  letter-spacing: normal;
+  margin: 0;
   min-width: 0;
 }
 

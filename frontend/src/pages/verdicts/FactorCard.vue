@@ -3,7 +3,8 @@ import { computed } from 'vue'
 
 import type { VerdictFactor } from '@/api/types'
 
-import { f2, f3, f4, gateTrack, gcell, gradeClass, isPassReason, pct } from './gates'
+import { f2, f3, f4, gateTrack, gradeClass, isPassReason, pct } from './gates'
+import { mcell } from './verdict-metric-cell'
 
 /* 因子判决卡片(设计 0705-verdict-cards §4) — 表格行的替代品:
  * 左缘判决色条 → id+中文名+评分等级 → 三项关键指标 → 闸门轨道(签名元素) → PASS/FAIL徽章
@@ -14,18 +15,20 @@ const props = defineProps<{ factor: VerdictFactor; longOnly: boolean; hasSplit: 
 const track = computed(() => gateTrack(props.factor, props.longOnly, props.hasSplit))
 const passCount = computed(() => track.value.filter((c) => c.state === 'pass').length)
 
+/* 数值格子配色改走 mcell(设计 §6.1): OOS超额/OOS多空=带符号收益→行情色(正红/负绿),
+ * IC均值/超额IR/IR=预测力质量指标→中性; 闸门判定色只留给下方 PASS/FAIL 徽章与闸门轨道。 */
 const metrics = computed(() => {
   const f = props.factor
   return props.longOnly
     ? [
-        { label: 'IC均值', ...gcell('ic_mean', f.ic_mean, f4) },
-        { label: '超额IR', ...gcell('excess_ir', f.excess_ir, f2) },
-        { label: 'OOS超额', ...gcell('oos_top_excess_return', f.oos_top_excess_return, pct) },
+        { label: 'IC均值', ...mcell('ic_mean', f.ic_mean, f4) },
+        { label: '超额IR', ...mcell('excess_ir', f.excess_ir, f2) },
+        { label: 'OOS超额', ...mcell('oos_top_excess_return', f.oos_top_excess_return, pct) },
       ]
     : [
-        { label: 'IC均值', ...gcell('ic_mean', f.ic_mean, f4) },
-        { label: 'IR', ...gcell('ir', f.ir, f3) },
-        { label: 'OOS多空', ...gcell('oos_long_short_return', f.oos_long_short_return, pct) },
+        { label: 'IC均值', ...mcell('ic_mean', f.ic_mean, f4) },
+        { label: 'IR', ...mcell('ir', f.ir, f3) },
+        { label: 'OOS多空', ...mcell('oos_long_short_return', f.oos_long_short_return, pct) },
       ]
 })
 

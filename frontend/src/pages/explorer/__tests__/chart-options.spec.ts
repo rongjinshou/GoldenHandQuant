@@ -5,7 +5,9 @@ import type { ChartPalette } from '@/composables/useChartTheme'
 
 import {
   alignByDate,
+  buildFeatureAriaLabel,
   buildFeaturePanelOption,
+  buildKlineAriaLabel,
   buildKlineOption,
   buildUnionDates,
   DEFAULT_FEATURES,
@@ -346,5 +348,90 @@ describe('buildFeaturePanelOption', () => {
     const option = buildFeaturePanelOption(palette, symbols, cache, ['return_20d']) as Record<string, any>
     expect(option.series).toHaveLength(1)
     expect(option.series.some((s: any) => s.name.startsWith('D.SZ'))).toBe(false)
+  })
+})
+
+/* 图表无障碍(设计 §8 S5): option 启用 ECharts aria + 容器 role=img 的动态 aria-label 摘要文本 */
+describe('图表 aria: option.aria.enabled', () => {
+  const palette = mkPalette()
+
+  it('K 线单标的分支启用 aria', () => {
+    const symbols: SymbolMeta[] = [{ symbol: '000001.SZ', color: 'c0' }]
+    const o = buildKlineOption(palette, symbols, new Map([['000001.SZ', mkBars()]])) as Record<string, any>
+    expect(o.aria).toEqual({ enabled: true })
+  })
+
+  it('K 线多标的分支启用 aria', () => {
+    const symbols: SymbolMeta[] = [
+      { symbol: 'A.SZ', color: 'colorA' },
+      { symbol: 'B.SZ', color: 'colorB' },
+    ]
+    const bars = new Map([
+      ['A.SZ', mkBars()],
+      ['B.SZ', mkBars()],
+    ])
+    const o = buildKlineOption(palette, symbols, bars) as Record<string, any>
+    expect(o.aria).toEqual({ enabled: true })
+  })
+
+  it('特征图单/多标的分支均启用 aria', () => {
+    const one: SymbolMeta[] = [{ symbol: '000001.SZ', color: 'c0' }]
+    const o1 = buildFeaturePanelOption(
+      palette,
+      one,
+      new Map([['000001.SZ', mkFeatures()]]),
+      ['return_20d'],
+    ) as Record<string, any>
+    expect(o1.aria).toEqual({ enabled: true })
+
+    const two: SymbolMeta[] = [
+      { symbol: 'A.SZ', color: 'colorA' },
+      { symbol: 'B.SZ', color: 'colorB' },
+    ]
+    const cache = new Map([
+      ['A.SZ', mkFeatures()],
+      ['B.SZ', mkFeatures()],
+    ])
+    const o2 = buildFeaturePanelOption(palette, two, cache, ['return_20d']) as Record<string, any>
+    expect(o2.aria).toEqual({ enabled: true })
+  })
+})
+
+describe('buildKlineAriaLabel', () => {
+  it('0 个标的 → 暂无标的文案', () => {
+    expect(buildKlineAriaLabel([])).toBe('个股 K 线图，暂无标的')
+  })
+
+  it('1 个标的 → 含标的代码与前复权日线摘要', () => {
+    const label = buildKlineAriaLabel([{ symbol: '000001.SZ', color: 'c0' }])
+    expect(label).toContain('个股 K 线图')
+    expect(label).toContain('000001.SZ')
+  })
+
+  it('2+ 标的 → 涨跌幅对比 + 全部标的代码', () => {
+    const label = buildKlineAriaLabel([
+      { symbol: 'A.SZ', color: 'colorA' },
+      { symbol: 'B.SZ', color: 'colorB' },
+    ])
+    expect(label).toContain('涨跌幅对比')
+    expect(label).toContain('A.SZ')
+    expect(label).toContain('B.SZ')
+  })
+})
+
+describe('buildFeatureAriaLabel', () => {
+  it('无标的或无特征 → 暂无数据文案', () => {
+    expect(buildFeatureAriaLabel([], ['return_20d'])).toBe('截面特征图，暂无数据')
+    expect(buildFeatureAriaLabel([{ symbol: 'A.SZ', color: 'c0' }], [])).toBe('截面特征图，暂无数据')
+  })
+
+  it('有标的与特征 → 含标的代码与中文特征标签', () => {
+    const label = buildFeatureAriaLabel(
+      [{ symbol: '000001.SZ', color: 'c0' }],
+      ['return_20d', 'rsi_14'],
+    )
+    expect(label).toContain('000001.SZ')
+    expect(label).toContain('20日收益')
+    expect(label).toContain('RSI(14)')
   })
 })

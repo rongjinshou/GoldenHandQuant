@@ -73,4 +73,29 @@ describe('FactorCard', () => {
     expect(track.findAll('.gate-cell')).toHaveLength(7)
     expect(track.attributes('aria-label')).toBe('7 道闸门通过 7 道')
   })
+
+  it('OOS超额上A股行情色(正=t-up), IC均值/超额IR 转中性不再上闸门判定色(设计 §6.1)', () => {
+    // longOnly 指标序: IC均值 / 超额IR / OOS超额
+    const w = mount(FactorCard, { props: { factor: mkFactor(), longOnly: true, hasSplit: true } })
+    const cells = w.findAll('.fc-metric b')
+    expect(cells[0]!.classes()).not.toContain('t-up')
+    expect(cells[0]!.classes()).not.toContain('t-pass') // 不再走闸门判定色
+    expect(cells[1]!.classes()).not.toContain('t-up')
+    expect(cells[2]!.classes()).toContain('t-up') // OOS超额 0.02 → A股红
+  })
+
+  it('OOS超额为负 → t-down(A股绿)', () => {
+    const w = mount(FactorCard, {
+      props: { factor: mkFactor({ oos_top_excess_return: -0.02 }), longOnly: true, hasSplit: true },
+    })
+    expect(w.findAll('.fc-metric b')[2]!.classes()).toContain('t-down')
+  })
+
+  it('非长多口径 OOS多空(带符号收益)上行情色', () => {
+    // 非 longOnly 指标序: IC均值 / IR / OOS多空
+    const w = mount(FactorCard, {
+      props: { factor: mkFactor({ oos_long_short_return: 0.01 }), longOnly: false, hasSplit: true },
+    })
+    expect(w.findAll('.fc-metric b')[2]!.classes()).toContain('t-up')
+  })
 })

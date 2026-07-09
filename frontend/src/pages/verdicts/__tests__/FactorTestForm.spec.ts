@@ -27,7 +27,12 @@ const stubs = {
   // 的原生 click 监听同时触发, 导致父层 @click 处理函数被调用两次(此 stub 之前因
   // key 匹配不上从未真正生效, 修 key 后才暴露; 修复方式同 Verdicts.spec.ts 里
   // FactorCard stub 的同款教训)。
-  [NButton.name as string]: { template: '<button><slot /></button>' },
+  // 声明 loading/disabled 并映射到原生 disabled, 以便断言提交 pending 态(Task 3);
+  // 其余 attrs(type/data-testid/onClick)照旧穿透。
+  [NButton.name as string]: {
+    props: ['loading', 'disabled'],
+    template: '<button :disabled="disabled || loading"><slot /></button>',
+  },
 }
 
 function mountForm(lastSplitHint: string | null = null) {
@@ -147,5 +152,47 @@ describe('FactorTestForm', () => {
     await flushPromises()
     await flushPromises()
     expect(w.emitted('refresh')).toHaveLength(1)
+  })
+
+  it('提交检验期间按钮进入 pending(disabled), 完成后恢复', async () => {
+    // gate 卡住 POST, 观测在途 pending 态; 其余 URL 沿用同批响应
+    let releasePost!: () => void
+    const gate = new Promise<void>((r) => {
+      releasePost = r
+    })
+    fetchMock.mockImplementation((input: unknown, init?: { method?: string }) => {
+      const url = String(input)
+      if (url === '/api/meta/factors') return jsonResp(META_RESPONSE)
+      if (url === '/api/jobs/factor-test') {
+        expect(init?.method).toBe('POST')
+        return gate.then(() => ({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ job_id: 'jt1', job_type: 'factor_test', status: 'queued' }),
+          text: () => Promise.resolve(''),
+        }))
+      }
+      if (url === '/api/jobs/jt1?tail=120') {
+        return jsonResp({
+          job_id: 'jt1', job_type: 'factor_test', params: {}, status: 'succeeded',
+          created_at: '2026-07-05T09:00:00', started_at: '2026-07-05T09:00:01',
+          finished_at: '2026-07-05T09:00:30', return_code: 0, log_path: 'x.log', log_tail: [],
+        })
+      }
+      return Promise.reject(new Error(`unexpected url: ${url}`))
+    })
+
+    const w = mountForm()
+    await flushPromises()
+    const btn = w.find('[data-testid="ft-submit"]')
+    expect(btn.attributes('disabled')).toBeUndefined()
+
+    await btn.trigger('click') // 提交发起, POST 被 gate 卡住
+    expect(btn.attributes('disabled')).toBeDefined() // pending 中
+
+    releasePost()
+    await flushPromises()
+    await flushPromises()
+    expect(btn.attributes('disabled')).toBeUndefined() // 恢复
   })
 })

@@ -56,6 +56,23 @@ const props = defineProps<{
 
 const palette = useChartTheme()
 
+/* 图表替代文本(WCAG 1.1.1): 容器 role=img + 动态摘要, 供屏幕阅读器读到
+ * run_id / 区间 / 曲线数 / 是否含基准·叠加, 而非把 canvas 当空图。 */
+const ariaSummary = computed(() => {
+  const run = props.run
+  const first = firstStrategy(run)
+  const dates = first?.equity_curve.dates ?? []
+  if (!first || !dates.length) return `回测 ${run.run_id} 无净值曲线`
+  const parts = [
+    `回测 ${run.run_id} 净值与回撤图`,
+    `区间 ${dates[0]} 至 ${dates[dates.length - 1]}`,
+    `策略曲线 ${strategiesWithCurve(run).length} 条`,
+  ]
+  if (props.benchSeries) parts.push('含基准对照')
+  if (props.overlayLines.length) parts.push(`叠加 ${props.overlayLines.length} 条`)
+  return parts.join('，')
+})
+
 /* path 字形 buy/sell 散点(A股: 买红▲落线下方, 卖绿▼落线上方)
  * 标记日超阈值(高频截面策略)切密集模式: 恒 6px 小符号/细边/无阴影/收拢偏移,
  * 与稀疏轮次(如 dual_ma)的精致大标记两种形态各自可读 */
@@ -142,6 +159,7 @@ const option = computed(() => {
   return {
     backgroundColor: 'transparent',
     animation: false,
+    aria: { enabled: true }, // ECharts 生成图元级替代描述, 与容器 role=img 互补
     textStyle: { color: t.text },
     color: t.series,
     title: {
@@ -251,7 +269,7 @@ const option = computed(() => {
 </script>
 
 <template>
-  <div class="chart-card card" data-testid="bt-chart">
+  <div class="chart-card card" data-testid="bt-chart" role="img" :aria-label="ariaSummary">
     <VChart v-if="option" :option="option" autoresize class="chart" />
     <p v-else class="t-muted empty">该轮次无净值曲线可绘</p>
   </div>

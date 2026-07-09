@@ -1,5 +1,5 @@
-import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { defineComponent, nextTick } from 'vue'
+import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
 import type { VerdictFactor } from '@/api/types'
@@ -116,5 +116,66 @@ describe('FactorDetailModal', () => {
     })
     await w.find('.vm-close').trigger('click')
     expect(w.emitted('update:show')?.[0]).toEqual([false])
+  })
+
+  it('标题用 <h3>(消除 h2→h4 跳级, a11y)', () => {
+    const w = mount(FactorDetailModal, {
+      props: { show: true, factors: [mkFactor()], index: 0, longOnly: false, hasSplit: false, runTitle: 'r' },
+      global: { stubs },
+    })
+    expect(w.find('h3#vm-title').exists()).toBe(true)
+  })
+
+  it('指标表表头带 scope=col, 空表头补 sr-only 文本', () => {
+    const w = mount(FactorDetailModal, {
+      props: { show: true, factors: [mkFactor()], index: 0, longOnly: false, hasSplit: false, runTitle: 'r' },
+      global: { stubs },
+    })
+    const ths = w.findAll('.vm-metrics thead th')
+    expect(ths).toHaveLength(3)
+    ths.forEach((th) => expect(th.attributes('scope')).toBe('col'))
+    expect(ths[0].find('.sr-only').text()).toBe('指标')
+  })
+
+  it('Top超额行(带符号收益)上A股行情色, IC均值行中性(设计 §6.1)', () => {
+    // longOnly + hasSplit: 行序 IC均值 / 超额信息比 / 超额正率 / 单调性 / Top超额
+    const w = mount(FactorDetailModal, {
+      props: { show: true, factors: [mkFactor()], index: 0, longOnly: true, hasSplit: true, runTitle: 'r' },
+      global: { stubs },
+    })
+    const rows = w.findAll('.vm-metrics tbody tr')
+    const icCells = rows[0]!.findAll('td.num')
+    expect(icCells[0]!.classes()).not.toContain('t-up') // IC均值 IS 中性
+    expect(icCells[1]!.classes()).not.toContain('t-up') // OOS IC均值 中性
+    const topCells = rows[4]!.findAll('td.num')
+    expect(topCells[0]!.classes()).toContain('t-up') // IS top_excess_return=0.03 → 红
+    expect(topCells[1]!.classes()).toContain('t-up') // OOS oos_top_excess_return=0.02 → 红
+  })
+
+  it('Top超额为负 → t-down(A股绿)', () => {
+    const w = mount(FactorDetailModal, {
+      props: {
+        show: true,
+        factors: [mkFactor({ top_excess_return: -0.03, oos_top_excess_return: -0.02 })],
+        index: 0, longOnly: true, hasSplit: true, runTitle: 'r',
+      },
+      global: { stubs },
+    })
+    const topCells = w.findAll('.vm-metrics tbody tr')[4]!.findAll('td.num')
+    expect(topCells[0]!.classes()).toContain('t-down')
+    expect(topCells[1]!.classes()).toContain('t-down')
+  })
+
+  it('打开后焦点落到弹框容器(修 ←/→ 方向键首次失灵)', async () => {
+    const w = mount(FactorDetailModal, {
+      props: { show: false, factors: [mkFactor()], index: 0, longOnly: false, hasSplit: false, runTitle: 'r' },
+      global: { stubs },
+      attachTo: document.body,
+    })
+    await w.setProps({ show: true })
+    await flushPromises()
+    await nextTick()
+    expect(document.activeElement).toBe(w.find('[data-testid="verdict-modal"]').element)
+    w.unmount()
   })
 })

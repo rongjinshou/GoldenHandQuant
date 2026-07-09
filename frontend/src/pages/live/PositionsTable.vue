@@ -19,13 +19,13 @@ const views = computed(() => props.rows.map(positionRow))
     <table>
       <thead>
         <tr>
-          <th>标的</th>
-          <th class="right">总量</th>
-          <th class="right">可用</th>
-          <th class="right">成本价</th>
-          <th class="right">现价</th>
-          <th class="right">市值</th>
-          <th class="right"><GlossaryTip term="float_pnl"><span>浮动盈亏</span></GlossaryTip></th>
+          <th scope="col">标的</th>
+          <th scope="col" class="right">总量</th>
+          <th scope="col" class="right">可用</th>
+          <th scope="col" class="right">成本价</th>
+          <th scope="col" class="right">现价</th>
+          <th scope="col" class="right">市值</th>
+          <th scope="col" class="right"><GlossaryTip term="float_pnl"><span>浮动盈亏</span></GlossaryTip></th>
         </tr>
       </thead>
       <tbody>

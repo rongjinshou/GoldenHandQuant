@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { BarChart, CandlestickChart, LineChart } from 'echarts/charts'
 import {
+  AriaComponent,
   AxisPointerComponent,
   DataZoomComponent,
   GridComponent,
@@ -11,7 +12,7 @@ import {
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { NButton } from 'naive-ui'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
 
 import { fetchJSON } from '@/api/fetch'
@@ -22,7 +23,13 @@ import PageHeader from '@/components/PageHeader.vue'
 import { useChartTheme } from '@/composables/useChartTheme'
 
 import { useSymbolChips } from './backtests/useSymbolChips'
-import { buildKlineOption, DEFAULT_FEATURES, symbolColor, type SymbolMeta } from './explorer/chart-options'
+import {
+  buildKlineAriaLabel,
+  buildKlineOption,
+  DEFAULT_FEATURES,
+  symbolColor,
+  type SymbolMeta,
+} from './explorer/chart-options'
 import FeaturePanel from './explorer/FeaturePanel.vue'
 
 use([
@@ -35,6 +42,7 @@ use([
   LegendComponent,
   DataZoomComponent,
   AxisPointerComponent,
+  AriaComponent, // 图表容器 role=img 之外, 让 ECharts 生成内部无障碍描述(设计 §8 S5)
   CanvasRenderer,
 ])
 
@@ -61,6 +69,25 @@ const hasLoaded = ref(false)
 
 const chips = useSymbolChips()
 
+/* 联想 combobox 键盘(设计 §8 S8): 键盘高亮下标 activeIndex 与移动/收起(onArrowUp/onArrowDown/
+ * onEscape/onEnter)全部消费共享 useSymbolChips —— 该 composable 的键盘逻辑由 Backtests 流维护,
+ * Explorer 不自持第二套高亮状态, 只在模板侧接 aria 与键盘事件(与 backtests/BacktestForm 同款接线)。 */
+const chipsBoxRef = ref<HTMLElement | null>(null)
+const SUGGEST_LISTBOX_ID = 'explorer-suggest-listbox'
+
+const suggestOpen = computed(() => chips.suggestions.value.length > 0)
+const activeDescId = computed(() =>
+  chips.activeIndex.value >= 0 ? `explorer-sug-${chips.activeIndex.value}` : undefined,
+)
+
+// 点击标的输入框以外任意处 → 收起候选(仅 Explorer 模板侧接线, 收起逻辑走 composable onEscape)
+function onDocPointerDown(e: PointerEvent): void {
+  const box = chipsBoxRef.value
+  if (box && !box.contains(e.target as Node)) chips.onEscape()
+}
+onMounted(() => document.addEventListener('pointerdown', onDocPointerDown))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDown))
+
 let panelSeq = 1 // id 0 已被首个呈现框占用; 简单递增计数器(不用 Date.now()/Math.random())
 const panels = ref<{ id: number; features: string[] }[]>([{ id: 0, features: [...DEFAULT_FEATURES] }])
 
@@ -77,6 +104,13 @@ let featureFetchGen = 0
 /* 已加载标的快照 —— 上一次成功落定的加载轮次锁定的标的集合。klineOption/FeaturePanel 的
  * symbols prop/refetchFeatures 的请求清单一律读这个, 只在 loadAll 成功或清空时更新。 */
 const loadedSymbols = ref<string[]>([])
+
+/* 特征自动重拉在途/失败(任务 2): 勾选新特征触发 refetch 期间给呈现框头部 spinner 反馈,
+ * 失败就近在呈现框内提示(featureError), 不再混入顶部 error banner —— 曲线不再凭空出现。 */
+const featureFetching = ref(false)
+const featureError = ref('')
+// 传给每个呈现框的"在途"标志: 首拉(loadingData)与勾选新特征自动重拉(featureFetching)统一口径
+const panelFetching = computed(() => loadingData.value || featureFetching.value)
 
 const symbolMetas = computed<SymbolMeta[]>(() =>
   chips.symbols.value.map((symbol, i) => ({ symbol, color: symbolColor(palette.value, i) })),
@@ -95,6 +129,8 @@ const featureUnion = computed<string[]>(() => {
 })
 
 const klineOption = computed(() => buildKlineOption(palette.value, loadedSymbolMetas.value, barsBySymbol.value))
+/* K 线图容器 role=img 的读屏摘要(设计 §8 S5): 按已加载标的算, 与 klineOption 同口径 */
+const klineAriaLabel = computed(() => buildKlineAriaLabel(loadedSymbolMetas.value))
 /* K 线 VChart 固定 update-options={notMerge:true}(confirmed-bug 修复, 2026-07-05): 1 标的分支
  * (蜡烛+成交量双 pane, 数组形 xAxis/yAxis/grid)与 2+ 标的分支(单 pane 对比折线图, 对象形)形状
  * 迥异 —— vue-echarts 默认 merge 语义下, 已存在的 ECharts 实例跨越 1↔2+ 标的边界收到新 option 时
@@ -107,11 +143,25 @@ function onSymInput(e: Event): void {
   chips.onInput(e)
 }
 function onSymKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    chips.onEnter()
-  } else if (e.key === 'Backspace') {
-    chips.onBackspace()
+  switch (e.key) {
+    case 'Enter':
+      e.preventDefault()
+      chips.onEnter() // 有键盘高亮取高亮候选, 否则既有语义(完整代码即时成 chip / 名称搜索取首条)
+      break
+    case 'ArrowDown':
+      e.preventDefault() // 阻止光标跳行尾, 改为在候选间下移高亮
+      chips.onArrowDown()
+      break
+    case 'ArrowUp':
+      e.preventDefault()
+      chips.onArrowUp()
+      break
+    case 'Escape':
+      chips.onEscape()
+      break
+    case 'Backspace':
+      chips.onBackspace()
+      break
   }
 }
 
@@ -144,6 +194,8 @@ async function fetchFeatureMap(symbols: string[], names: string[]): Promise<Map<
 
 async function loadAll(): Promise<void> {
   error.value = ''
+  featureError.value = ''
+  chips.onEscape() // 点"加载"即收起残留的联想候选(走 composable 收起逻辑)
   const symbols = chips.symbols.value
   if (symbols.length === 0) {
     barsBySymbol.value = new Map()
@@ -190,7 +242,8 @@ watch(featureUnion, (names) => {
 })
 
 async function refetchFeatures(names: string[]): Promise<void> {
-  error.value = ''
+  featureError.value = ''
+  featureFetching.value = true // 呈现框头部 spinner 亮起(任务 2): 在途有反馈, 曲线不再凭空跳出
   const myFeatureGen = ++featureFetchGen // 与 loadAll 首拉共用同一世代计数器(见上方声明处说明)
   try {
     const map = await fetchFeatureMap(loadedSymbols.value, names)
@@ -199,7 +252,10 @@ async function refetchFeatures(names: string[]): Promise<void> {
     lastFeatureNames = names
   } catch (e) {
     if (myFeatureGen !== featureFetchGen) return // 过期请求的失败不代表当前真实状态, 不提示
-    error.value = (e as Error).message
+    featureError.value = (e as Error).message // 就近在呈现框内提示, 不进顶部 banner
+  } finally {
+    // 仅最新一批(未被超越)负责熄灭 spinner; 被超越的旧批把 spinner 让给更新的在途请求
+    if (myFeatureGen === featureFetchGen) featureFetching.value = false
   }
 }
 </script>
@@ -219,24 +275,44 @@ async function refetchFeatures(names: string[]): Promise<void> {
     <ErrorBanner v-if="error" :msg="error" />
 
     <div class="controls card">
-      <label class="sym-field">
+      <label class="sym-field" for="explorer-symbol-combobox">
         标的
-        <div class="chips-box" data-testid="explorer-symbol-input">
+        <div ref="chipsBoxRef" class="chips-box" data-testid="explorer-symbol-input">
           <span v-for="meta in symbolMetas" :key="meta.symbol" class="chip">
             <span class="chip-dot" :style="{ background: meta.color }" />
             {{ meta.symbol }}
-            <button class="chip-x" type="button" @click="chips.remove(meta.symbol)">×</button>
+            <button
+              class="chip-x"
+              type="button"
+              :aria-label="`移除标的 ${meta.symbol}`"
+              @click="chips.remove(meta.symbol)"
+            >×</button>
           </span>
           <input
+            id="explorer-symbol-combobox"
             class="chip-input"
             :value="chips.input.value"
             placeholder="代码/名称联想，回车或点选添加，可多个叠加对比"
             autocomplete="off"
+            role="combobox"
+            aria-autocomplete="list"
+            :aria-expanded="suggestOpen ? 'true' : 'false'"
+            :aria-controls="SUGGEST_LISTBOX_ID"
+            :aria-activedescendant="activeDescId"
+            aria-label="标的代码或名称联想输入，方向键选择候选，回车添加"
             @input="onSymInput"
             @keydown="onSymKeydown"
           />
-          <ul v-if="chips.suggestions.value.length" class="suggest card">
-            <li v-for="hit in chips.suggestions.value" :key="hit.symbol" @click="chips.pickSuggestion(hit)">
+          <ul v-if="suggestOpen" :id="SUGGEST_LISTBOX_ID" class="suggest card" role="listbox" aria-label="标的联想候选">
+            <li
+              v-for="(hit, i) in chips.suggestions.value"
+              :id="`explorer-sug-${i}`"
+              :key="hit.symbol"
+              role="option"
+              :aria-selected="chips.activeIndex.value === i ? 'true' : 'false'"
+              :class="{ 'is-active': chips.activeIndex.value === i }"
+              @click="chips.pickSuggestion(hit)"
+            >
               <span class="num">{{ hit.symbol }}</span> {{ hit.name }}
             </li>
           </ul>
@@ -244,11 +320,15 @@ async function refetchFeatures(names: string[]): Promise<void> {
       </label>
       <NButton type="primary" :loading="loadingData" :disabled="loadingData" data-testid="explorer-load" @click="loadAll">加载</NButton>
     </div>
-    <p v-if="chips.err.value" class="form-hint sym-err t-warn">{{ chips.err.value }}</p>
+    <p v-if="chips.err.value" class="form-hint sym-err t-warn" role="alert">{{ chips.err.value }}</p>
 
     <div class="chart-card card" data-testid="kline-chart">
+      <!-- 加载期给骨架, 不让"添加标的并点击加载"空态文案冒充加载态(任务 5) -->
+      <div v-if="loadingData" class="chart-skeleton chart-kline" aria-hidden="true" />
       <VChart
-        v-if="klineOption"
+        v-else-if="klineOption"
+        role="img"
+        :aria-label="klineAriaLabel"
         :option="klineOption"
         :update-options="{ notMerge: true }"
         autoresize
@@ -265,6 +345,8 @@ async function refetchFeatures(names: string[]): Promise<void> {
       :features-by-symbol="featuresBySymbol"
       :removable="panels.length > 1"
       :panel-index="i"
+      :fetching="panelFetching"
+      :fetch-error="featureError"
       @remove="removePanel(p.id)"
     />
     <button type="button" class="add-panel-btn" data-testid="explorer-add-panel" @click="addPanel">
@@ -377,7 +459,8 @@ async function refetchFeatures(names: string[]): Promise<void> {
   transition: background var(--dur-fast) var(--ease-out);
 }
 
-.suggest li:hover {
+.suggest li:hover,
+.suggest li.is-active {
   background: var(--accent-soft);
 }
 
@@ -397,6 +480,27 @@ async function refetchFeatures(names: string[]): Promise<void> {
 
 .chart-kline {
   height: 480px;
+}
+
+/* 加载骨架: 固定高度占位, 数据到达不跳版(任务 5); reduced-motion 归零 */
+.chart-skeleton {
+  animation: kline-skeleton-pulse 1.4s ease-in-out infinite;
+  background: var(--bg-3);
+  border-radius: var(--radius-sm);
+  width: 100%;
+}
+
+@keyframes kline-skeleton-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-skeleton {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 .empty {

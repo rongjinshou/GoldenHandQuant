@@ -34,6 +34,8 @@ export interface UseSymbolChipsReturn {
   symbols: Ref<string[]>
   input: Ref<string>
   suggestions: Ref<SymbolHit[]>
+  /* 当前 ↑↓ 键盘高亮的候选下标; -1 = 无高亮(aria-activedescendant 空) */
+  activeIndex: Ref<number>
   err: Ref<string>
   commitText: (text: string) => string[]
   remove: (sym: string) => void
@@ -41,6 +43,9 @@ export interface UseSymbolChipsReturn {
   onInput: (e: Event) => void
   onEnter: () => void
   onBackspace: () => void
+  onArrowDown: () => void
+  onArrowUp: () => void
+  onEscape: () => void
   clearPending: () => void
 }
 
@@ -48,7 +53,13 @@ export function useSymbolChips(): UseSymbolChipsReturn {
   const symbols = ref<string[]>([])
   const input = ref('')
   const suggestions = ref<SymbolHit[]>([])
+  const activeIndex = ref(-1)
   const err = ref('')
+
+  /* 候选集变动即清高亮(新候选无预选, 符合 aria-autocomplete=list 语义) */
+  function resetHighlight(): void {
+    activeIndex.value = -1
+  }
   /* Enter 取候选时校验对应关系(旧 datalist dataset.q 等价) */
   let suggestQ = ''
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -92,6 +103,7 @@ export function useSymbolChips(): UseSymbolChipsReturn {
     commitText(text)
     input.value = ''
     suggestions.value = []
+    resetHighlight()
     err.value = ''
   }
 
@@ -116,6 +128,7 @@ export function useSymbolChips(): UseSymbolChipsReturn {
       const bad = commitText(input.value)
       input.value = bad.join(',')
       suggestions.value = []
+      resetHighlight()
       err.value = bad.length
         ? `已忽略非法标的: ${bad.join(', ')}（格式 6位代码.SH/SZ/BJ，可修正后回车）`
         : ''
@@ -125,6 +138,7 @@ export function useSymbolChips(): UseSymbolChipsReturn {
     const q = input.value.trim()
     if (!q) {
       suggestions.value = []
+      resetHighlight()
       return
     }
     timer = setTimeout(() => {
@@ -136,6 +150,7 @@ export function useSymbolChips(): UseSymbolChipsReturn {
           if (input.value.trim() !== q) return // 过期响应丢弃
           suggestQ = q
           suggestions.value = sug
+          resetHighlight() // 新候选集: 高亮归零, 等待用户 ↑↓
         } catch {
           /* 联想失败静默 */
         }
@@ -144,6 +159,13 @@ export function useSymbolChips(): UseSymbolChipsReturn {
   }
 
   function onEnter(): void {
+    // 键盘高亮候选优先(combobox 语义): 已 ↑↓ 选中某条 → 回车直取该条
+    const active = activeIndex.value >= 0 ? suggestions.value[activeIndex.value] : undefined
+    if (active) {
+      clearPending()
+      pickSuggestion(active)
+      return
+    }
     const v = input.value.trim().toUpperCase()
     if (!v) return
     clearPending()
@@ -173,10 +195,34 @@ export function useSymbolChips(): UseSymbolChipsReturn {
     }
   }
 
+  /* ↑↓ 在候选列表间移动高亮; -1(无高亮)按方向落首/末项, 到边回绕 */
+  function moveHighlight(delta: number): void {
+    const n = suggestions.value.length
+    if (!n) return
+    const cur = activeIndex.value
+    activeIndex.value = cur === -1 ? (delta > 0 ? 0 : n - 1) : (cur + delta + n) % n
+  }
+
+  function onArrowDown(): void {
+    moveHighlight(1)
+  }
+
+  function onArrowUp(): void {
+    moveHighlight(-1)
+  }
+
+  /* Esc 关闭候选浮层(aria-expanded=false), 清高亮; 输入内容不动, 用户可继续编辑 */
+  function onEscape(): void {
+    clearPending()
+    suggestions.value = []
+    resetHighlight()
+  }
+
   return {
     symbols,
     input,
     suggestions,
+    activeIndex,
     err,
     commitText,
     remove,
@@ -184,6 +230,9 @@ export function useSymbolChips(): UseSymbolChipsReturn {
     onInput,
     onEnter,
     onBackspace,
+    onArrowDown,
+    onArrowUp,
+    onEscape,
     clearPending,
   }
 }

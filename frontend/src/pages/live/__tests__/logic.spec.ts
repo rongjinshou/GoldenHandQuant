@@ -5,6 +5,7 @@ import type { AccountSnapshot, LiveConfig, PositionSnapshot } from '@/api/types'
 import {
   cumReturn,
   daemonBadge,
+  equityAriaLabel,
   num,
   positionRow,
   sliceTime,
@@ -237,5 +238,33 @@ describe('ticketCells', () => {
     expect(byK['状态']).toBeUndefined() // status/final_status 缺 → 跳过
     expect(byK['方向'].v).toBe('-') // direction 缺 → 占位 '-'(对等旧 cell 只跳 null/undefined/'')
     expect(byK['提交时刻'].v).toBe('2026-07-04T10:00:00')
+  })
+})
+
+describe('equityAriaLabel', () => {
+  it('少于 2 快照(不成曲线) → 未绘制说明', () => {
+    expect(equityAriaLabel([])).toBe('账户权益曲线，快照不足暂未绘制')
+    expect(equityAriaLabel([acct(100000)])).toBe('账户权益曲线，快照不足暂未绘制')
+  })
+
+  it('单模式: 条数/最新总资产/区间(T 换空格)概述', () => {
+    const series = [
+      acct(100000, { snapshot_time: '2026-07-04T09:30:00' }),
+      acct(105000, { snapshot_time: '2026-07-05T15:00:00' }),
+    ]
+    expect(equityAriaLabel(series)).toBe(
+      `账户权益曲线，1 条：dry_run 最新总资产 ${num(105000)}；区间 2026-07-04 09:30:00 至 2026-07-05 15:00:00`,
+    )
+  })
+
+  it('多模式各报最新总资产; 乱序输入按时间排序取区间与末值', () => {
+    const series = [
+      acct(105000, { snapshot_time: '2026-07-05T15:00:00', mode: 'dry_run' }),
+      acct(100000, { snapshot_time: '2026-07-04T09:30:00', mode: 'dry_run' }),
+      acct(200000, { snapshot_time: '2026-07-04T10:00:00', mode: 'live' }),
+    ]
+    expect(equityAriaLabel(series)).toBe(
+      `账户权益曲线，2 条：dry_run 最新总资产 ${num(105000)}；live 最新总资产 ${num(200000)}；区间 2026-07-04 09:30:00 至 2026-07-05 15:00:00`,
+    )
   })
 })

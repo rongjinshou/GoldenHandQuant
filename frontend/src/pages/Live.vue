@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NSelect } from 'naive-ui'
+import { NSelect, NSpin } from 'naive-ui'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -28,6 +28,7 @@ import ExecutionsTable from './live/ExecutionsTable.vue'
 import { cumReturn, num, sliceTime } from './live/logic'
 import OverviewPanel from './live/OverviewPanel.vue'
 import PositionsTable from './live/PositionsTable.vue'
+import TableSkeleton from './live/TableSkeleton.vue'
 import TicketPanel from './live/TicketPanel.vue'
 
 /* 实盘 / 纸面前向页 — 旧 static/js/pages/live.js 对等:
@@ -35,7 +36,15 @@ import TicketPanel from './live/TicketPanel.vue'
  * 子视图与 /live/:view? 路由同步; mode 筛选仅作用于 positions/equity 两端点;
  * db_exists:false 诚实空态。单端点失败不拖垮其他(usePolling tick 失败静默保留旧值)。 */
 
+/* 分频轮询(设计 §9 Live 分频轮询):
+ * - 概览端点 overview 常轮 5s —— 驱动 KPI 四个主数值(总资产/可用/市值)与 hasDb 门,
+ *   且是默认落地视图, 必须鲜活。
+ * - 其余八个明细端点后台降频 30s(POLL_SLOW): 循环/执行/审计/ticket 是追加型留痕,
+ *   预算/守护配置慢变, 持仓/权益只喂 KPI 的慢变副项(持仓数/累计%)—— 30s 足够。
+ * - 切入某子视图时对该视图端点 refresh() 即时补一帧, 不必等下一个 30s tick, 兼顾时效。
+ * usePolling 的暂停/迟到丢弃/退避机制不受影响: 只是各端点 intervalMs 不同 + 额外手动 refresh。 */
 const POLL = 5000
+const POLL_SLOW = 30_000
 
 const route = useRoute()
 const router = useRouter()
@@ -75,57 +84,118 @@ function auditUrl(): string {
   return `/api/live/audit?limit=500${auditAction.value ? `&action=${auditAction.value}` : ''}`
 }
 
-// ---- 多端点并行轮询(各自独立, 单点失败互不牵连) ----
+// ---- 多端点并行轮询(各自独立, 单点失败互不牵连; 概览 5s, 明细 30s 降频) ----
 const { data: overviewData, error: overviewError } = usePolling<LiveOverview>(
   () => fetchJSON<LiveOverview>('/api/live/overview'),
   { intervalMs: POLL },
 )
-const { data: cyclesData, error: cyclesError } = usePolling<{ cycles: TradingCycle[] }>(
+const {
+  data: cyclesData,
+  error: cyclesError,
+  refresh: refreshCycles,
+} = usePolling<{ cycles: TradingCycle[] }>(
   () => fetchJSON<{ cycles: TradingCycle[] }>('/api/live/cycles?limit=500'),
-  { intervalMs: POLL },
+  { intervalMs: POLL_SLOW },
 )
-const { data: executionsData, error: executionsError } = usePolling<{
+const {
+  data: executionsData,
+  error: executionsError,
+  refresh: refreshExecutions,
+} = usePolling<{
   executions: ExecutionRecord[]
 }>(() => fetchJSON<{ executions: ExecutionRecord[] }>('/api/live/executions?limit=1000'), {
-  intervalMs: POLL,
+  intervalMs: POLL_SLOW,
 })
 const {
   data: positionsData,
   error: positionsError,
+  loading: positionsLoading,
   refresh: refreshPositions,
-} = usePolling<LivePositions>(() => fetchJSON<LivePositions>(positionsUrl()), { intervalMs: POLL })
+} = usePolling<LivePositions>(() => fetchJSON<LivePositions>(positionsUrl()), {
+  intervalMs: POLL_SLOW,
+})
 const {
   data: equityData,
   error: equityError,
   refresh: refreshEquity,
-} = usePolling<LiveEquity>(() => fetchJSON<LiveEquity>(equityUrl()), { intervalMs: POLL })
-const { data: budgetData, error: budgetError } = usePolling<LiveBudget>(
-  () => fetchJSON<LiveBudget>('/api/live/budget'),
-  { intervalMs: POLL },
-)
-const { data: configData, error: configError } = usePolling<LiveConfig>(
-  () => fetchJSON<LiveConfig>('/api/live/config'),
-  { intervalMs: POLL },
-)
+} = usePolling<LiveEquity>(() => fetchJSON<LiveEquity>(equityUrl()), { intervalMs: POLL_SLOW })
+const {
+  data: budgetData,
+  error: budgetError,
+  refresh: refreshBudget,
+} = usePolling<LiveBudget>(() => fetchJSON<LiveBudget>('/api/live/budget'), {
+  intervalMs: POLL_SLOW,
+})
+const {
+  data: configData,
+  error: configError,
+  refresh: refreshConfig,
+} = usePolling<LiveConfig>(() => fetchJSON<LiveConfig>('/api/live/config'), {
+  intervalMs: POLL_SLOW,
+})
 const {
   data: auditData,
   error: auditError,
+  loading: auditLoading,
   refresh: refreshAudit,
 } = usePolling<{ logs: AuditLog[] }>(() => fetchJSON<{ logs: AuditLog[] }>(auditUrl()), {
-  intervalMs: POLL,
+  intervalMs: POLL_SLOW,
 })
-const { data: ticketsData, error: ticketsError } = usePolling<{ tickets: LiveTicket[] }>(
+const {
+  data: ticketsData,
+  error: ticketsError,
+  refresh: refreshTickets,
+} = usePolling<{ tickets: LiveTicket[] }>(
   () => fetchJSON<{ tickets: LiveTicket[] }>('/api/live/tickets'),
-  { intervalMs: POLL },
+  { intervalMs: POLL_SLOW },
 )
 
-// mode/action 变更即刷对应端点(不扩大到其他端点)
+// 切入子视图即对该视图端点补一帧(降频后不必等下个 30s tick; overview 端点自身已 5s,
+// 但概览视图还展示 budget/config/equity 三个慢端点, 一并即时补)
+watch(activeView, (v) => {
+  switch (v) {
+    case 'overview':
+      void refreshEquity()
+      void refreshBudget()
+      void refreshConfig()
+      break
+    case 'positions':
+      void refreshPositions()
+      break
+    case 'cycles':
+      void refreshCycles()
+      break
+    case 'executions':
+      void refreshExecutions()
+      break
+    case 'audit':
+      void refreshAudit()
+      break
+    case 'tickets':
+      void refreshTickets()
+      break
+  }
+})
+
+// ---- 筛选反馈: 切 mode/审计动作时消费对应端点 loading, 表格降透明度 + 行内 spinner ----
+// (仅筛选触发的拉取才置 filtering; loading 落地即清, 故 30s 后台 tick 不会误触发 dim)
+const positionsFiltering = ref(false)
 watch(mode, () => {
+  positionsFiltering.value = true
   void refreshPositions()
   void refreshEquity()
 })
+watch(positionsLoading, (l) => {
+  if (!l) positionsFiltering.value = false
+})
+
+const auditFiltering = ref(false)
 watch(auditAction, () => {
+  auditFiltering.value = true
   void refreshAudit()
+})
+watch(auditLoading, (l) => {
+  if (!l) auditFiltering.value = false
 })
 
 // ---- 派生视图数据 ----
@@ -225,8 +295,13 @@ const AUDIT_OPTIONS = [
 
     <ErrorBanner v-if="bannerMsg" :msg="bannerMsg" />
 
+    <!-- KPI 骨架: 首响应前占位, 不让空态 '-' 冒充加载 -->
+    <div v-if="overviewData === null" class="kpi-row" data-testid="live-kpi-skeleton">
+      <div v-for="i in 4" :key="i" class="card kpi-skeleton" aria-hidden="true"></div>
+    </div>
+
     <!-- KPI 条: 加载后始终渲染(空态显 '-' 占位, 对等旧设计意图 live.js:153) -->
-    <div v-if="overviewData !== null" class="kpi-row" data-testid="live-kpi">
+    <div v-else class="kpi-row" data-testid="live-kpi">
       <KpiCard label="总资产" :value="totalAssetText" :sub="totalAssetSub" />
       <KpiCard label="累计收益" :value="cum.text" :tone="cum.tone" :sub="cum.sub" />
       <KpiCard label="可用资金" :value="availCashText" :sub="availCashSub" />
@@ -247,6 +322,7 @@ const AUDIT_OPTIONS = [
         :budget="budgetData"
         :cfg="configData"
         :series="series"
+        :equity-loaded="equityData !== null"
       />
 
       <div v-else-if="activeView === 'positions'">
@@ -260,12 +336,17 @@ const AUDIT_OPTIONS = [
               :options="MODE_OPTIONS"
               size="small"
               style="width: 160px"
+              aria-label="按交易模式筛选持仓与权益"
               data-testid="live-mode"
             />
+            <NSpin v-if="positionsFiltering" :size="14" data-testid="live-mode-spin" />
             <span v-if="posSnapshot" class="snap t-muted num">快照 {{ posSnapshot }}</span>
           </div>
         </div>
-        <PositionsTable :rows="positions" />
+        <div :class="{ filtering: positionsFiltering }">
+          <PositionsTable v-if="positionsData !== null" :rows="positions" />
+          <TableSkeleton v-else :cols="7" />
+        </div>
       </div>
 
       <div v-else-if="activeView === 'cycles'">
@@ -273,9 +354,10 @@ const AUDIT_OPTIONS = [
           <h3 class="view-title">
             <GlossaryTip term="cycle"><span>交易循环</span></GlossaryTip>
           </h3>
-          <span class="view-hint t-muted">点击行展开该循环的执行明细</span>
+          <span class="view-hint t-muted">展开某行查看该循环的执行明细</span>
         </div>
-        <CyclesTable :cycles="cycles" />
+        <CyclesTable v-if="cyclesData !== null" :cycles="cycles" />
+        <TableSkeleton v-else :cols="9" />
       </div>
 
       <div v-else-if="activeView === 'executions'">
@@ -285,7 +367,8 @@ const AUDIT_OPTIONS = [
             >低于<GlossaryTip term="confidence"><span>置信</span></GlossaryTip>阈值的信号不提交下单</span
           >
         </div>
-        <ExecutionsTable :executions="executions" />
+        <ExecutionsTable v-if="executionsData !== null" :executions="executions" />
+        <TableSkeleton v-else :cols="9" />
       </div>
 
       <div v-else-if="activeView === 'audit'">
@@ -299,11 +382,16 @@ const AUDIT_OPTIONS = [
               :options="AUDIT_OPTIONS"
               size="small"
               style="width: 200px"
+              aria-label="按审计动作筛选日志"
               data-testid="audit-action"
             />
+            <NSpin v-if="auditFiltering" :size="14" data-testid="audit-action-spin" />
           </div>
         </div>
-        <AuditTable :logs="auditLogs" />
+        <div :class="{ filtering: auditFiltering }">
+          <AuditTable v-if="auditData !== null" :logs="auditLogs" />
+          <TableSkeleton v-else :cols="4" />
+        </div>
       </div>
 
       <div v-else-if="activeView === 'tickets'">
@@ -312,7 +400,8 @@ const AUDIT_OPTIONS = [
             <GlossaryTip term="ticket"><span>下单 Ticket</span></GlossaryTip>
           </h3>
         </div>
-        <TicketPanel :tickets="tickets" />
+        <TicketPanel v-if="ticketsData !== null" :tickets="tickets" />
+        <TableSkeleton v-else :rows="2" :cols="3" />
       </div>
     </template>
   </section>
@@ -335,6 +424,31 @@ const AUDIT_OPTIONS = [
   gap: var(--gap);
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   margin-bottom: var(--gap);
+}
+
+/* KPI 加载骨架(复用 Overview kpi-skeleton 思路): 固定高度脉冲, 数据到达不跳版 */
+.kpi-skeleton {
+  animation: live-skeleton-pulse 1.4s ease-in-out infinite;
+  min-height: 92px;
+}
+
+@keyframes live-skeleton-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* 筛选中: 表格降透明度(配 toolbar 行内 spinner), 提示用户筛选正在生效 */
+.filtering {
+  opacity: 0.5;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kpi-skeleton {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 .view-head {

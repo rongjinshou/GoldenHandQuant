@@ -42,7 +42,7 @@ const runs = ref<BacktestRun[]>([])
 const strategyMeta = ref<StrategyMeta[]>([])
 const selectedRunId = ref<string | null>(null)
 const benchSel = ref('first_symbol')
-const overlaySel = ref<number | null>(null)
+const overlaySel = ref<string | null>(null)
 
 const selectedRun = computed(() => runs.value.find((r) => r.run_id === selectedRunId.value) ?? null)
 const first = computed(() => (selectedRun.value ? (firstStrategy(selectedRun.value) ?? null) : null))
@@ -55,8 +55,11 @@ async function loadBacktests(): Promise<void> {
   try {
     const data = await fetchJSON<{ runs: BacktestRun[] }>('/api/research/backtests')
     runs.value = data.runs
-    // 载入/刷新后选中最新(倒序首条), 对等旧版 currentBtRun = btRuns[0]
-    selectedRunId.value = runs.value[0]?.run_id ?? null
+    // reload 保留选中: 原选中项仍在则不动(避免删他轮/完成刷新时把用户正看的详情弹走);
+    // 不在了(首次载入 / 删的正是当前项)才落最新(倒序首条), 对等旧版 currentBtRun = btRuns[0]
+    const stillExists =
+      selectedRunId.value !== null && runs.value.some((r) => r.run_id === selectedRunId.value)
+    if (!stillExists) selectedRunId.value = runs.value[0]?.run_id ?? null
     error.value = ''
   } catch (e) {
     error.value = (e as Error).message
@@ -105,6 +108,8 @@ const benchRaw = shallowRef<{ series: (number | null)[] | null; note: string }>(
   series: null,
   note: '',
 })
+// 切 run/基准时基准异步重算, 加载期占位防控制条塌陷抖动(设计 P5)
+const benchLoading = ref(false)
 let benchSeq = 0
 
 const currentBenchSym = computed(() => {
@@ -117,19 +122,25 @@ async function loadBenchmark(): Promise<void> {
   benchRaw.value = { series: null, note: '' }
   const dates = fst?.equity_curve.dates ?? []
   const sym = currentBenchSym.value
-  if (!fst || !sym || !dates.length) return
+  if (!fst || !sym || !dates.length) {
+    benchLoading.value = false
+    return
+  }
   const mySeq = ++benchSeq
+  benchLoading.value = true
   try {
     const bars = await fetchJSON<BarsData>(
       `/api/research/bars/${sym}?start=${dates[0]}&end=${dates[dates.length - 1]}`,
     )
-    if (mySeq !== benchSeq) return // 切换详情后迟到响应丢弃
+    if (mySeq !== benchSeq) return // 切换详情后迟到响应丢弃(不动 loading, 归更新的那次拥有)
     const closes = bars.ohlc.map((o) => o[1]) // ECharts 约定 [o,c,l,h]
     const series = buildBenchmarkValues(dates, bars.dates, closes, fst.initial_capital)
     benchRaw.value = { series, note: series ? '' : `基准 ${sym} 无本地行情` }
   } catch {
     if (mySeq !== benchSeq) return
     benchRaw.value = { series: null, note: '基准行情加载失败' }
+  } finally {
+    if (mySeq === benchSeq) benchLoading.value = false
   }
 }
 
@@ -152,15 +163,17 @@ const benchInfo = computed<{
 })
 
 // ---- 叠加对比: 另一轮重定基到当前 run(排除自身) ----
+// 叠加选项 value 用 run_id(非数组下标): 删任意轮后 runs 重排, 下标会静默指向另一条 run
+// 的曲线(数据误读); run_id 稳定, 找不到即无叠加(设计 P5 修 bug)
 const overlayOptions = computed(() =>
-  runs.value.map((r, i) => ({
+  runs.value.map((r) => ({
     label: `${runLabels.value.get(r.run_id)?.title ?? r.run_id}（${r.run_id}）`,
-    value: i,
+    value: r.run_id,
   })),
 )
 const overlayRun = computed(() => {
   if (overlaySel.value === null) return null
-  const r = runs.value[overlaySel.value]
+  const r = runs.value.find((x) => x.run_id === overlaySel.value)
   if (!r || r.run_id === selectedRun.value?.run_id) return null
   return r
 })
@@ -247,29 +260,39 @@ function onFormDone(): void {
             <span class="rail-count num">{{ runs.length }}</span>
           </div>
           <div class="run-scroll" data-testid="bt-run-list">
-            <button
+            <!-- 容器改 div: 内部拆平级两真 button(选择/删除), 不再交互元素嵌套(WCAG 4.1.2);
+                 删除钮 :focus-visible 显形, 键盘可见可达(2.1.1/1.4.13) -->
+            <div
               v-for="r in runs"
               :key="r.run_id"
-              type="button"
               class="run-row"
               :class="{ active: r.run_id === selectedRunId }"
               data-testid="bt-run-row"
-              :title="r.run_id"
-              @click="selectRun(r.run_id)"
             >
-              <span class="run-title">{{ runLabels.get(r.run_id)?.title }}</span>
-              <span class="run-row-bottom">
-                <span class="run-subtitle">{{ runLabels.get(r.run_id)?.subtitle }}</span>
-                <span class="run-id num">{{ r.run_id }}</span>
-              </span>
-              <NPopconfirm positive-text="删除" negative-text="取消" @positive-click.stop="deleteRun(r.run_id)">
+              <button
+                type="button"
+                class="run-select"
+                data-testid="bt-run-select"
+                :title="r.run_id"
+                :aria-current="r.run_id === selectedRunId ? 'true' : undefined"
+                @click="selectRun(r.run_id)"
+              >
+                <span class="run-title">{{ runLabels.get(r.run_id)?.title }}</span>
+                <span class="run-row-bottom">
+                  <span class="run-subtitle">{{ runLabels.get(r.run_id)?.subtitle }}</span>
+                  <span class="run-id num">{{ r.run_id }}</span>
+                </span>
+              </button>
+              <NPopconfirm positive-text="删除" negative-text="取消" @positive-click="deleteRun(r.run_id)">
                 <template #trigger>
-                  <span
+                  <button
+                    type="button"
                     class="run-delete"
+                    :class="{ 'run-delete--busy': deletingId === r.run_id }"
                     data-testid="bt-run-delete"
-                    :title="`删除这轮回测: ${runLabels.get(r.run_id)?.title}`"
-                    @click.stop
-                  >✕</span>
+                    :disabled="deletingId === r.run_id"
+                    :aria-label="`删除这轮回测: ${runLabels.get(r.run_id)?.title}`"
+                  >✕</button>
                 </template>
                 <div class="confirm-body">
                   <div>删除这轮回测？</div>
@@ -277,7 +300,7 @@ function onFormDone(): void {
                   <div class="t-muted">{{ r.run_id }} · 不可恢复</div>
                 </div>
               </NPopconfirm>
-            </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -321,6 +344,7 @@ function onFormDone(): void {
                   :options="BENCH_OPTIONS"
                   size="small"
                   style="width: 170px"
+                  aria-label="基准"
                   data-testid="bt-benchmark"
                 />
               </label>
@@ -333,22 +357,27 @@ function onFormDone(): void {
                   clearable
                   placeholder="无"
                   style="width: 280px"
+                  aria-label="叠加对比另一轮回测"
                   data-testid="bt-overlay"
                 />
               </label>
 
-              <template v-if="benchInfo.stats">
-                <span class="rm">
-                  <i>基准·{{ currentBenchSym }}买入持有</i>
-                  <b class="num">{{ pct(benchInfo.stats.benchReturn) }}</b>
-                </span>
-                <span class="rm">
-                  <i>{{ benchInfo.stats.alpha >= 0 ? '跑赢基准' : '跑输基准' }}</i>
-                  <b class="num" :class="benchInfo.stats.alpha >= 0 ? 't-up' : 't-down'">{{ pct(Math.abs(benchInfo.stats.alpha)) }}</b>
-                </span>
-                <span v-if="benchInfo.stats.fromDate" class="rm rm-note">自 {{ benchInfo.stats.fromDate }} 同窗口径</span>
-              </template>
-              <span v-else-if="benchInfo.warn" class="rm rm-warn">{{ benchInfo.warn }}</span>
+              <!-- 基准统计占位: 加载期保留骨架 chip(固定 min-width), 消除控制条宽度跳变 -->
+              <span class="bench-slot">
+                <span v-if="benchLoading" class="rm rm-note bench-skel" aria-live="polite">基准计算中…</span>
+                <template v-else-if="benchInfo.stats">
+                  <span class="rm">
+                    <i>基准·{{ currentBenchSym }}买入持有</i>
+                    <b class="num">{{ pct(benchInfo.stats.benchReturn) }}</b>
+                  </span>
+                  <span class="rm">
+                    <i>{{ benchInfo.stats.alpha >= 0 ? '跑赢基准' : '跑输基准' }}</i>
+                    <b class="num" :class="benchInfo.stats.alpha >= 0 ? 't-up' : 't-down'">{{ pct(Math.abs(benchInfo.stats.alpha)) }}</b>
+                  </span>
+                  <span v-if="benchInfo.stats.fromDate" class="rm rm-note">自 {{ benchInfo.stats.fromDate }} 同窗口径</span>
+                </template>
+                <span v-else-if="benchInfo.warn" class="rm rm-warn">{{ benchInfo.warn }}</span>
+              </span>
               <span v-if="overlayRun && !overlayComputed.anyOverlap" class="rm rm-warn">
                 叠加轮与当前区间无重叠日期
               </span>
@@ -366,17 +395,17 @@ function onFormDone(): void {
           </caption>
           <thead>
             <tr>
-              <th>策略</th>
-              <th>区间</th>
-              <th class="th-num"><GlossaryTip term="total_return">总收益</GlossaryTip></th>
-              <th class="th-num"><GlossaryTip term="annualized">年化</GlossaryTip></th>
-              <th class="th-num"><GlossaryTip term="max_drawdown">最大回撤</GlossaryTip></th>
-              <th class="th-num"><GlossaryTip term="sharpe">夏普</GlossaryTip></th>
-              <th class="th-num"><GlossaryTip term="sortino">索提诺</GlossaryTip></th>
-              <th class="th-num"><GlossaryTip term="calmar">Calmar</GlossaryTip></th>
-              <th class="th-num"><GlossaryTip term="win_rate">胜率</GlossaryTip></th>
-              <th class="th-num"><GlossaryTip term="trade_count">交易数</GlossaryTip></th>
-              <th class="th-num"><GlossaryTip term="turnover">换手</GlossaryTip></th>
+              <th scope="col">策略</th>
+              <th scope="col">区间</th>
+              <th scope="col" class="th-num"><GlossaryTip term="total_return">总收益</GlossaryTip></th>
+              <th scope="col" class="th-num"><GlossaryTip term="annualized">年化</GlossaryTip></th>
+              <th scope="col" class="th-num"><GlossaryTip term="max_drawdown">最大回撤</GlossaryTip></th>
+              <th scope="col" class="th-num"><GlossaryTip term="sharpe">夏普</GlossaryTip></th>
+              <th scope="col" class="th-num"><GlossaryTip term="sortino">索提诺</GlossaryTip></th>
+              <th scope="col" class="th-num"><GlossaryTip term="calmar">Calmar</GlossaryTip></th>
+              <th scope="col" class="th-num"><GlossaryTip term="win_rate">胜率</GlossaryTip></th>
+              <th scope="col" class="th-num"><GlossaryTip term="trade_count">交易数</GlossaryTip></th>
+              <th scope="col" class="th-num"><GlossaryTip term="turnover">换手</GlossaryTip></th>
             </tr>
           </thead>
           <tbody>
@@ -397,9 +426,14 @@ function onFormDone(): void {
         </template>
       </div>
     </div>
-    <p v-else class="empty t-muted" data-testid="bt-empty">
-      暂无回测入库 — 运行 <code>python -m src.interfaces.cli.run_backtest</code> 后自动写入 backtest_runs。
-    </p>
+    <div v-else class="empty t-muted" data-testid="bt-empty">
+      <p class="empty-lead">
+        还没有回测记录。用上方<b>「新建回测 / 多策略对比」</b>表单选好策略与区间提交，完成后结果会自动出现在这里。
+      </p>
+      <p class="empty-alt">
+        也可命令行运行 <code>python -m src.interfaces.cli.run_backtest</code>，结果同样写入 backtest_runs。
+      </p>
+    </div>
   </section>
 </template>
 
@@ -481,7 +515,14 @@ function onFormDone(): void {
   }
 }
 
+/* 行容器: 只做定位锚点(删除钮相对它绝对定位)与激活轨道; 视觉/交互交给内部两真 button */
 .run-row {
+  border-radius: var(--radius-sm);
+  position: relative;
+}
+
+/* 主体选择钮: 承接原 .run-row 行样式; 右留白给删除钮, 长标题不被 ✕ 压住 */
+.run-select {
   align-items: stretch;
   background: transparent;
   border: none;
@@ -491,24 +532,26 @@ function onFormDone(): void {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  padding: 8px 10px;
-  position: relative;
+  padding: 8px 30px 8px 10px;
   text-align: left;
   transition: background var(--dur-fast) var(--ease-out);
   width: 100%;
 }
 
-.run-row:hover {
+.run-row:hover .run-select {
   background: var(--accent-soft);
 }
 
-.run-row.active {
+.run-row.active .run-select {
   background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* 删除入口: 常驻透明, hover 该行才显现, 避免列表常态视觉噪音 */
+/* 删除入口: 常驻透明, hover 该行 或 键盘聚焦(focus-visible) 才显现 —— 真 button,
+   键盘可 Tab 到、聚焦即可见可达, 避免列表常态视觉噪音(WCAG 2.1.1/1.4.13) */
 .run-delete {
+  background: transparent;
+  border: none;
   border-radius: var(--radius-sm);
   color: var(--text-3);
   cursor: pointer;
@@ -525,13 +568,20 @@ function onFormDone(): void {
     background var(--dur-fast) var(--ease-out);
 }
 
-.run-row:hover .run-delete {
+.run-row:hover .run-delete,
+.run-delete:focus-visible {
   opacity: 1;
 }
 
 .run-delete:hover {
   background: color-mix(in srgb, var(--c-fail) 14%, transparent);
   color: var(--c-fail);
+}
+
+/* 删除在途(deletingId 接线): 半透明 + 禁点, 防重复触发 */
+.run-delete--busy {
+  cursor: default;
+  opacity: 0.5;
 }
 
 /* NPopconfirm 默认插槽是 flex 布局, <br/> 不生效 — 显式 block 分行 */
@@ -585,6 +635,16 @@ function onFormDone(): void {
 .empty code {
   color: var(--accent-blue);
   font-size: 12px;
+}
+
+.empty-lead {
+  margin: 0 0 6px;
+}
+
+.empty-alt {
+  font-size: 12px;
+  margin: 0;
+  opacity: 0.85;
 }
 
 /* 本轮信息+图表控制 一卡两行: 上=meta, 下=控制条(分隔线隔开) */
@@ -661,6 +721,19 @@ function onFormDone(): void {
 .rm-note {
   color: var(--text-3);
   font-size: 11.5px;
+}
+
+/* 基准统计占位槽: 固定 min-width, 加载/有值/警示三态切换不塌陷、控制条不抖 */
+.bench-slot {
+  align-items: baseline;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  min-width: 240px;
+}
+
+.bench-skel {
+  opacity: 0.7;
 }
 
 .type-badge {

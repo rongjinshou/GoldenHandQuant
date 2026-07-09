@@ -84,4 +84,32 @@ describe('JobCard', () => {
     await vi.advanceTimersByTimeAsync(2000 * 3)
     expect((fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls) // 已停
   })
+
+  it('判死后「重试」重启轮询, 恢复后钮消失并显新状态', async () => {
+    // 前 5 次失败判死, 之后恢复成功 — 验证重试重建 usePolling 实例
+    let n = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => {
+        n += 1
+        if (n <= 5) return Promise.reject(new Error('net'))
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: () => Promise.resolve(job('succeeded', { finished_at: '2026-07-04T10:01:31' })),
+          text: () => Promise.resolve(''),
+        })
+      }),
+    )
+    const w = mount(JobCard, { props: { jobId: 'abc123' } })
+    await flushPromises() // 失败 1
+    await vi.advanceTimersByTimeAsync(2000 * 4) // 失败 2..5 → 判死
+    await flushPromises()
+    expect(w.text()).toContain('查询失败')
+    expect(w.find('[data-testid="job-retry"]').exists()).toBe(true)
+
+    await w.find('[data-testid="job-retry"]').trigger('click') // 重启 → 立即刷一次(第 6 次)成功
+    await flushPromises()
+    expect(w.find('[data-testid="job-retry"]').exists()).toBe(false)
+    expect(w.text()).toContain('已完成')
+  })
 })

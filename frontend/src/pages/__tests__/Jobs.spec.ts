@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { NPopconfirm } from 'naive-ui'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -67,8 +68,18 @@ function mountJobs() {
         NDatePicker: true,
         NInput: true,
         NInputNumber: true,
-        NButton: { template: '<button><slot /></button>' },
+        // props 透传 disabled 以断言提交 pending(:loading/:disabled)
+        NButton: { props: ['loading', 'disabled'], template: '<button :disabled="disabled"><slot /></button>' },
         GlossaryTip: { template: '<span><slot /></span>' },
+        // 取消二次确认(设计 §9): 同 Verdicts.spec 惯例 —— naive `.name` 运行时无 N 前缀,
+        // 用 [Component.name] 收窄; 只保留 trigger 插槽 + 一个直发 positive-click 的确认钮。
+        // 真 NPopconfirm 的确认钮在 teleport 弹层里(不在行内), stub 内联渲染故需 .stop
+        // 阻止冒泡到 <tr> 的行 click(openLog), 复现真实"确认取消不触发日志钻取"。
+        [NPopconfirm.name as string]: {
+          emits: ['positive-click'],
+          template:
+            '<span class="stub-popconfirm"><slot name="trigger" /><button type="button" data-testid="job-cancel-confirm" @click.stop="$emit(\'positive-click\')">confirm</button></span>',
+        },
       },
     },
   })
@@ -167,19 +178,56 @@ describe('Jobs 任务列表', () => {
     expect(w.find('[data-testid="job-log"]').text()).toBe('暂无任务，提交后此处显示实时日志')
   })
 
-  it('取消: POST cancel 后刷新列表, .stop 不触发日志钻取', async () => {
+  it('取消: 二次确认后 POST cancel 并刷新列表, 不触发日志钻取', async () => {
     const w = mountJobs()
     await flushPromises()
     const listCalls = urls(/\/api\/jobs\?limit=100$/).length
 
-    await w.find('[data-testid="job-row-cancel"]').trigger('click')
+    // NPopconfirm 确认钮(stub)对应首个 queued|running 行 = j1(running)
+    await w.findAll('[data-testid="job-cancel-confirm"]')[0].trigger('click')
     await flushPromises()
 
     const cancelCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/j1/cancel'))
     expect(cancelCall).toBeTruthy()
     expect((cancelCall?.[1] as { method?: string }).method).toBe('POST')
-    expect(urls(/\/api\/jobs\?limit=100$/).length).toBe(listCalls + 1)
-    expect(urls(/\?tail=300$/)).toHaveLength(0)
+    expect(urls(/\/api\/jobs\?limit=100$/).length).toBe(listCalls + 1) // finally 刷新列表
+    expect(urls(/\?tail=300$/)).toHaveLength(0) // 未触发日志钻取
+  })
+
+  it('ID 单元格真 button 承载钻取, aria-expanded 随选中态', async () => {
+    const w = mountJobs()
+    await flushPromises()
+
+    const drills = w.findAll('[data-testid="job-row-drill"]')
+    expect(drills).toHaveLength(3)
+    // 未选中时全部 aria-expanded=false
+    expect(drills[0].attributes('aria-expanded')).toBe('false')
+
+    // 键盘可达路径: 按钮点击即钻取(不依赖行鼠标 click)
+    await drills[0].trigger('click')
+    await flushPromises()
+    expect(w.findAll('[data-testid="job-row-drill"]')[0].attributes('aria-expanded')).toBe('true')
+    expect(urls(/\?tail=300$/).length).toBeGreaterThan(0)
+  })
+
+  it('取消乐观: 确认后行内立即显「取消中…」并撤下确认入口(cancel 悬挂期间)', async () => {
+    // 覆盖 cancel 分支为悬挂 Promise, 以观察乐观中间态; 其余 URL 复用 beforeEach 实现
+    const base = fetchMock.getMockImplementation()! as (i: unknown, init?: { method?: string }) => unknown
+    fetchMock.mockImplementation((input: unknown, init?: { method?: string }) => {
+      const url = String(input)
+      if (/\/api\/jobs\/[^/?]+\/cancel$/.test(url)) return new Promise(() => {}) // 永不 resolve
+      return base(input, init)
+    })
+    const w = mountJobs()
+    await flushPromises()
+    expect(w.find('[data-testid="job-row-canceling"]').exists()).toBe(false)
+
+    await w.findAll('[data-testid="job-cancel-confirm"]')[0].trigger('click')
+    await flushPromises()
+
+    // j1 行乐观置「取消中…」, 该行确认入口(popconfirm)撤下 → 全表 confirm 从 2 减到 1
+    expect(w.find('[data-testid="job-row-canceling"]').exists()).toBe(true)
+    expect(w.findAll('[data-testid="job-cancel-confirm"]')).toHaveLength(1)
   })
 })
 
@@ -285,5 +333,34 @@ describe('Jobs ML 表单', () => {
       eval_start: '2025-01-01',
       eval_end: '2025-12-31',
     })
+  })
+
+  it('训练提交 pending: 提交期间按钮禁用防双击, 完成后复位', async () => {
+    // 训练 POST 悬挂以观察 pending 中间态; 其余 URL 复用 beforeEach 实现
+    const base = fetchMock.getMockImplementation()! as (i: unknown, init?: { method?: string }) => unknown
+    let release: () => void = () => {}
+    fetchMock.mockImplementation((input: unknown, init?: { method?: string }) => {
+      const url = String(input)
+      if (url === '/api/jobs/ml-train') {
+        return new Promise((res) => {
+          release = () =>
+            res({ ok: true, status: 200, json: () => Promise.resolve(mkJob('mlj1', 'queued')), text: () => Promise.resolve('') })
+        })
+      }
+      return base(input, init)
+    })
+    const w = mountJobs()
+    await flushPromises()
+
+    const btn = w.find('[data-testid="ml-train-submit"]')
+    expect((btn.element as HTMLButtonElement).disabled).toBe(false)
+
+    await btn.trigger('click')
+    await flushPromises()
+    expect((btn.element as HTMLButtonElement).disabled).toBe(true) // pending: 禁钮排重
+
+    release()
+    await flushPromises()
+    expect((w.find('[data-testid="ml-train-submit"]').element as HTMLButtonElement).disabled).toBe(false)
   })
 })

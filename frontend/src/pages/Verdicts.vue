@@ -11,6 +11,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import FactorCard from './verdicts/FactorCard.vue'
 import FactorDetailModal from './verdicts/FactorDetailModal.vue'
 import FactorTestForm from './verdicts/FactorTestForm.vue'
+import { resolveReloadSelection } from './verdicts/reload-selection'
 import { buildVerdictRunLabel } from './verdicts/run-naming'
 import { SORT_OPTIONS, filterFactors, sortFactors, type FilterKey, type SortKey } from './verdicts/sort'
 
@@ -21,18 +22,32 @@ const error = ref('')
 const loading = ref(true)
 const runs = ref<VerdictRun[]>([])
 const selectedIdx = ref(0)
+/* 新轮到达提示条(设计 §9): reload 保留原选中时, 用它非侵入告知"有更新的轮", 不强切。 */
+const newRunNotice = ref<string | null>(null)
 
 async function loadVerdicts(): Promise<void> {
+  // 直接读 runs/selectedIdx(而非尚在 TDZ 的 run 计算属性): 首次 void 调用发生在 run 定义之前。
+  const prevRunId = runs.value[selectedIdx.value]?.run_id ?? null
+  const prevRunIds = runs.value.map((r) => r.run_id)
   try {
     const data = await fetchJSON<{ runs: VerdictRun[] }>('/api/research/verdicts')
     runs.value = data.runs
-    selectedIdx.value = 0
+    // 保留选中: 原轮仍在则定位其新下标, 否则回落最新(0); 新轮到达仅提示不强切。
+    const sel = resolveReloadSelection(prevRunId, prevRunIds, data.runs)
+    selectedIdx.value = sel.selectedIdx
+    newRunNotice.value = sel.newRunId
     error.value = ''
   } catch (e) {
     error.value = (e as Error).message
   } finally {
     loading.value = false
   }
+}
+
+function jumpToNewRun(): void {
+  const idx = runs.value.findIndex((r) => r.run_id === newRunNotice.value)
+  if (idx >= 0) selectedIdx.value = idx
+  newRunNotice.value = null
 }
 
 void loadVerdicts()
@@ -113,6 +128,8 @@ watch(modalOpen, (open) => {
 // 过滤/排序或切换轮次时, 弹框下标语义会变 — 直接关闭而非静默指向别的因子
 watch(() => run.value?.run_id, () => { modalOpen.value = false })
 watch([filterKey, sortKey], () => { modalOpen.value = false })
+// 选中回到最新轮(点"查看最新"或手动选最新)后, "新轮就绪"提示失去意义 → 清除
+watch(selectedIdx, (i) => { if (i === 0) newRunNotice.value = null })
 </script>
 
 <template>
@@ -131,6 +148,21 @@ watch([filterKey, sortKey], () => { modalOpen.value = false })
     </p>
 
     <template v-if="run">
+      <div
+        v-if="newRunNotice"
+        class="new-run-notice"
+        role="status"
+        data-testid="verdict-new-run-notice"
+      >
+        <span>已有更新的判决轮就绪 — 当前仍停在你正在查看的这轮。</span>
+        <button type="button" class="notice-view" @click="jumpToNewRun">查看最新</button>
+        <button
+          type="button"
+          class="notice-dismiss"
+          aria-label="忽略新轮提示"
+          @click="newRunNotice = null"
+        >✕</button>
+      </div>
       <div class="result-head">
         <span class="list-title">判决结果</span>
         <NSelect
@@ -138,6 +170,7 @@ watch([filterKey, sortKey], () => { modalOpen.value = false })
           :options="runOptions"
           size="small"
           style="width: 380px"
+          aria-label="判决轮次"
           data-testid="run-select"
         />
         <NPopconfirm
@@ -155,15 +188,16 @@ watch([filterKey, sortKey], () => { modalOpen.value = false })
           </div>
         </NPopconfirm>
         <div class="filter-seg" role="group" aria-label="按判决过滤" data-testid="verdict-filter">
-          <button type="button" :class="{ active: filterKey === 'all' }" @click="filterKey = 'all'">全部 {{ totalCount }}</button>
-          <button type="button" :class="{ active: filterKey === 'pass' }" @click="filterKey = 'pass'">PASS {{ passCount }}</button>
-          <button type="button" :class="{ active: filterKey === 'fail' }" @click="filterKey = 'fail'">FAIL {{ failCount }}</button>
+          <button type="button" :class="{ active: filterKey === 'all' }" :aria-pressed="filterKey === 'all'" @click="filterKey = 'all'">全部 {{ totalCount }}</button>
+          <button type="button" :class="{ active: filterKey === 'pass' }" :aria-pressed="filterKey === 'pass'" @click="filterKey = 'pass'">PASS {{ passCount }}</button>
+          <button type="button" :class="{ active: filterKey === 'fail' }" :aria-pressed="filterKey === 'fail'" @click="filterKey = 'fail'">FAIL {{ failCount }}</button>
         </div>
         <NSelect
           v-model:value="sortKey"
           :options="SORT_OPTIONS"
           size="small"
           style="width: 190px"
+          aria-label="因子排序"
           data-testid="verdict-sort"
         />
       </div>
@@ -204,6 +238,54 @@ watch([filterKey, sortKey], () => { modalOpen.value = false })
 </template>
 
 <style scoped>
+/* 新轮到达提示条(设计 §9): info 语义色, 非侵入 — 不遮挡内容, 可"查看最新"或"忽略"。 */
+.new-run-notice {
+  align-items: center;
+  background: var(--c-info-soft);
+  border: 1px solid var(--c-info-border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  gap: 10px;
+  margin: var(--gap-lg) 0 0;
+  padding: 8px 14px;
+}
+
+.notice-view {
+  background: transparent;
+  border: 1px solid var(--c-info-border);
+  border-radius: var(--radius-sm);
+  color: var(--c-info);
+  cursor: pointer;
+  font-size: 12px;
+  min-height: 24px;
+  padding: 3px 10px;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.notice-view:hover {
+  border-color: var(--c-info);
+}
+
+.notice-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  margin-left: auto;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 4px 6px;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.notice-dismiss:hover {
+  color: var(--text);
+}
+
 .result-head {
   align-items: center;
   display: flex;

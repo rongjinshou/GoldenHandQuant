@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TradingCycle } from '@/api/types'
@@ -79,11 +79,42 @@ describe('CyclesTable', () => {
     expect(w.find('[data-testid="cycles-expand"]').text()).toContain('显示全部 80 条')
   })
 
-  it('行点击展开钻取明细', async () => {
+  it('点首列展开钮钻取明细', async () => {
     const w = mount(CyclesTable, { props: { cycles: cycles(3) } })
-    await w.findAll('[data-testid="cycle-row"]')[0]!.trigger('click')
-    await Promise.resolve()
-    await Promise.resolve()
+    await w.findAll('[data-testid="cycle-toggle"]')[0]!.trigger('click')
+    await flushPromises()
     expect(w.find('[data-testid="cycle-detail"]').exists()).toBe(true)
+  })
+
+  /* C2 键盘可达(WCAG 2.1.1/4.1.2): 展开须由真 <button> 承载并标注 aria-expanded,
+   * 而非 <tr @click>(键盘不可达)。 */
+  it('展开由真 button 承载并标注 aria-expanded', async () => {
+    const w = mount(CyclesTable, { props: { cycles: cycles(1) } })
+    const btn = w.find('[data-testid="cycle-toggle"]')
+    expect(btn.element.tagName).toBe('BUTTON')
+    expect(btn.attributes('aria-expanded')).toBe('false')
+    expect(btn.attributes('aria-label')).toContain('展开')
+
+    await btn.trigger('click')
+    const after = w.find('[data-testid="cycle-toggle"]')
+    expect(after.attributes('aria-expanded')).toBe('true')
+    expect(after.attributes('aria-label')).toContain('收起')
+  })
+
+  /* 明细失败态是字符串 'error'(truthy) — 收起后重展开必须重拉(不能被 truthy 缓存跳过)。 */
+  it('明细加载失败后收起再展开会重试拉取', async () => {
+    const failing = vi.fn().mockRejectedValue(new Error('boom'))
+    vi.stubGlobal('fetch', failing)
+    const w = mount(CyclesTable, { props: { cycles: cycles(1) } })
+
+    await w.find('[data-testid="cycle-toggle"]').trigger('click')
+    await flushPromises()
+    expect(w.find('.t-fail').exists()).toBe(true) // "明细加载失败"
+    expect(failing).toHaveBeenCalledTimes(1)
+
+    await w.find('[data-testid="cycle-toggle"]').trigger('click') // 收起
+    await w.find('[data-testid="cycle-toggle"]').trigger('click') // 再展开 → 重试
+    await flushPromises()
+    expect(failing).toHaveBeenCalledTimes(2)
   })
 })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NButton, NCheckbox, NDatePicker, NInput, NInputNumber, NSelect } from 'naive-ui'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { postJSON } from '@/api/fetch'
 import type { Job, StrategyMeta } from '@/api/types'
@@ -32,8 +32,20 @@ const endDate = ref<string | null>('2025-12-31')
 const capital = ref<number | null>(null)
 const config = ref('')
 const jobIds = ref<string[]>([])
+const submitting = ref(false)
 
 const chips = useSymbolChips()
+
+/* 联想浮层"点外收起": 指针落在标的输入区之外即关闭候选(WCAG §9 combobox 收起路径之一);
+ * 区内点击(含候选 <li>)不受影响, 与既有幽灵点击防护互不干扰。 */
+const chipsBoxRef = ref<HTMLElement | null>(null)
+function onDocPointerDown(e: PointerEvent): void {
+  if (chipsBoxRef.value && !chipsBoxRef.value.contains(e.target as Node)) {
+    chips.onEscape()
+  }
+}
+onMounted(() => document.addEventListener('pointerdown', onDocPointerDown))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDown))
 
 function typeOf(name: string): string | undefined {
   return props.strategyMeta.find((s) => s.name === name)?.strategy_type
@@ -101,6 +113,14 @@ function onSymKeydown(e: KeyboardEvent): void {
   if (e.key === 'Enter') {
     e.preventDefault()
     chips.onEnter()
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault() // 阻止光标跳到行尾, 改为在候选间下移高亮
+    chips.onArrowDown()
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    chips.onArrowUp()
+  } else if (e.key === 'Escape') {
+    chips.onEscape()
   } else if (e.key === 'Backspace') {
     chips.onBackspace()
   }
@@ -114,6 +134,7 @@ const symPlaceholder = computed(() =>
 
 // ---- 提交 ----
 async function submitBacktest(): Promise<void> {
+  if (submitting.value) return // 防双击重复提交
   error.value = ''
   const strategies = selectedStrategies.value
   if (!strategies.length) {
@@ -150,11 +171,14 @@ async function submitBacktest(): Promise<void> {
     }
   }
   if (Object.keys(params).length) payload.params = params
+  submitting.value = true
   try {
     const job = await postJSON<Job>('/api/jobs/backtest', payload)
     jobIds.value.unshift(job.job_id)
   } catch (e) {
     error.value = (e as Error).message
+  } finally {
+    submitting.value = false
   }
 }
 </script>
@@ -211,10 +235,10 @@ async function submitBacktest(): Promise<void> {
     <div class="form-row sym-row">
       <label class="sym-field">
         标的（留空=配置默认）
-        <div class="chips-box" :class="{ disabled: hasCross }">
+        <div ref="chipsBoxRef" class="chips-box" :class="{ disabled: hasCross }">
           <span v-for="sym in chips.symbols.value" :key="sym" class="chip" data-testid="bt-chip">
             {{ sym }}
-            <button class="chip-x" type="button" @click="chips.remove(sym)">×</button>
+            <button class="chip-x" type="button" :aria-label="`移除标的 ${sym}`" @click="chips.remove(sym)">×</button>
           </span>
           <input
             class="chip-input"
@@ -223,17 +247,39 @@ async function submitBacktest(): Promise<void> {
             :disabled="hasCross"
             :placeholder="symPlaceholder"
             autocomplete="off"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="bt-sym-listbox"
+            :aria-expanded="chips.suggestions.value.length > 0"
+            :aria-activedescendant="
+              chips.activeIndex.value >= 0 ? `bt-sym-opt-${chips.activeIndex.value}` : undefined
+            "
             @input="onSymInput"
             @keydown="onSymKeydown"
           />
-          <ul v-if="chips.suggestions.value.length" class="suggest card">
-            <li v-for="hit in chips.suggestions.value" :key="hit.symbol" @click="chips.pickSuggestion(hit)">
+          <ul v-if="chips.suggestions.value.length" id="bt-sym-listbox" class="suggest card" role="listbox">
+            <li
+              v-for="(hit, i) in chips.suggestions.value"
+              :id="`bt-sym-opt-${i}`"
+              :key="hit.symbol"
+              role="option"
+              :aria-selected="chips.activeIndex.value === i"
+              :class="{ 'is-active': chips.activeIndex.value === i }"
+              @click="chips.pickSuggestion(hit)"
+            >
               <span class="num">{{ hit.symbol }}</span> {{ hit.name }}
             </li>
           </ul>
         </div>
       </label>
-      <NButton type="primary" data-testid="bt-submit" @click="submitBacktest">提交回测</NButton>
+      <NButton
+        type="primary"
+        :loading="submitting"
+        :disabled="submitting"
+        data-testid="bt-submit"
+        @click="submitBacktest"
+        >提交回测</NButton
+      >
     </div>
 
     <p v-if="chips.err.value" class="form-hint sym-err t-warn">{{ chips.err.value }}</p>
@@ -399,7 +445,8 @@ async function submitBacktest(): Promise<void> {
   transition: background var(--dur-fast) var(--ease-out);
 }
 
-.suggest li:hover {
+.suggest li:hover,
+.suggest li.is-active {
   background: var(--accent-soft);
 }
 

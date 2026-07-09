@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { LineChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { AriaComponent, GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed } from 'vue'
@@ -11,9 +11,10 @@ import GlossaryTip from '@/components/GlossaryTip.vue'
 import { axisStyle, tooltipStyle, useChartTheme, vGradient } from '@/composables/useChartTheme'
 
 import LvBadge from './LvBadge.vue'
-import { daemonBadge, num, wan, type BadgeKind } from './logic'
+import { daemonBadge, equityAriaLabel, num, wan, type BadgeKind } from './logic'
 
-use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+// AriaComponent: 启用 ECharts 内建无障碍(option.aria) — 图表 role=img + aria-label 之外的兜底
+use([LineChart, GridComponent, TooltipComponent, LegendComponent, AriaComponent, CanvasRenderer])
 
 /* 概览子视图 — 旧 renderOpsCards + 权益曲线段对等:
  * 运维四卡(今日活动/预算/守护/auto-trade 配置只读) + 权益曲线(≥2 快照才成曲线,
@@ -25,7 +26,12 @@ const props = defineProps<{
   budget: LiveBudget | null
   cfg: LiveConfig | null
   series: AccountSnapshot[]
+  /** 权益端点是否已首响应 — 区分"加载中"(骨架)与真空态"暂无权益快照" */
+  equityLoaded?: boolean
 }>()
+
+// 运维四卡首响应前(全 null)显骨架, 不留空白冒充加载
+const cardsPending = computed(() => !props.ov && !props.budget && !props.cfg)
 
 const palette = useChartTheme()
 
@@ -62,6 +68,8 @@ const atSub = computed(() => {
 // ---- 权益曲线(旧口径: ≥2 快照; 单点提示采样方法; mode 分线, 首线带品牌渐变面;
 // x 轴用 time 而非 category — 等距排快照会把 3 分钟画得与 17 天一样宽, 且截到分钟出现重复刻度) ----
 const hasEquity = computed(() => props.series.length >= 2)
+// 图表容器 role="img" 的替代文本(WCAG 1.1.1): 概述曲线条数/最新总资产/区间
+const equityAria = computed(() => equityAriaLabel(props.series))
 const equityHint = computed(() =>
   props.series.length === 1
     ? '已有 1 条权益快照——多次同步后将绘制权益曲线（scripts/sync_live_account.py --watch 30 持续采样）。'
@@ -89,6 +97,7 @@ const equityOption = computed(() => {
   return {
     backgroundColor: 'transparent',
     animation: false,
+    aria: { enabled: true }, // ECharts 内建无障碍描述(role=img aria-label 之外的兜底)
     textStyle: { color: t.text },
     color: t.series,
     tooltip: {
@@ -160,6 +169,13 @@ const equityOption = computed(() => {
 <template>
   <div>
     <div class="ops-cards">
+      <!-- 首响应前(全 null)显骨架, 不让空白冒充加载 -->
+      <div
+        v-for="i in cardsPending ? 4 : 0"
+        :key="`sk-${i}`"
+        class="card kpi-skeleton"
+        aria-hidden="true"
+      ></div>
       <div v-if="ov" class="card ops-card">
         <h3>今日活动</h3>
         <div class="big num">{{ cyclesToday }} <span class="unit">循环</span></div>
@@ -204,7 +220,16 @@ const equityOption = computed(() => {
       <div class="chart-head">
         <GlossaryTip term="equity_snap"><span class="chart-title">账户权益（循环快照）</span></GlossaryTip>
       </div>
-      <VChart v-if="equityOption" :option="equityOption" autoresize class="chart-equity" />
+      <div v-if="equityLoaded === false" class="chart-skeleton" aria-hidden="true"></div>
+      <VChart
+        v-else-if="equityOption"
+        role="img"
+        :aria-label="equityAria"
+        :option="equityOption"
+        autoresize
+        class="chart-equity"
+        data-testid="live-equity-chart"
+      />
       <p v-else class="equity-hint t-muted" data-testid="live-equity-hint">{{ equityHint }}</p>
     </div>
   </div>
@@ -282,5 +307,33 @@ const equityOption = computed(() => {
 .equity-hint {
   padding: 46px 0;
   text-align: center;
+}
+
+/* 加载骨架: 卡片沿用全站 .kpi-skeleton 脉冲; 图表区块占满真实高度不跳版 */
+.kpi-skeleton {
+  animation: ops-skeleton-pulse 1.4s ease-in-out infinite;
+  min-height: 96px;
+}
+
+.chart-skeleton {
+  animation: ops-skeleton-pulse 1.4s ease-in-out infinite;
+  background: var(--bg-3);
+  border-radius: var(--radius-sm);
+  height: 340px;
+  width: 100%;
+}
+
+@keyframes ops-skeleton-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kpi-skeleton,
+  .chart-skeleton {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 </style>

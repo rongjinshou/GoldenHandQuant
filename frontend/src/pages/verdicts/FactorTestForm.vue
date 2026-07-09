@@ -62,6 +62,7 @@ const ftLayers = ref(5)
 const ftRebalance = ref(5)
 const ftCost = ref(0.003)
 const ftJobIds = ref<string[]>([])
+const submitting = ref(false)
 
 watch(
   () => props.lastSplitHint,
@@ -94,11 +95,14 @@ async function submitFactorTest(): Promise<void> {
     cost_rate: ftCost.value,
   }
   if (ftSplit.value) payload.split_date = ftSplit.value
+  submitting.value = true
   try {
     const job = await postJSON<Job>('/api/jobs/factor-test', payload)
     ftJobIds.value.unshift(job.job_id)
   } catch (e) {
     error.value = (e as Error).message
+  } finally {
+    submitting.value = false
   }
 }
 </script>
@@ -130,11 +134,11 @@ async function submitFactorTest(): Promise<void> {
       <label>起始 <NDatePicker v-model:formatted-value="ftStart" value-format="yyyy-MM-dd" type="date" clearable /></label>
       <label>结束 <NDatePicker v-model:formatted-value="ftEnd" value-format="yyyy-MM-dd" type="date" clearable /></label>
       <label><GlossaryTip term="split_date">IS/OOS 切分</GlossaryTip> <NDatePicker v-model:formatted-value="ftSplit" value-format="yyyy-MM-dd" type="date" clearable /></label>
-      <label><GlossaryTip term="objective">记分牌</GlossaryTip> <NSelect v-model:value="ftObjective" :options="OBJECTIVE_OPTIONS" style="width: 220px" /></label>
+      <label><GlossaryTip term="objective">记分牌</GlossaryTip> <NSelect v-model:value="ftObjective" :options="OBJECTIVE_OPTIONS" aria-label="记分牌口径" style="width: 220px" /></label>
       <label><GlossaryTip term="layers">分层</GlossaryTip> <NInputNumber v-model:value="ftLayers" :min="2" :max="10" style="width: 90px" /></label>
       <label><GlossaryTip term="rebalance">调仓(日)</GlossaryTip> <NInputNumber v-model:value="ftRebalance" :min="1" style="width: 90px" /></label>
       <label><GlossaryTip term="cost_rate">成本率</GlossaryTip> <NInputNumber v-model:value="ftCost" :step="0.001" style="width: 110px" /></label>
-      <NButton type="primary" data-testid="ft-submit" @click="submitFactorTest">提交检验</NButton>
+      <NButton type="primary" :loading="submitting" :disabled="submitting" data-testid="ft-submit" @click="submitFactorTest">提交检验</NButton>
     </div>
     <p v-if="ftHint" class="t-warn hint">
       多因子批量检验未设 IS/OOS 切分——存在多重检验风险，建议保留切分日期。

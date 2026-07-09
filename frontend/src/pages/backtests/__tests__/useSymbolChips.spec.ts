@@ -94,3 +94,87 @@ describe('useSymbolChips', () => {
     expect(chips.symbols.value).toEqual(['000021.SZ'])
   })
 })
+
+/* combobox 键盘导航(WCAG 2.1.1/4.1.2): 联想候选 ↑↓ 高亮 + Enter 取高亮 + Esc 关闭。
+ * activeIndex=-1 表示无高亮(ARIA aria-activedescendant 空), 首次 ↓ 落首项、↑ 落末项, 到边回绕。 */
+describe('useSymbolChips 键盘导航(combobox)', () => {
+  function withSuggestions(): ReturnType<typeof useSymbolChips> {
+    const chips = useSymbolChips()
+    chips.suggestions.value = [
+      { symbol: '000021.SZ', name: '深科技' },
+      { symbol: '600519.SH', name: '贵州茅台' },
+      { symbol: '300750.SZ', name: '宁德时代' },
+    ]
+    return chips
+  }
+
+  it('初始 activeIndex 为 -1(无高亮)', () => {
+    const chips = withSuggestions()
+    expect(chips.activeIndex.value).toBe(-1)
+  })
+
+  it('onArrowDown 从 -1 高亮首项, 逐步下移', () => {
+    const chips = withSuggestions()
+    chips.onArrowDown()
+    expect(chips.activeIndex.value).toBe(0)
+    chips.onArrowDown()
+    expect(chips.activeIndex.value).toBe(1)
+  })
+
+  it('onArrowDown 到末项再下移回绕到首项', () => {
+    const chips = withSuggestions()
+    chips.onArrowDown() // 0
+    chips.onArrowDown() // 1
+    chips.onArrowDown() // 2
+    chips.onArrowDown() // 回绕 → 0
+    expect(chips.activeIndex.value).toBe(0)
+  })
+
+  it('onArrowUp 从 -1 高亮末项', () => {
+    const chips = withSuggestions()
+    chips.onArrowUp()
+    expect(chips.activeIndex.value).toBe(2)
+  })
+
+  it('onArrowUp 从首项回绕到末项', () => {
+    const chips = withSuggestions()
+    chips.onArrowDown() // 0
+    chips.onArrowUp() // 回绕 → 2
+    expect(chips.activeIndex.value).toBe(2)
+  })
+
+  it('无候选时方向键是空操作(不越界)', () => {
+    const chips = useSymbolChips()
+    chips.onArrowDown()
+    expect(chips.activeIndex.value).toBe(-1)
+    chips.onArrowUp()
+    expect(chips.activeIndex.value).toBe(-1)
+  })
+
+  it('onEscape 关闭候选并清高亮', () => {
+    const chips = withSuggestions()
+    chips.onArrowDown()
+    chips.onEscape()
+    expect(chips.suggestions.value).toEqual([])
+    expect(chips.activeIndex.value).toBe(-1)
+  })
+
+  it('onEnter 提交当前高亮候选(非首项), 清空输入/候选/高亮', () => {
+    const chips = withSuggestions()
+    chips.input.value = '600'
+    chips.onArrowDown() // 0
+    chips.onArrowDown() // 1 → 600519.SH
+    chips.onEnter()
+    expect(chips.symbols.value).toEqual(['600519.SH'])
+    expect(chips.input.value).toBe('')
+    expect(chips.activeIndex.value).toBe(-1)
+    expect(chips.suggestions.value).toEqual([])
+  })
+
+  it('无高亮时 onEnter 维持既有行为(完整代码直接成 chip)', () => {
+    const chips = useSymbolChips()
+    chips.input.value = '000021.SZ'
+    chips.onEnter()
+    expect(chips.symbols.value).toEqual(['000021.SZ'])
+  })
+})
