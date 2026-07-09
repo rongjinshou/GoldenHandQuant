@@ -15,11 +15,12 @@ export const router = createRouter({
   ],
 })
 
+/* 顺序按流水线心智: 数据→判决→回测→实盘 (与总览页 PipelineMap 一致) */
 export const NAV_ITEMS = [
   { name: 'overview', label: '总览' },
-  { name: 'backtests', label: '回测' },
   { name: 'explorer', label: '行情' },
   { name: 'verdicts', label: '判决' },
+  { name: 'backtests', label: '回测' },
   { name: 'live', label: '实盘' },
   { name: 'jobs', label: '任务' },
 ] as const
