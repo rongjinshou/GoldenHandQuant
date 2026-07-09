@@ -20,6 +20,7 @@ import {
   truncatedTradesStrategy,
 } from './backtests/chart-data'
 import EquityChart from './backtests/EquityChart.vue'
+import { type Cell, ddCell, marketCell, qualityCell } from './backtests/metric-cell'
 import { buildRunLabel, sourceLabel } from './backtests/run-naming'
 
 /* 回测页 — 旧 backtests.js loadBacktests/renderBtRun 对等:
@@ -196,36 +197,21 @@ const truncated = computed(() =>
 )
 
 // ---- 指标表(全部策略, 含无曲线的旧 CLI 行) ----
-interface Cell {
-  text: string
-  cls: string
-}
-function signedCell(v: number | null, fmt: (x: number) => string): Cell {
-  if (v === null || v === undefined) return { text: '-', cls: 't-muted' }
-  // 正=好(绿 t-pass) 负=差(红 t-fail) — 判定语义, 非行情涨跌
-  return { text: fmt(v), cls: v > 0 ? 't-pass' : v < 0 ? 't-fail' : '' }
-}
-function plainCell(v: number | null, fmt: (x: number) => string, cls = ''): Cell {
-  return { text: v === null || v === undefined ? '-' : fmt(v), cls }
-}
+// 配色: 收益/超额走行情色(marketCell 涨红跌绿), 质量指标中性(qualityCell), 回撤超阈红(ddCell)
 const metricRows = computed(() =>
   (selectedRun.value?.strategies ?? []).map((s) => ({
     name: s.strategy,
     range: `${s.start_date ?? '?'} ~ ${s.end_date ?? '?'}`,
     cells: [
-      signedCell(s.total_return, pct),
-      signedCell(s.annualized_return, pct),
-      plainCell(
-        s.max_drawdown,
-        pct,
-        s.max_drawdown !== null && s.max_drawdown > 0.2 ? 't-fail' : '',
-      ),
-      signedCell(s.sharpe_ratio, f3),
-      signedCell(s.sortino_ratio, f3),
-      signedCell(s.calmar_ratio, f3),
-      plainCell(s.win_rate, pct),
+      marketCell(s.total_return, pct),
+      marketCell(s.annualized_return, pct),
+      ddCell(s.max_drawdown, pct),
+      qualityCell(s.sharpe_ratio, f3),
+      qualityCell(s.sortino_ratio, f3),
+      qualityCell(s.calmar_ratio, f3),
+      qualityCell(s.win_rate, pct),
       { text: s.trade_count === null || s.trade_count === undefined ? '-' : String(s.trade_count), cls: '' },
-      plainCell(s.turnover_rate, pct),
+      qualityCell(s.turnover_rate, pct),
     ] as Cell[],
   })),
 )
@@ -358,7 +344,7 @@ function onFormDone(): void {
                 </span>
                 <span class="rm">
                   <i>{{ benchInfo.stats.alpha >= 0 ? '跑赢基准' : '跑输基准' }}</i>
-                  <b class="num" :class="benchInfo.stats.alpha >= 0 ? 't-pass' : 't-fail'">{{ pct(Math.abs(benchInfo.stats.alpha)) }}</b>
+                  <b class="num" :class="benchInfo.stats.alpha >= 0 ? 't-up' : 't-down'">{{ pct(Math.abs(benchInfo.stats.alpha)) }}</b>
                 </span>
                 <span v-if="benchInfo.stats.fromDate" class="rm rm-note">自 {{ benchInfo.stats.fromDate }} 同窗口径</span>
               </template>
@@ -375,6 +361,9 @@ function onFormDone(): void {
 
       <div class="table-wrap card">
         <table data-testid="bt-table">
+          <caption class="table-legend t-muted">
+            红=正收益/涨，绿=负收益/跌（A股行情色）；夏普等质量指标为中性
+          </caption>
           <thead>
             <tr>
               <th>策略</th>
@@ -719,6 +708,13 @@ function onFormDone(): void {
   margin-bottom: var(--gap);
   overflow-x: auto;
   padding: 6px 10px;
+}
+
+.table-legend {
+  caption-side: top;
+  font-size: var(--fs-xs);
+  padding: 2px 0 var(--space-2);
+  text-align: left;
 }
 
 table {
