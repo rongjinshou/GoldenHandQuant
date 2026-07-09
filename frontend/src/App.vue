@@ -20,7 +20,7 @@ const jobsStore = useJobsStore()
   >
     <div class="shell" data-testid="app-shell">
       <header class="topbar">
-        <h1 class="brand">GoldenHand <span class="brand-sub">投研驾驶舱</span></h1>
+        <h1 class="brand">GoldenHandQuant</h1>
         <nav class="nav" aria-label="主导航">
           <RouterLink
             v-for="item in NAV_ITEMS"
@@ -78,13 +78,6 @@ const jobsStore = useJobsStore()
   letter-spacing: 0.02em;
   margin: 0;
   white-space: nowrap;
-}
-
-.brand-sub {
-  color: var(--text-3);
-  font-size: 13px;
-  font-weight: 400;
-  margin-left: 6px;
 }
 
 .nav {
