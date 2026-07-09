@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+// 读 CSS 源做正则断言(lint 式守卫); vitest 对 .css?raw 不可靠, 走 fs
 const css = readFileSync(resolve(process.cwd(), 'src/styles/tokens.css'), 'utf8')
 
 /** 提取某主题块内的 --var: #hex / rgba() 声明 */

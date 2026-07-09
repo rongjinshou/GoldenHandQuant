@@ -17,6 +17,14 @@ const common = {
   fontFamily: "'Lora', Georgia, 'Noto Serif SC', serif",
 } as const
 
+/* 主按钮文字墨黑: 白字压橙底仅 2.96:1, 墨黑 5.90:1 (WCAG 1.4.3) */
+const BUTTON_PRIMARY_TEXT = {
+  textColorPrimary: '#141413',
+  textColorHoverPrimary: '#141413',
+  textColorPressedPrimary: '#141413',
+  textColorFocusPrimary: '#141413',
+} as const
+
 const DARK_OVERRIDES: GlobalThemeOverrides = {
   common: {
     ...common,
@@ -31,6 +39,7 @@ const DARK_OVERRIDES: GlobalThemeOverrides = {
     textColor2: '#d6d4cb',
     textColor3: '#9d9b92',
   },
+  Button: BUTTON_PRIMARY_TEXT,
 }
 
 const LIGHT_OVERRIDES: GlobalThemeOverrides = {
@@ -47,6 +56,7 @@ const LIGHT_OVERRIDES: GlobalThemeOverrides = {
     textColor2: '#4a4945',
     textColor3: '#75736b',
   },
+  Button: BUTTON_PRIMARY_TEXT,
 }
 
 function readInitial(): ThemeName {
