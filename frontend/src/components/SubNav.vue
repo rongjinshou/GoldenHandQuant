@@ -17,6 +17,7 @@ const emit = defineEmits<{ 'update:modelValue': [key: string] }>()
       type="button"
       class="subnav-item"
       :class="{ active: item.key === modelValue }"
+      :aria-current="item.key === modelValue ? 'page' : undefined"
       :data-testid="`subnav-${item.key}`"
       @click="emit('update:modelValue', item.key)"
     >

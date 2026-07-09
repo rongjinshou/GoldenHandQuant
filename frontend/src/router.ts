@@ -24,3 +24,14 @@ export const NAV_ITEMS = [
   { name: 'live', label: '实盘' },
   { name: 'jobs', label: '任务' },
 ] as const
+
+/** 路由名 → 浏览器标签标题(纯函数, 便于单测); 未知/空名退化为纯品牌名。 */
+export function pageTitle(name: unknown): string {
+  const label = NAV_ITEMS.find((n) => n.name === name)?.label
+  return label ? `${label} · GoldenHandQuant` : 'GoldenHandQuant'
+}
+
+// document.title 随路由更新(设计 §8 无障碍/可定位)
+router.afterEach((to) => {
+  document.title = pageTitle(to.name)
+})

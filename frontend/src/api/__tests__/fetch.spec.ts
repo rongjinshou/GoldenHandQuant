@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useJobsStore } from '@/stores/jobs'
 
-import { deleteJSON, fetchJSON, postJSON } from '../fetch'
+import { deleteJSON, fetchJSON, humanizeError, networkError, postJSON } from '../fetch'
 
 function mockFetchOnce(status: number, body: unknown) {
   vi.stubGlobal(
@@ -16,6 +16,44 @@ function mockFetchOnce(status: number, body: unknown) {
     }),
   )
 }
+
+describe('humanizeError(纯函数, status→三段式中文)', () => {
+  it('404 → 记录不存在, 保留原始技术串', () => {
+    const e = humanizeError(404, '/api/x', 'run 不存在')
+    expect(e.message).toContain('记录不存在')
+    expect(e.message).toContain('404 /api/x: run 不存在')
+    expect(e.status).toBe(404)
+    expect(e.technical).toContain('404 /api/x')
+  })
+  it('422 提取 FastAPI detail 数组', () => {
+    const e = humanizeError(422, '/api/y', JSON.stringify({ detail: [{ msg: 'top_n 必须>0' }, { msg: '日期非法' }] }))
+    expect(e.message).toContain('参数校验失败')
+    expect(e.message).toContain('top_n 必须>0; 日期非法')
+    expect(e.detail).toBe('top_n 必须>0; 日期非法')
+  })
+  it('422 detail 字符串原样', () => {
+    const e = humanizeError(422, '/api/y', JSON.stringify({ detail: '参数错误' }))
+    expect(e.message).toContain('参数校验失败：参数错误')
+  })
+  it('500 → 服务内部错误', () => {
+    expect(humanizeError(500, '/api/x', 'boom').message).toContain('服务内部错误')
+  })
+  it('503 → 服务暂时不可用', () => {
+    expect(humanizeError(503, '/api/x', 'busy').message).toContain('服务暂时不可用')
+  })
+  it('其他 4xx → 请求失败(带 status)', () => {
+    expect(humanizeError(409, '/api/x', 'conflict').message).toContain('请求失败')
+  })
+})
+
+describe('networkError', () => {
+  it('TypeError → 无法连接提示', () => {
+    const e = networkError(new TypeError('Failed to fetch'))
+    expect(e.message).toContain('无法连接 dashboard 服务')
+    expect(e.status).toBe(0)
+    expect(e.technical).toContain('TypeError')
+  })
+})
 
 describe('fetchJSON / postJSON', () => {
   beforeEach(() => {
@@ -31,15 +69,16 @@ describe('fetchJSON / postJSON', () => {
     await expect(fetchJSON('/api/x')).resolves.toEqual({ ok: 1 })
   })
 
-  it('500 抛 "status url: body前200字"', async () => {
+  it('500 → 服务内部错误(保留原始技术串)', async () => {
     mockFetchOnce(500, 'boom'.repeat(100))
-    await expect(fetchJSON('/api/x')).rejects.toThrow(/^500 \/api\/x: boom/)
-    try {
-      mockFetchOnce(500, 'boom'.repeat(100))
-      await fetchJSON('/api/x')
-    } catch (e) {
-      expect((e as Error).message.length).toBeLessThanOrEqual(220)
-    }
+    await expect(fetchJSON('/api/x')).rejects.toThrow('服务内部错误')
+    mockFetchOnce(500, 'boom'.repeat(100))
+    await expect(fetchJSON('/api/x')).rejects.toThrow(/500 \/api\/x: boom/)
+  })
+
+  it('网络错误(fetch 抛 TypeError) → 无法连接提示', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    await expect(fetchJSON('/api/x')).rejects.toThrow('无法连接 dashboard 服务，确认已启动')
   })
 
   it('503 且活跃任务>0 时转写锁文案', async () => {
@@ -48,19 +87,23 @@ describe('fetchJSON / postJSON', () => {
     await expect(fetchJSON('/api/x')).rejects.toThrow('后台任务运行中，数据库写锁占用，稍后自动恢复')
   })
 
-  it('503 但无活跃任务时保持原始错误', async () => {
+  it('503 但无活跃任务 → 服务暂时不可用(保留原始串)', async () => {
     mockFetchOnce(503, 'db locked')
-    await expect(fetchJSON('/api/x')).rejects.toThrow(/^503 \/api\/x: db locked/)
+    await expect(fetchJSON('/api/x')).rejects.toThrow('服务暂时不可用')
+    mockFetchOnce(503, 'db locked')
+    await expect(fetchJSON('/api/x')).rejects.toThrow(/503 \/api\/x: db locked/)
   })
 
   it('postJSON 422 detail 数组提取 msg 可读化', async () => {
     mockFetchOnce(422, { detail: [{ msg: 'top_n 必须>0' }, { msg: '日期非法' }] })
-    await expect(postJSON('/api/y', {})).rejects.toThrow('422: top_n 必须>0; 日期非法')
+    await expect(postJSON('/api/y', {})).rejects.toThrow('参数校验失败')
+    mockFetchOnce(422, { detail: [{ msg: 'top_n 必须>0' }, { msg: '日期非法' }] })
+    await expect(postJSON('/api/y', {})).rejects.toThrow('top_n 必须>0; 日期非法')
   })
 
   it('postJSON 422 detail 字符串原样', async () => {
     mockFetchOnce(422, { detail: '参数错误' })
-    await expect(postJSON('/api/y', {})).rejects.toThrow('422: 参数错误')
+    await expect(postJSON('/api/y', {})).rejects.toThrow('参数校验失败：参数错误')
   })
 })
 
@@ -79,9 +122,11 @@ describe('deleteJSON', () => {
     expect(fetch).toHaveBeenCalledWith('/api/research/backtests/r1', { method: 'DELETE' })
   })
 
-  it('404 抛 "status url: body前200字"', async () => {
+  it('404 → 记录不存在(保留原始技术串)', async () => {
     mockFetchOnce(404, 'run 不存在: x')
-    await expect(deleteJSON('/api/research/backtests/x')).rejects.toThrow(/^404 \/api\/research\/backtests\/x: run 不存在/)
+    await expect(deleteJSON('/api/research/backtests/x')).rejects.toThrow('记录不存在')
+    mockFetchOnce(404, 'run 不存在: x')
+    await expect(deleteJSON('/api/research/backtests/x')).rejects.toThrow(/404 \/api\/research\/backtests\/x: run 不存在/)
   })
 
   it('503 且活跃任务>0 时转写锁文案(同 fetchJSON 语义)', async () => {

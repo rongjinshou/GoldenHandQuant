@@ -1,3 +1,12 @@
+<script lang="ts">
+/** countUp 缓动插值(纯函数, 便于单测): 进度 t∈[0,1] 时从 prev 滚到 target 的当前值。
+ * t=0 返回 prev(上次终值) —— 刷新时从旧值滚起而非先归零(设计 §9)。 */
+export function rollFrom(prev: number, target: number, t: number): number {
+  const eased = 1 - Math.pow(1 - t, 3)
+  return prev + (target - prev) * eased
+}
+</script>
+
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 
@@ -15,22 +24,25 @@ const props = withDefaults(
 )
 
 const display = ref<string>(String(props.value))
+let prevValue = 0 // 上次数值终值; 刷新时从此滚起(不再从 0 归零)
+
+function fmt(n: number): string {
+  return n.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+}
 
 function animateTo(target: number): void {
   const durMs =
     parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dur-base')) * 3 || 0
+  const from = prevValue
+  prevValue = target // 记录新终值供下次刷新滚起
   if (durMs <= 0) {
-    display.value = target.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+    display.value = fmt(target)
     return
   }
   const start = performance.now()
-  const from = 0
   function frame(now: number): void {
     const t = Math.min(1, (now - start) / durMs)
-    const eased = 1 - Math.pow(1 - t, 3)
-    display.value = (from + (target - from) * eased).toLocaleString('zh-CN', {
-      maximumFractionDigits: 2,
-    })
+    display.value = fmt(rollFrom(from, target, t))
     if (t < 1) requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
@@ -39,11 +51,11 @@ function animateTo(target: number): void {
 function render(): void {
   if (props.countUp && typeof props.value === 'number' && Number.isFinite(props.value)) {
     animateTo(props.value)
+  } else if (typeof props.value === 'number') {
+    if (Number.isFinite(props.value)) prevValue = props.value // 非动画数值也记录, 以便后续滚动从此起
+    display.value = fmt(props.value)
   } else {
-    display.value =
-      typeof props.value === 'number'
-        ? props.value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-        : props.value
+    display.value = props.value
   }
 }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { NConfigProvider, zhCN, dateZhCN } from 'naive-ui'
+import { onMounted } from 'vue'
 
 import AppBadge from '@/components/AppBadge.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
@@ -9,6 +10,9 @@ import { useThemeStore } from '@/stores/theme'
 
 const themeStore = useThemeStore()
 const jobsStore = useJobsStore()
+
+// 任务徽章全局鲜活: App 级轮询回填 activeCount, 使任意页(非仅任务页)徽章与 503 写锁文案随任务变化(设计 §10)
+onMounted(() => jobsStore.startGlobalPolling())
 </script>
 
 <template>
