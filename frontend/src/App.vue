@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NConfigProvider, zhCN, dateZhCN } from 'naive-ui'
 
+import AppBadge from '@/components/AppBadge.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { NAV_ITEMS } from '@/router'
 import { useJobsStore } from '@/stores/jobs'
@@ -29,11 +30,12 @@ const jobsStore = useJobsStore()
             :data-testid="`nav-${item.name}`"
           >
             {{ item.label }}
-            <span
+            <AppBadge
               v-if="item.name === 'jobs' && jobsStore.activeCount > 0"
-              class="badge num"
-              data-testid="jobs-badge"
-            >{{ jobsStore.activeCount }}</span>
+              kind="accent"
+              size="sm"
+              class="num nav-badge"
+            >{{ jobsStore.activeCount }}</AppBadge>
           </RouterLink>
         </nav>
         <ThemeToggle />
@@ -129,14 +131,8 @@ const jobsStore = useJobsStore()
   transform: translateX(-50%) scaleX(1);
 }
 
-.badge {
-  background: var(--accent);
-  border-radius: 8px;
-  color: #faf9f5;
-  font-size: 11px;
+.nav-badge {
   margin-left: 6px;
-  padding: 1px 6px;
-  vertical-align: 1px;
 }
 
 .content {

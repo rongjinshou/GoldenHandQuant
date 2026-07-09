@@ -59,6 +59,20 @@ describe('DataTable', () => {
     await vi.waitFor(() => expect(w.findAll('tbody tr')).toHaveLength(50))
   })
 
+  it('默认 clickable=false: 点击行不 emit rowClick, 无 row-clickable 类', async () => {
+    const w = mount(DataTable, { props: { rows: rows(3), columns, rowKey: 'id' }, global: noStub })
+    expect(w.find('tbody tr.row-clickable').exists()).toBe(false)
+    await w.find('tbody tr').trigger('click')
+    expect(w.emitted('rowClick')).toBeUndefined()
+  })
+
+  it('clickable=true: 点击行 emit rowClick 且带 row-clickable 类', async () => {
+    const w = mount(DataTable, { props: { rows: rows(3), columns, rowKey: 'id', clickable: true }, global: noStub })
+    expect(w.find('tbody tr.row-clickable').exists()).toBe(true)
+    await w.find('tbody tr').trigger('click')
+    expect(w.emitted('rowClick')).toHaveLength(1)
+  })
+
   it('render 函数列生效', () => {
     const w = mount(DataTable, {
       props: {

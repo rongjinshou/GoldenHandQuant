@@ -39,8 +39,9 @@ const props = withDefaults(
     columns: Column[]
     rowKey: string
     pageSize?: number
+    clickable?: boolean
   }>(),
-  { pageSize: 50 },
+  { pageSize: 50, clickable: false },
 )
 
 const emit = defineEmits<{ rowClick: [row: Record<string, unknown>] }>()
@@ -58,7 +59,7 @@ const visible = computed(() =>
     <table>
       <thead>
         <tr>
-          <th v-for="column in columns" :key="column.key" :class="{ right: column.align === 'right' }">
+          <th v-for="column in columns" :key="column.key" scope="col" :class="{ right: column.align === 'right' }">
             {{ column.title }}
           </th>
         </tr>
@@ -67,7 +68,8 @@ const visible = computed(() =>
         <tr
           v-for="record in visible"
           :key="String(record[rowKey])"
-          @click="emit('rowClick', record)"
+          :class="{ 'row-clickable': clickable }"
+          @click="clickable && emit('rowClick', record)"
         >
           <td
             v-for="column in columns"
@@ -128,7 +130,12 @@ tbody tr {
   transition: background var(--dur-fast) var(--ease-out);
 }
 
-tbody tr:hover {
+/* hover 高亮仅在真正可点时给出, 堵住"看似可点实无消费者"的幽灵隐患 */
+tbody tr.row-clickable {
+  cursor: pointer;
+}
+
+tbody tr.row-clickable:hover {
   background: var(--accent-soft);
 }
 
