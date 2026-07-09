@@ -6,6 +6,7 @@ import { deleteJSON, fetchJSON } from '@/api/fetch'
 import type { VerdictRun } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
+import PageHeader from '@/components/PageHeader.vue'
 
 import FactorCard from './verdicts/FactorCard.vue'
 import FactorDetailModal from './verdicts/FactorDetailModal.vue'
@@ -116,12 +117,9 @@ watch([filterKey, sortKey], () => { modalOpen.value = false })
 
 <template>
   <section data-testid="page-verdicts">
-    <header class="page-head">
-      <h2>因子判决</h2>
-    </header>
-    <p class="guide t-muted">
+    <PageHeader title="因子判决">
       先检验因子，判决结果随后以卡片呈现——左缘色条与闸门轨道标出 PASS/FAIL，点击卡片看全部细节。
-    </p>
+    </PageHeader>
 
     <ErrorBanner v-if="error" :msg="error" />
 
@@ -206,22 +204,6 @@ watch([filterKey, sortKey], () => { modalOpen.value = false })
 </template>
 
 <style scoped>
-.page-head {
-  align-items: center;
-  display: flex;
-  gap: 14px;
-  margin-bottom: 6px;
-}
-
-.page-head h2 {
-  margin: 0;
-}
-
-.guide {
-  font-size: 13px;
-  margin: 0 0 var(--gap);
-}
-
 .result-head {
   align-items: center;
   display: flex;

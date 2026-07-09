@@ -18,6 +18,7 @@ import type {
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import KpiCard from '@/components/KpiCard.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import SubNav from '@/components/SubNav.vue'
 import { usePolling } from '@/composables/usePolling'
 
@@ -214,14 +215,13 @@ const AUDIT_OPTIONS = [
 
 <template>
   <section data-testid="page-live">
-    <header class="page-head"><h2>实盘 / 纸面前向</h2></header>
-    <p class="guide t-muted">
+    <PageHeader title="实盘 / 纸面前向">
       auto-trade 交易留痕的只读视图——下方分页查看预算与守护、循环、执行、审计、ticket。<GlossaryTip
         term="dry_run"
         ><span>dry_run</span></GlossaryTip
       >
       为纸面模式。网页永远无法下单或修改交易配置。
-    </p>
+    </PageHeader>
 
     <ErrorBanner v-if="bannerMsg" :msg="bannerMsg" />
 
@@ -319,22 +319,6 @@ const AUDIT_OPTIONS = [
 </template>
 
 <style scoped>
-.page-head {
-  align-items: baseline;
-  display: flex;
-  gap: 14px;
-  margin-bottom: 6px;
-}
-
-.page-head h2 {
-  margin: 0;
-}
-
-.guide {
-  font-size: 13px;
-  margin: 0 0 var(--gap);
-}
-
 .empty-banner {
   font-size: 13.5px;
   line-height: 1.7;

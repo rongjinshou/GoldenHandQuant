@@ -7,6 +7,7 @@ import type { Job } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import JobCard from '@/components/JobCard.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import { usePolling } from '@/composables/usePolling'
 import { useJobsStore } from '@/stores/jobs'
 
@@ -158,15 +159,12 @@ function onMlDone(): void {
 
 <template>
   <section data-testid="page-jobs">
-    <header class="page-head">
-      <h2>任务中心</h2>
-    </header>
-    <p class="guide t-muted">
+    <PageHeader title="任务中心">
       网页触发的所有后台任务——点击行查看实时日志，排队/运行中可取消。<GlossaryTip
         term="ml_train"
         >ML 训练</GlossaryTip
       >属高级功能，耗时可达数十分钟。
-    </p>
+    </PageHeader>
 
     <ErrorBanner v-if="bannerMsg" :msg="bannerMsg" />
 
@@ -257,22 +255,6 @@ function onMlDone(): void {
 </template>
 
 <style scoped>
-.page-head {
-  align-items: baseline;
-  display: flex;
-  gap: 14px;
-  margin-bottom: 6px;
-}
-
-.page-head h2 {
-  margin: 0;
-}
-
-.guide {
-  font-size: 13px;
-  margin: 0 0 var(--gap);
-}
-
 .form-card summary {
   cursor: pointer;
   font-family: var(--font-display);

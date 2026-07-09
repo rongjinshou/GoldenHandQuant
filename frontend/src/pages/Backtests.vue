@@ -6,6 +6,7 @@ import { deleteJSON, fetchJSON } from '@/api/fetch'
 import type { BacktestRun, BarsData, StrategyMeta } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
+import PageHeader from '@/components/PageHeader.vue'
 
 import BacktestForm from './backtests/BacktestForm.vue'
 import {
@@ -223,13 +224,12 @@ function onFormDone(): void {
 
 <template>
   <section data-testid="page-backtests">
-    <header class="page-head"><h2>回测</h2></header>
-    <p class="guide t-muted">
+    <PageHeader title="回测">
       把策略放回历史行情模拟交易。<GlossaryTip term="ts_strategy">时序策略</GlossaryTip>（如双均线）回测你填的标的；<GlossaryTip
         term="cs_strategy"
         >截面策略</GlossaryTip
       >（如小市值）在全市场抽样池上选股，标的框不生效。提交后任务卡实时滚日志，完成自动刷新下方结果。
-    </p>
+    </PageHeader>
 
     <ErrorBanner v-if="error" :msg="error" />
 
@@ -404,22 +404,6 @@ function onFormDone(): void {
 </template>
 
 <style scoped>
-.page-head {
-  align-items: baseline;
-  display: flex;
-  gap: 14px;
-  margin-bottom: 6px;
-}
-
-.page-head h2 {
-  margin: 0;
-}
-
-.guide {
-  font-size: 13px;
-  margin: 0 0 var(--gap);
-}
-
 /* 工作区: 窄屏堆叠, 宽屏左轨(268px)+右详情; 图表始终随选即见, 不被长列表推走 */
 .bt-workspace {
   display: grid;

@@ -7,6 +7,7 @@ import type { Job, OverviewData } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import JobCard from '@/components/JobCard.vue'
 import KpiCard from '@/components/KpiCard.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import PipelineMap from '@/components/PipelineMap.vue'
 
 /* 数据资产总览 — 旧 pages/overview.js 对等:
@@ -90,13 +91,9 @@ function onRefreshDone(): void {
 
 <template>
   <section data-testid="page-overview">
-    <header class="page-head">
-      <h2>数据资产总览</h2>
-      <span v-if="metaLine" class="t-muted meta-line num">{{ metaLine }}</span>
-    </header>
-    <p class="guide t-muted">
+    <PageHeader title="数据资产总览" :meta="metaLine">
       本系统的研究工作是一条流水线：数据资产喂给因子判决，过闸因子组成策略去回测，回测通过的策略上纸面（实盘 dry_run）验证。下方四步即对应四个页签，点击可直接跳转。
-    </p>
+    </PageHeader>
 
     <PipelineMap :overview="data" />
 
@@ -142,26 +139,6 @@ function onRefreshDone(): void {
 </template>
 
 <style scoped>
-.page-head {
-  align-items: baseline;
-  display: flex;
-  gap: 14px;
-  margin-bottom: var(--gap);
-}
-
-.page-head h2 {
-  margin: 0;
-}
-
-.meta-line {
-  font-size: 12.5px;
-}
-
-.guide {
-  font-size: 13px;
-  margin: 0 0 var(--gap);
-}
-
 .section-label {
   font-size: 12px;
   margin: 0 0 8px;

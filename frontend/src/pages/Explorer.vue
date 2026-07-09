@@ -18,6 +18,7 @@ import { fetchJSON } from '@/api/fetch'
 import type { BarsData, FeatureData } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import { useChartTheme } from '@/composables/useChartTheme'
 
 import { useSymbolChips } from './backtests/useSymbolChips'
@@ -205,14 +206,15 @@ async function refetchFeatures(names: string[]): Promise<void> {
 
 <template>
   <section data-testid="page-explorer">
-    <header class="page-head">
-      <h2>个股查看</h2>
-      <GlossaryTip term="qfq"><span class="t-muted">前复权</span></GlossaryTip>
-      <GlossaryTip term="t1"><span class="t-muted">T-1 口径</span></GlossaryTip>
-    </header>
-    <p class="guide t-muted">
-      查看本地库内标的的 K 线与预计算截面特征（近一年窗口），支持添加多个标的叠加对比。特征即因子检验用的原料——悬停任一特征名可看它衡量什么、怎么读数。
-    </p>
+    <PageHeader title="个股查看">
+      <template #meta>
+        <GlossaryTip term="qfq"><span class="t-muted">前复权</span></GlossaryTip>
+        <GlossaryTip term="t1"><span class="t-muted">T-1 口径</span></GlossaryTip>
+      </template>
+      <template #default>
+        查看本地库内标的的 K 线与预计算截面特征（近一年窗口），支持添加多个标的叠加对比。特征即因子检验用的原料——悬停任一特征名可看它衡量什么、怎么读数。
+      </template>
+    </PageHeader>
 
     <ErrorBanner v-if="error" :msg="error" />
 
@@ -272,22 +274,6 @@ async function refetchFeatures(names: string[]): Promise<void> {
 </template>
 
 <style scoped>
-.page-head {
-  align-items: baseline;
-  display: flex;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.page-head h2 {
-  margin: 0;
-}
-
-.guide {
-  font-size: 13px;
-  margin: 0 0 var(--gap);
-}
-
 .controls {
   align-items: end;
   display: flex;
