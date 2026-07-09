@@ -114,6 +114,12 @@ pre,
   box-shadow: var(--shadow-pop);
 }
 
+/* 表格横滚工具类: 数据密集表窄屏可横滚不撑破布局
+ * (页面已多处局部 overflow-x, 此为全局复用工具, 不强制改页面) */
+.table-scroll {
+  overflow-x: auto;
+}
+
 /* 涨跌/方向/判定语义类 (语义命名, 见 tokens.css 注释) */
 .t-up { color: var(--c-up); }
 .t-down { color: var(--c-down); }

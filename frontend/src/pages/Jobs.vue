@@ -13,7 +13,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import { usePolling } from '@/composables/usePolling'
 import { useJobsStore } from '@/stores/jobs'
 
-import { STATUS_LABEL, TERMINAL_STATUS, durationOf, paramsSummary } from './jobs/format'
+import { STATUS_LABEL, TERMINAL_STATUS, durationOf, jobTypeLabel, paramsSummary } from './jobs/format'
 import { isNearBottom, jobBadgeKind } from './jobs/ui'
 
 /* 任务中心 — 旧 jobs.js loadJobsPage/showJobLog/initMlForms 对等 + 批二硬化:
@@ -270,7 +270,7 @@ function onMlDone(): void {
                 @click.stop="openLog(j.job_id)"
               ><code>{{ j.job_id }}</code></button>
             </td>
-            <td>{{ j.job_type }}</td>
+            <td>{{ jobTypeLabel(j.job_type) }}</td>
             <td class="params-cell" :title="paramsSummary(j)">{{ paramsSummary(j) }}</td>
             <td>
               <AppBadge :kind="jobBadgeKind(j.status)">{{ STATUS_LABEL[j.status] ?? j.status }}</AppBadge>

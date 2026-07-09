@@ -25,6 +25,7 @@ import { usePolling } from '@/composables/usePolling'
 import AuditTable from './live/AuditTable.vue'
 import CyclesTable from './live/CyclesTable.vue'
 import ExecutionsTable from './live/ExecutionsTable.vue'
+import { auditActionLabel } from './live/labels'
 import { cumReturn, num, sliceTime } from './live/logic'
 import OverviewPanel from './live/OverviewPanel.vue'
 import PositionsTable from './live/PositionsTable.vue'
@@ -279,7 +280,7 @@ const AUDIT_ACTIONS = [
 ]
 const AUDIT_OPTIONS = [
   { label: '全部动作', value: '' },
-  ...AUDIT_ACTIONS.map((a) => ({ label: a, value: a })),
+  ...AUDIT_ACTIONS.map((a) => ({ label: auditActionLabel(a), value: a })),
 ]
 </script>
 

@@ -8,6 +8,7 @@ import {
   equityAriaLabel,
   num,
   positionRow,
+  returnPct,
   sliceTime,
   statusBadge,
   ticketCells,
@@ -43,6 +44,15 @@ describe('num', () => {
   it('数值走千分位 toLocaleString', () => {
     expect(num(1234.5)).toBe((1234.5).toLocaleString())
     expect(num(0)).toBe((0).toLocaleString())
+  })
+})
+
+describe('returnPct', () => {
+  it('收益率统一 2 位小数 + 带符号', () => {
+    expect(returnPct(0.1)).toBe('+10.00%')
+    expect(returnPct(-0.1)).toBe('-10.00%')
+    expect(returnPct(0)).toBe('+0.00%')
+    expect(returnPct(0.12345)).toBe('+12.35%') // 四舍五入到 2 位
   })
 })
 
@@ -166,14 +176,14 @@ describe('positionRow', () => {
     const v = positionRow(pos({ last_price: 11 }))
     expect(v.mktValText).toBe(num(100 * 11))
     expect(v.pnlCls).toBe('t-up')
-    expect(v.pnlText).toBe(`+${num(100)} (+10.0%)`)
+    expect(v.pnlText).toBe(`+${num(100)} (+10.00%)`) // 收益率统一 2 位(returnPct)
     expect(v.lastText).toBe('11.000')
   })
 
   it('有现价: 浮亏跌绿(t-down)', () => {
     const v = positionRow(pos({ last_price: 9 }))
     expect(v.pnlCls).toBe('t-down')
-    expect(v.pnlText).toBe(`${num(-100)} (-10.0%)`)
+    expect(v.pnlText).toBe(`${num(-100)} (-10.00%)`) // 收益率统一 2 位(returnPct)
   })
 
   it('现价缺失(null): 回退成本估市值且不显盈亏', () => {

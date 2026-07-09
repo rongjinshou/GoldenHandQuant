@@ -47,11 +47,19 @@ describe('objectiveLabel', () => {
 })
 
 describe('buildVerdictRunLabel', () => {
-  it('因子数 · 口径 · 切分日 组成标题, 副行时间+run_id', () => {
+  it('因子数 · 口径 · 切分日 组成标题, 副行时间+run_id(日期保留年份, 跨年可分辨)', () => {
     const run = mkRun({ factors: [mkFactor(), mkFactor({ factor_id: 'F02' })] })
     const label = buildVerdictRunLabel(run)
     expect(label.title).toBe('2 因子 · 长多 · 切分 2024-06-30')
-    expect(label.subtitle).toBe('06-14 10:02 · MFCOMBO-20210101-20260613')
+    expect(label.subtitle).toBe('2026-06-14 10:02 · MFCOMBO-20210101-20260613')
+  })
+
+  it('副标题保留年份 — 不同年份的同月日不再撞脸', () => {
+    const y2025 = buildVerdictRunLabel(mkRun({ created_at: '2025-06-14 10:02:00.100000' }))
+    const y2026 = buildVerdictRunLabel(mkRun({ created_at: '2026-06-14 10:02:00.100000' }))
+    expect(y2025.subtitle).toContain('2025-06-14 10:02')
+    expect(y2026.subtitle).toContain('2026-06-14 10:02')
+    expect(y2025.subtitle).not.toBe(y2026.subtitle)
   })
 
   it('未设切分日 → "未切分"(而非空字符串或 undefined)', () => {

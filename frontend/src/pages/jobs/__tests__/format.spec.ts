@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { STATUS_LABEL, TERMINAL_STATUS, durationOf, paramsSummary } from '../format'
+import { STATUS_LABEL, TERMINAL_STATUS, durationOf, jobTypeLabel, paramsSummary } from '../format'
 
 describe('STATUS_LABEL / TERMINAL_STATUS', () => {
   it('五态中文映射对等旧 jobs.js', () => {
@@ -15,6 +15,25 @@ describe('STATUS_LABEL / TERMINAL_STATUS', () => {
 
   it('终态集合为 succeeded/failed/canceled', () => {
     expect([...TERMINAL_STATUS].sort()).toEqual(['canceled', 'failed', 'succeeded'])
+  })
+})
+
+describe('jobTypeLabel', () => {
+  it('五个后端 job_type 中译(对齐 manager.submit 调用点)', () => {
+    expect(jobTypeLabel('backtest')).toBe('回测')
+    expect(jobTypeLabel('factor_test')).toBe('因子检验')
+    expect(jobTypeLabel('data_refresh')).toBe('数据刷新')
+    expect(jobTypeLabel('ml_train')).toBe('ML 训练')
+    expect(jobTypeLabel('ml_evaluate')).toBe('ML 评估')
+  })
+
+  it('ml_eval 别名同映射(计划书写法)', () => {
+    expect(jobTypeLabel('ml_eval')).toBe('ML 评估')
+  })
+
+  it('未知类型回退原码(后端新增类型前端不崩)', () => {
+    expect(jobTypeLabel('compare')).toBe('compare')
+    expect(jobTypeLabel('')).toBe('')
   })
 })
 

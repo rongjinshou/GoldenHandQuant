@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NPopconfirm, NSelect } from 'naive-ui'
-import { computed, ref, watch } from 'vue'
+import { computed, getCurrentInstance, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { deleteJSON, fetchJSON } from '@/api/fetch'
 import type { VerdictRun } from '@/api/types'
@@ -12,6 +13,7 @@ import FactorCard from './verdicts/FactorCard.vue'
 import FactorDetailModal from './verdicts/FactorDetailModal.vue'
 import FactorTestForm from './verdicts/FactorTestForm.vue'
 import { resolveReloadSelection } from './verdicts/reload-selection'
+import { runQueryNeedsUpdate, selectionFromRunParam } from './verdicts/run-deeplink'
 import { buildVerdictRunLabel } from './verdicts/run-naming'
 import { SORT_OPTIONS, filterFactors, sortFactors, type FilterKey, type SortKey } from './verdicts/sort'
 
@@ -25,6 +27,15 @@ const selectedIdx = ref(0)
 /* 新轮到达提示条(设计 §9): reload 保留原选中时, 用它非侵入告知"有更新的轮", 不强切。 */
 const newRunNotice = ref<string | null>(null)
 
+/* URL 深链(设计 0710 P7): 选中判决轮 ↔ ?run=<run_id>。router-optional —— 本页需能在无
+ * router 环境(单测直接 mount Verdicts)下挂载。先探测 router 是否已安装(app.use(router) 会
+ * 注入 $router 全局属性), 未装则不调用 useRoute/useRouter —— 既免 inject 落空的告警, 深链
+ * 逻辑也随之惰性关闭(route/router 为 undefined), 不影响页面其余行为。 */
+const hasRouter = !!getCurrentInstance()?.appContext.config.globalProperties.$router
+const route = hasRouter ? useRoute() : undefined
+const router = hasRouter ? useRouter() : undefined
+let firstLoad = true
+
 async function loadVerdicts(): Promise<void> {
   // 直接读 runs/selectedIdx(而非尚在 TDZ 的 run 计算属性): 首次 void 调用发生在 run 定义之前。
   const prevRunId = runs.value[selectedIdx.value]?.run_id ?? null
@@ -36,10 +47,17 @@ async function loadVerdicts(): Promise<void> {
     const sel = resolveReloadSelection(prevRunId, prevRunIds, data.runs)
     selectedIdx.value = sel.selectedIdx
     newRunNotice.value = sel.newRunId
+    // 首次加载: ?run= 深链优先于默认落点(命中才覆盖, 未命中/无参保持批二 reload 决策)。
+    // 在此同步定案 selectedIdx, 使写回 watcher 只 settle 一次(且幂等), 不会先写默认再被深链覆盖。
+    if (firstLoad) {
+      const deepIdx = selectionFromRunParam(route?.query?.run, data.runs)
+      if (deepIdx >= 0) selectedIdx.value = deepIdx
+    }
     error.value = ''
   } catch (e) {
     error.value = (e as Error).message
   } finally {
+    firstLoad = false
     loading.value = false
   }
 }
@@ -81,7 +99,8 @@ async function deleteCurrentRun(): Promise<void> {
 const runOptions = computed(() =>
   runs.value.map((r, i) => {
     const label = buildVerdictRunLabel(r)
-    return { label: `${label.title}（${(r.created_at ?? '').slice(5, 16)} · ${r.run_id}）`, value: i }
+    // 副标题(含年份)整体复用, 不再就地 slice —— 与 run-naming 单一口径, 跨年日期可分辨。
+    return { label: `${label.title}（${label.subtitle}）`, value: i }
   }),
 )
 
@@ -130,6 +149,27 @@ watch(() => run.value?.run_id, () => { modalOpen.value = false })
 watch([filterKey, sortKey], () => { modalOpen.value = false })
 // 选中回到最新轮(点"查看最新"或手动选最新)后, "新轮就绪"提示失去意义 → 清除
 watch(selectedIdx, (i) => { if (i === 0) newRunNotice.value = null })
+
+// ---- URL 深链 ?run= 双向同步(P7) ----
+// 前进/后退: 地址栏 ?run= 变化 → 恢复选中(命中才动, 未命中保持既有选中不强跳; 幂等)。
+watch(
+  () => route?.query?.run,
+  (raw) => {
+    const idx = selectionFromRunParam(raw, runs.value)
+    if (idx >= 0 && idx !== selectedIdx.value) selectedIdx.value = idx
+  },
+)
+// 选中轮变化(用户切换 / 批二 reload 保留到某轮) → 幂等写回 ?run=;
+// query 已是目标值就绝不再 replace, 断"恢复→写回"死循环; replace 不 push, 不污染历史栈。
+watch(
+  () => run.value?.run_id,
+  (runId) => {
+    if (!router || !route || !runId) return
+    if (runQueryNeedsUpdate(route.query.run, runId)) {
+      void router.replace({ query: { ...route.query, run: runId } })
+    }
+  },
+)
 </script>
 
 <template>

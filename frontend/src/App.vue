@@ -72,7 +72,9 @@ onMounted(() => jobsStore.startGlobalPolling())
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   display: flex;
+  flex-wrap: wrap;           /* 窄屏兜底: 放不下时 nav/主题钮换行, 不横向溢出/遮挡 */
   gap: var(--gap-lg);
+  row-gap: var(--space-2);   /* 换行后行间收紧, sticky 顶栏不虚高(宽屏不换行时无效) */
   padding: 12px var(--gap-lg);
   position: sticky;
   top: 0;
@@ -91,6 +93,7 @@ onMounted(() => jobsStore.startGlobalPolling())
 .nav {
   display: flex;
   flex: 1;
+  flex-wrap: wrap;   /* 窄屏兜底: nav-link 内部换行, 收缩 nav 最小宽度, 顶栏不被撑破 */
   gap: 4px;
 }
 

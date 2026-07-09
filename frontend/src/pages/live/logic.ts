@@ -10,6 +10,13 @@ export function num(v: number | null | undefined): string {
   return v === null || v === undefined ? '-' : Number(v).toLocaleString()
 }
 
+/* 收益率类百分比的唯一口径(精度统一): 统一 2 位小数 + 带符号 + %。
+ * 全站收益率(KPI 累计收益 / 持仓浮盈 %)一律走此函数, 消除"累计 2 位 vs 持仓 1 位"漂移。 */
+const RETURN_PCT_DP = 2
+export function returnPct(ratio: number): string {
+  return `${ratio >= 0 ? '+' : ''}${(ratio * 100).toFixed(RETURN_PCT_DP)}%`
+}
+
 /* 时间戳截到秒(旧 .slice(0, 19)) */
 export function sliceTime(s: string | null | undefined): string {
   return (s ?? '').slice(0, 19)
@@ -60,7 +67,7 @@ export function cumReturn(
   if (series.length >= 2 && first !== null && first > 0 && lastTotal !== null && lastTotal !== undefined) {
     const ret = lastTotal / first - 1
     return {
-      text: `${ret >= 0 ? '+' : ''}${(ret * 100).toFixed(2)}%`,
+      text: returnPct(ret),
       tone: ret >= 0 ? 'up' : 'down', // A股: 涨红跌绿
       sub: `起点 ${num(first)} (${series[0].mode})`,
     }
@@ -113,7 +120,8 @@ export function positionRow(r: PositionSnapshot): PositionRowView {
   let pnlText = '-'
   let pnlCls: PositionRowView['pnlCls'] = ''
   if (pnl !== null) {
-    const pct = cost > 0 ? ` (${pnl >= 0 ? '+' : ''}${((mktPx / cost - 1) * 100).toFixed(1)}%)` : ''
+    // 浮盈 % 与 KPI 累计收益同口径(returnPct, 2 位); mktPx/cost-1 与 pnl 同号(cost>0,vol>0)
+    const pct = cost > 0 ? ` (${returnPct(mktPx / cost - 1)})` : ''
     pnlText = `${pnl >= 0 ? '+' : ''}${num(pnl)}${pct}`
     pnlCls = pnl >= 0 ? 't-up' : 't-down' // A股: 涨红跌绿
   }

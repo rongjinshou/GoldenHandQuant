@@ -100,3 +100,35 @@ describe('FeaturePanel.vue 反馈与图表 aria(任务 2/3/5)', () => {
     expect(featurePanel).toContain('fetchError?: string')
   })
 })
+
+describe('Explorer.vue P7 URL 深链接线(?symbols= ↔ 标的组合)', () => {
+  it('接入 vue-router 与深链纯逻辑模块', () => {
+    expect(explorer).toContain("from 'vue-router'")
+    expect(explorer).toContain('useRoute')
+    expect(explorer).toContain('useRouter')
+    expect(explorer).toContain("from './explorer/deep-link'")
+    expect(explorer).toContain('parseSymbolsQuery')
+    expect(explorer).toContain('symbolsToQuery')
+  })
+
+  it('写回用 router.replace(不 push, 不污染历史)', () => {
+    expect(explorer).toContain('router.replace')
+    expect(explorer).not.toContain('router.push')
+  })
+
+  it('watch(route.query.symbols) 支持前进后退', () => {
+    expect(explorer).toMatch(/watch\(\s*\(\)\s*=>\s*route\.query\.symbols/)
+  })
+
+  it('挂载时若带 ?symbols= 则解析并自动加载', () => {
+    expect(explorer).toMatch(/onMounted[\s\S]*?parseSymbolsQuery\(route\.query\.symbols\)/)
+  })
+
+  it('恢复复用现有加载逻辑(loadAll), 且有幂等门槛防死循环', () => {
+    // applySymbolsFromQuery 复用 loadAll, 并以规范串相等为跳过门槛
+    expect(explorer).toMatch(/applySymbolsFromQuery[\s\S]*?symbolsToQuery\(list\)\s*===\s*symbolsToQuery\(loadedSymbols\.value\)/)
+    expect(explorer).toMatch(/applySymbolsFromQuery[\s\S]*?loadAll\(\)/)
+    // 写回侧同样以规范串相等提前 return(不重复 replace)
+    expect(explorer).toMatch(/syncQueryFromLoaded[\s\S]*?loadedQ\s*===\s*parseSymbolsQuery\(route\.query\.symbols\)\.join/)
+  })
+})

@@ -6,6 +6,7 @@ import { fetchJSON, postJSON } from '@/api/fetch'
 import type { Job } from '@/api/types'
 import AppBadge from '@/components/AppBadge.vue'
 import { usePolling, type UsePollingReturn } from '@/composables/usePolling'
+import { jobTypeLabel } from '@/pages/jobs/format'
 import { type BadgeKind, isNearBottom, jobBadgeKind, terminalNotification } from '@/pages/jobs/ui'
 
 /* 任务卡 — 旧 jobs.js attachJobCard 语义对等 + 批二硬化:
@@ -116,7 +117,7 @@ function maybeNotify(status: string): void {
   notified = true
   notification?.[n.type]({
     title: n.title,
-    content: summary.value || job.value?.job_type || props.jobId,
+    content: summary.value || jobTypeLabel(job.value?.job_type ?? '') || props.jobId,
     duration: 5000,
   })
   if (!document.title.startsWith('✓')) document.title = `✓ ${document.title}`
@@ -182,7 +183,7 @@ async function cancel(): Promise<void> {
     <div class="head">
       <AppBadge :kind="badgeKind" size="sm" data-testid="job-card-badge">{{ statusText }}</AppBadge>
       <span class="meta t-muted"
-        >{{ job?.job_type ?? '' }}<template v-if="summary"> · {{ summary }}</template> · 耗时
+        >{{ jobTypeLabel(job?.job_type ?? '') }}<template v-if="summary"> · {{ summary }}</template> · 耗时
         <span class="num">{{ duration }}</span></span
       >
       <button

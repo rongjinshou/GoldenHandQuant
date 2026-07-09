@@ -10,6 +10,7 @@ import type { AccountSnapshot, LiveBudget, LiveConfig, LiveOverview } from '@/ap
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import { axisStyle, tooltipStyle, useChartTheme, vGradient } from '@/composables/useChartTheme'
 
+import { enabledLabel } from './labels'
 import LvBadge from './LvBadge.vue'
 import { daemonBadge, equityAriaLabel, num, wan, type BadgeKind } from './logic'
 
@@ -207,7 +208,7 @@ const equityOption = computed(() => {
           </GlossaryTip>
           <LvBadge v-else :kind="atModeCls">{{ at.mode || '?' }}</LvBadge>
           <LvBadge :kind="at.enabled ? 'warn' : 'info'">
-            {{ at.enabled ? 'enabled' : 'disabled' }}
+            {{ enabledLabel(at.enabled) }}
           </LvBadge>
         </div>
         <div class="sub t-muted">

@@ -14,6 +14,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { NButton } from 'naive-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
+import { type LocationQuery, useRoute, useRouter } from 'vue-router'
 
 import { fetchJSON } from '@/api/fetch'
 import type { BarsData, FeatureData } from '@/api/types'
@@ -30,6 +31,7 @@ import {
   symbolColor,
   type SymbolMeta,
 } from './explorer/chart-options'
+import { parseSymbolsQuery, symbolsToQuery } from './explorer/deep-link'
 import FeaturePanel from './explorer/FeaturePanel.vue'
 
 use([
@@ -68,6 +70,11 @@ const loadingData = ref(false)
 const hasLoaded = ref(false)
 
 const chips = useSymbolChips()
+
+/* P7 URL 深链: 当前加载的标的组合 ↔ ?symbols=(逗号分隔)。挂载/前进后退从 URL 恢复并加载,
+ * 加载成功后 router.replace 写回(不 push, 不污染历史)。序列化/解析纯逻辑在 explorer/deep-link。 */
+const route = useRoute()
+const router = useRouter()
 
 /* 联想 combobox 键盘(设计 §8 S8): 键盘高亮下标 activeIndex 与移动/收起(onArrowUp/onArrowDown/
  * onEscape/onEnter)全部消费共享 useSymbolChips —— 该 composable 的键盘逻辑由 Backtests 流维护,
@@ -258,6 +265,48 @@ async function refetchFeatures(names: string[]): Promise<void> {
     if (myFeatureGen === featureFetchGen) featureFetching.value = false
   }
 }
+
+/* ---- P7 URL 深链: 已加载标的 ↔ ?symbols= 双向同步 ----
+ * 防死循环靠两侧共同的「规范化 query 串相等 → 不重复动作」幂等门槛, 一次往返内收敛:
+ *  - 恢复侧(URL→状态): query 变 → 解析后若 ≠ 当前 loadedSymbols 的规范串才加载;
+ *  - 写回侧(状态→URL): loadedSymbols 变 → 若其规范串 ≠ 当前 query 规范串才 replace。
+ * 例: 挂载带 ?symbols=A,B → 恢复加载 → loadedSymbols=[A,B] → 写回侧算出规范串与 query 相等 → 不 replace;
+ *     手动加载 [A,B] → 写回 ?symbols=A,B → 恢复侧解析后与 loadedSymbols 相等 → 不重复加载。 */
+
+/** 用给定合法标的清单填充 chips 并复用 loadAll 加载; 与当前已加载集合规范化后一致则跳过(幂等)。 */
+async function applySymbolsFromQuery(list: string[]): Promise<void> {
+  if (symbolsToQuery(list) === symbolsToQuery(loadedSymbols.value)) return
+  chips.clearPending() // 清在途联想防抖, 防旧候选回填
+  chips.onEscape() // 收起残留候选浮层
+  chips.symbols.value = [...list] // 直接置入(list 已是解析校验过的合法集合)
+  chips.input.value = ''
+  chips.err.value = ''
+  await loadAll()
+}
+
+/** 已加载标的 → ?symbols= 写回(replace 不 push, 不污染历史); 规范串与当前 query 一致则不重复写(幂等)。 */
+function syncQueryFromLoaded(): void {
+  const loadedQ = symbolsToQuery(loadedSymbols.value)
+  if (loadedQ === parseSymbolsQuery(route.query.symbols).join(',')) return
+  const { symbols: _omit, ...rest } = route.query // 摘掉旧 symbols, 保留其余 query 参数
+  const query: LocationQuery = loadedQ ? { ...rest, symbols: loadedQ } : rest
+  void router.replace({ query })
+}
+
+// 加载落定(成功或清空)即写回 URL; loadAll 每次赋新数组给 loadedSymbols, ref watch 足够触发
+watch(loadedSymbols, syncQueryFromLoaded)
+
+// 前进/后退等 URL 变化 → 从 query 恢复(非 immediate; 挂载首恢复交给下方 onMounted, 避免双触发)
+watch(
+  () => route.query.symbols,
+  (raw) => void applySymbolsFromQuery(parseSymbolsQuery(raw)),
+)
+
+// 挂载时若带 ?symbols= 则解析并自动加载(复用 loadAll)
+onMounted(() => {
+  const initial = parseSymbolsQuery(route.query.symbols)
+  if (initial.length) void applySymbolsFromQuery(initial)
+})
 </script>
 
 <template>

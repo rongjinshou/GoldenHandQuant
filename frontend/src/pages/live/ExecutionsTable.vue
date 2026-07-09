@@ -4,6 +4,7 @@ import { computed, h, type VNode } from 'vue'
 import type { ExecutionRecord } from '@/api/types'
 import DataTable from '@/components/DataTable.vue'
 
+import { directionLabel, execStatusLabel } from './labels'
 import LvBadge from './LvBadge.vue'
 import { num, sliceTime, statusBadge } from './logic'
 
@@ -36,7 +37,7 @@ const columns: Col[] = [
     title: '方向',
     render: (r) => {
       const dir = asExec(r).direction
-      return h('span', { class: dir === 'BUY' ? 't-buy' : 't-sell' }, dir)
+      return h('span', { class: dir === 'BUY' ? 't-buy' : 't-sell' }, directionLabel(dir))
     },
   },
   {
@@ -72,7 +73,7 @@ const columns: Col[] = [
     title: '状态',
     render: (r) => {
       const s = asExec(r).status
-      return h(LvBadge, { kind: statusBadge(s) }, { default: () => s })
+      return h(LvBadge, { kind: statusBadge(s) }, { default: () => execStatusLabel(s) })
     },
   },
   { key: 'reject_reason', title: '拒因', render: (r) => asExec(r).reject_reason ?? '' },

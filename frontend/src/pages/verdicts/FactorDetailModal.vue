@@ -34,6 +34,14 @@ const emit = defineEmits<{ 'update:show': [boolean]; navigate: [number] }>()
 
 const factor = computed<VerdictFactor | null>(() => props.factors[props.index] ?? null)
 
+/* grade 徽章文本(A/B/C/D + 评分) 抽成 computed(P8 score 词条接线): 便于模板用 GlossaryTip
+ * 包裹徽章时安全访问 score —— 避免把 v-if 的收窄下放到子组件插槽内的窄化问题; 缺分 → null 不渲染。 */
+const gradeText = computed<string | null>(() => {
+  const f = factor.value
+  if (!f || f.score === null || f.score === undefined) return null
+  return `${(f.grade ?? '?').toUpperCase()} ${f.score.toFixed(0)}`
+})
+
 interface MetricCell {
   text: string
   cls: string
@@ -42,6 +50,9 @@ interface MetricCell {
 interface MetricRow {
   label: string
   gloss: string
+  /* OOS 列专属术语(P8 孤儿词条接线): 样本外指标口径与 IS 不同, 单独挂 tip —
+   * IC均值→oos_ic, IR→oos_ir, 多空收益/Top超额→ls_oos。缺省则 OOS 格无 tip。 */
+  oosGloss?: string
   is: MetricCell
   oos: MetricCell
 }
@@ -60,26 +71,28 @@ const metricRows = computed<MetricRow[]>(() => {
 
   if (props.longOnly) {
     return [
-      { label: 'IC均值', gloss: 'ic', is: mcell('ic_mean', f.ic_mean, f4), oos: oosOr('oos_ic_mean', f.oos_ic_mean, f4) },
+      { label: 'IC均值', gloss: 'ic', oosGloss: 'oos_ic', is: mcell('ic_mean', f.ic_mean, f4), oos: oosOr('oos_ic_mean', f.oos_ic_mean, f4) },
       { label: '超额信息比', gloss: 'ir', is: mcell('excess_ir', f.excess_ir, f2), oos: NA_CELL },
       { label: '超额正率', gloss: 'ic_posrate', is: mcell('excess_positive_rate', f.excess_positive_rate, pct), oos: NA_CELL },
       { label: '单调性', gloss: 'monotonicity', is: mcell('monotonicity_score', f.monotonicity_score, f2), oos: NA_CELL },
       {
         label: 'Top超额',
         gloss: 'ls_is',
+        oosGloss: 'ls_oos',
         is: mcell('top_excess_return', f.top_excess_return, pct),
         oos: oosOr('oos_top_excess_return', f.oos_top_excess_return, pct),
       },
     ]
   }
   return [
-    { label: 'IC均值', gloss: 'ic', is: mcell('ic_mean', f.ic_mean, f4), oos: oosOr('oos_ic_mean', f.oos_ic_mean, f4) },
-    { label: 'IR', gloss: 'ir', is: mcell('ir', f.ir, f3), oos: oosOr('oos_ir', f.oos_ir, f3) },
+    { label: 'IC均值', gloss: 'ic', oosGloss: 'oos_ic', is: mcell('ic_mean', f.ic_mean, f4), oos: oosOr('oos_ic_mean', f.oos_ic_mean, f4) },
+    { label: 'IR', gloss: 'ir', oosGloss: 'oos_ir', is: mcell('ir', f.ir, f3), oos: oosOr('oos_ir', f.oos_ir, f3) },
     { label: 'IC正率', gloss: 'ic_posrate', is: mcell('ic_positive_rate', f.ic_positive_rate, pct), oos: NA_CELL },
     { label: '单调性', gloss: 'monotonicity', is: mcell('monotonicity_score', f.monotonicity_score, f2), oos: NA_CELL },
     {
       label: '多空收益',
       gloss: 'ls_is',
+      oosGloss: 'ls_oos',
       is: mcell('long_short_return', f.long_short_return, pct),
       oos: oosOr('oos_long_short_return', f.oos_long_short_return, pct),
     },
@@ -131,11 +144,9 @@ watch(
           <span class="fid num">{{ factor.factor_id }}</span>
           <span class="fname">{{ factor.factor_name ?? '' }}</span>
         </h3>
-        <span
-          v-if="factor.score !== null && factor.score !== undefined"
-          class="grade-badge"
-          :class="gradeClass(factor.grade)"
-        >{{ (factor.grade ?? '?').toUpperCase() }} {{ factor.score.toFixed(0) }}</span>
+        <GlossaryTip v-if="gradeText" term="score" plain>
+          <span class="grade-badge" :class="gradeClass(factor.grade)">{{ gradeText }}</span>
+        </GlossaryTip>
         <GlossaryTip :term="factor.passed ? 'verdict_pass' : 'verdict_fail'" plain>
           <span class="badge" :class="factor.passed ? 'pass' : 'fail'">{{ factor.passed ? 'PASS' : 'FAIL' }}</span>
         </GlossaryTip>
@@ -158,12 +169,15 @@ watch(
           <tr v-for="row in metricRows" :key="row.label">
             <td><GlossaryTip :term="row.gloss">{{ row.label }}</GlossaryTip></td>
             <td class="num" :class="row.is.cls">{{ row.is.text }}</td>
-            <td class="num" :class="row.oos.cls">{{ row.oos.text }}</td>
+            <td class="num" :class="row.oos.cls">
+              <GlossaryTip v-if="row.oosGloss && hasSplit" :term="row.oosGloss" plain>{{ row.oos.text }}</GlossaryTip>
+              <template v-else>{{ row.oos.text }}</template>
+            </td>
           </tr>
         </tbody>
       </table>
 
-      <h4 class="vm-section">逐关判定</h4>
+      <h4 class="vm-section"><GlossaryTip term="verdict_badge">逐关判定</GlossaryTip></h4>
       <ul class="vm-reasons">
         <li v-for="(r, i) in factor.reasons ?? []" :key="i" :class="isPassReason(r) ? 'r-pass' : 'r-fail'">{{ r }}</li>
       </ul>

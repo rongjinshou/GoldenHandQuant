@@ -4,6 +4,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { fetchJSON } from '@/api/fetch'
 import type { ExecutionRecord, TradingCycle } from '@/api/types'
 
+import { directionLabel, execStatusLabel } from './labels'
 import LvBadge from './LvBadge.vue'
 import { num, sliceTime, statusBadge } from './logic'
 
@@ -81,7 +82,7 @@ function dirCls(d: string): string {
   return d === 'BUY' ? 't-buy' : d === 'SELL' ? 't-sell' : ''
 }
 function dirText(d: string): string {
-  return d === 'BUY' ? '买' : d === 'SELL' ? '卖' : d
+  return directionLabel(d)
 }
 </script>
 
@@ -152,7 +153,7 @@ function dirText(d: string): string {
                   <tr v-for="(e, i) in detailRows(c.cycle_id) ?? []" :key="i">
                     <td class="num">{{ e.symbol }}</td>
                     <td :class="dirCls(e.direction)">{{ dirText(e.direction) }}</td>
-                    <td><LvBadge :kind="statusBadge(e.status)">{{ e.status }}</LvBadge></td>
+                    <td><LvBadge :kind="statusBadge(e.status)">{{ execStatusLabel(e.status) }}</LvBadge></td>
                     <td class="num right">{{ num(e.notional) }}</td>
                     <td>{{ e.reject_reason ?? '' }}</td>
                   </tr>

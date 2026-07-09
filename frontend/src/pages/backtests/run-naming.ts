@@ -79,6 +79,8 @@ export function buildRunLabel(run: BacktestRun, meta: StrategyMeta[]): RunLabel 
   const source =
     (typeof rawSource === 'string' && rawSource) ||
     (kind === 'shadow_paper_equity' ? 'shadow_paper' : undefined)
-  const subtitle = `${sourceLabel(source)} · ${(run.created_at ?? '').slice(5, 16)}`
+  // 副标题日期保留年份(设计 §12 P8): 原 slice(5,16) 省年, 跨年无法分辨 2025/2026;
+  // slice(0,16) 取 'YYYY-MM-DD HH:mm' 完整到分钟
+  const subtitle = `${sourceLabel(source)} · ${(run.created_at ?? '').slice(0, 16)}`
   return { title, subtitle }
 }

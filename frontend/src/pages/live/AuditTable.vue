@@ -4,6 +4,7 @@ import { computed, h, type VNode } from 'vue'
 import type { AuditLog } from '@/api/types'
 import DataTable from '@/components/DataTable.vue'
 
+import { auditActionLabel } from './labels'
 import { sliceTime } from './logic'
 
 /* 审计日志表 — 旧 live.js 审计段对等, 走自研 DataTable(50 行 + 展开态跨轮询保持):
@@ -28,7 +29,7 @@ function asLog(row: Record<string, unknown>): AuditLog {
 
 const columns: Col[] = [
   { key: 'timestamp', title: '时间', render: (r) => sliceTime(asLog(r).timestamp) },
-  { key: 'action', title: '动作' },
+  { key: 'action', title: '动作', render: (r) => auditActionLabel(asLog(r).action) },
   {
     key: 'resource',
     title: '资源',

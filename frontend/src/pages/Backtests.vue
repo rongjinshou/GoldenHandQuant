@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NPopconfirm, NSelect } from 'naive-ui'
 import { computed, ref, shallowRef, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { deleteJSON, fetchJSON } from '@/api/fetch'
 import type { BacktestRun, BarsData, StrategyMeta } from '@/api/types'
@@ -23,6 +24,7 @@ import {
 import EquityChart from './backtests/EquityChart.vue'
 import { type Cell, ddCell, marketCell, qualityCell } from './backtests/metric-cell'
 import { buildRunLabel, sourceLabel } from './backtests/run-naming'
+import { resolveSelection, selectionFromQuery, shouldSyncRunToUrl } from './backtests/run-selection'
 
 /* 回测页 — 旧 backtests.js loadBacktests/renderBtRun 对等:
  * 回测列表(倒序, 同 run 多策略并排, 行点击进详情) + 详情(基准/叠加下拉 + meta 条 +
@@ -44,6 +46,10 @@ const selectedRunId = ref<string | null>(null)
 const benchSel = ref('first_symbol')
 const overlaySel = ref<string | null>(null)
 
+// URL 深链(设计 §12 P7): 选中回测轮 ↔ ?run= query, 可深链/刷新/收藏恢复
+const route = useRoute()
+const router = useRouter()
+
 const selectedRun = computed(() => runs.value.find((r) => r.run_id === selectedRunId.value) ?? null)
 const first = computed(() => (selectedRun.value ? (firstStrategy(selectedRun.value) ?? null) : null))
 
@@ -55,11 +61,10 @@ async function loadBacktests(): Promise<void> {
   try {
     const data = await fetchJSON<{ runs: BacktestRun[] }>('/api/research/backtests')
     runs.value = data.runs
-    // reload 保留选中: 原选中项仍在则不动(避免删他轮/完成刷新时把用户正看的详情弹走);
-    // 不在了(首次载入 / 删的正是当前项)才落最新(倒序首条), 对等旧版 currentBtRun = btRuns[0]
-    const stillExists =
-      selectedRunId.value !== null && runs.value.some((r) => r.run_id === selectedRunId.value)
-    if (!stillExists) selectedRunId.value = runs.value[0]?.run_id ?? null
+    // 选中决策交给纯函数(run-selection.ts, 已单测): 原选中仍在则保留(删他轮/完成刷新不弹走
+    // 当前详情); 否则 URL ?run= 命中则恢复深链(首次载入/刷新/收藏); 都不命中落最新(倒序首条)
+    const urlRun = typeof route.query.run === 'string' ? route.query.run : null
+    selectedRunId.value = resolveSelection(runs.value, urlRun, selectedRunId.value)
     error.value = ''
   } catch (e) {
     error.value = (e as Error).message
@@ -83,6 +88,27 @@ void loadBacktests()
 function selectRun(runId: string): void {
   selectedRunId.value = runId
 }
+
+/* URL 深链两向同步(设计 §12 P7) — router.replace(不 push)不污染历史; 两向 watch 靠
+ * run-selection.ts 的幂等函数(shouldSyncRunToUrl/selectionFromQuery)互相刹车防死循环:
+ * 选中→写URL 与 URL→选中 各自遇"两边已一致"即止步, 不会无限往返。 */
+// 选中 → URL: 仅当 URL 现值与选中不同才 replace(幂等挡回环)
+watch(selectedRunId, (id) => {
+  const cur = typeof route.query.run === 'string' ? route.query.run : null
+  if (!shouldSyncRunToUrl(cur, id)) return
+  const query = { ...route.query }
+  if (id) query.run = id
+  else delete query.run
+  void router.replace({ query })
+})
+// URL ?run= → 选中: 响应浏览器前进/后退, 命中列表且非当前才切(幂等挡回环)
+watch(
+  () => route.query.run,
+  (raw) => {
+    const id = selectionFromQuery(raw, runs.value, selectedRunId.value)
+    if (id !== null) selectedRunId.value = id
+  },
+)
 
 /* 研究记录退役(设计 docs/feat/0705-research-retire) — 整轮硬删除, 无回收站;
  * 重删的是当前选中项时, loadBacktests 重载后按既有语义自动落最新一条, 无需特判。 */

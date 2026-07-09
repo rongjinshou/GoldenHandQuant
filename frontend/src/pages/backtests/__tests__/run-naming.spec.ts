@@ -88,7 +88,8 @@ describe('buildRunLabel', () => {
     ])
     const label = buildRunLabel(run, meta)
     expect(label.title).toBe('DualMa 双均线策略 · 000021.SZ · 2024→2025')
-    expect(label.subtitle).toBe('多策略对比 · 06-14 10:32')
+    // 副标题保留年份(P8): 跨年可分辨 2025/2026, 不再 slice 省年
+    expect(label.subtitle).toBe('多策略对比 · 2026-06-14 10:32')
   })
 
   it('截面策略: 对象范围显"全市场", 标的框不生效', () => {
@@ -140,7 +141,7 @@ describe('buildRunLabel', () => {
     const label = buildRunLabel(run, meta)
     // 根治 bug: 曾因只认复数 strategies 键, 漏判 cross_section 而误显"默认标的"
     expect(label.title).toBe('微盘价值质量增强策略 · 全市场 · 2024→2025')
-    expect(label.subtitle).toBe('F01 可投性验证 · 06-14 10:32')
+    expect(label.subtitle).toBe('F01 可投性验证 · 2026-06-14 10:32')
   })
 
   it('meta 查不到策略名 → 全市场/默认标的兜底不炸', () => {
@@ -163,6 +164,6 @@ describe('buildRunLabel', () => {
     )
     const label = buildRunLabel(run, meta)
     expect(label.title).toBe('MicroValueStrategy · 主板抽样池 · 2026')
-    expect(label.subtitle).toBe('影子盘 · 06-14 10:32')
+    expect(label.subtitle).toBe('影子盘 · 2026-06-14 10:32')
   })
 })

@@ -13,6 +13,22 @@ export const STATUS_LABEL: Record<string, string> = {
 
 export const TERMINAL_STATUS: ReadonlySet<string> = new Set(['succeeded', 'failed', 'canceled'])
 
+/* 任务类型(job_type 机读码) → 中文。权威来源: 后端 manager.submit(job_type=...) 五个调用点
+ * (routes/jobs.py + job_commands): backtest/factor_test/data_refresh/ml_train/ml_evaluate。
+ * ml_eval 为计划书写法的防御别名(同映射)。未知类型回退原码, 后端新增类型前端不崩。 */
+export const JOB_TYPE_LABEL: Record<string, string> = {
+  backtest: '回测',
+  factor_test: '因子检验',
+  data_refresh: '数据刷新',
+  ml_train: 'ML 训练',
+  ml_evaluate: 'ML 评估',
+  ml_eval: 'ML 评估',
+}
+
+export function jobTypeLabel(jobType: string): string {
+  return JOB_TYPE_LABEL[jobType] ?? jobType
+}
+
 /* 耗时: 未开始 '-'; 结束取 finished_at 否则取现在; <90s 整秒, 否则一位小数分钟 */
 export function durationOf(job: Pick<Job, 'started_at' | 'finished_at'>): string {
   if (!job.started_at) return '-'

@@ -21,6 +21,7 @@ export function buildVerdictRunLabel(run: VerdictRun): VerdictRunLabel {
   const split = run.params?.split
   const splitPart = split ? `切分 ${split}` : '未切分'
   const title = `${n} 因子 · ${obj} · ${splitPart}`
-  const subtitle = `${(run.created_at ?? '').slice(5, 16)} · ${run.run_id}`
+  // 日期保留年份(slice(0,16)='YYYY-MM-DD HH:MM'): 省年会让跨年的同月日撞脸, 无法分辨。
+  const subtitle = `${(run.created_at ?? '').slice(0, 16)} · ${run.run_id}`
   return { title, subtitle }
 }

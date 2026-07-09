@@ -5,9 +5,10 @@
  * pass/fail=闸门判定 — 迁移按语义对号, 禁按颜色对号。 */
 
 :root {
-  /* 字体 */
-  --font-display: 'Poppins', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
-  --font-body: 'Lora', Georgia, 'Noto Serif SC', 'Source Han Serif SC', serif;
+  /* 字体 — 思源系(思源黑/宋)优先, 后接系统常驻 CJK(Microsoft YaHei=Windows / PingFang SC=macOS),
+   * 未装思源的机器不再裸退默认宋(SimSun); 零 webfont 体积, 纯系统回退 */
+  --font-display: 'Poppins', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --font-body: 'Lora', Georgia, 'Noto Serif SC', 'Source Han Serif SC', 'Microsoft YaHei', 'PingFang SC', serif;
   --font-mono: 'JetBrains Mono', Consolas, monospace;
 
   /* 动效 */
