@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NConfigProvider, zhCN, dateZhCN } from 'naive-ui'
+import { NConfigProvider, NMessageProvider, NNotificationProvider, zhCN, dateZhCN } from 'naive-ui'
 import { onMounted } from 'vue'
 
 import AppBadge from '@/components/AppBadge.vue'
@@ -22,6 +22,8 @@ onMounted(() => jobsStore.startGlobalPolling())
     :locale="zhCN"
     :date-locale="dateZhCN"
   >
+    <NNotificationProvider :max="3">
+    <NMessageProvider>
     <div class="shell" data-testid="app-shell">
       <header class="topbar">
         <h1 class="brand">GoldenHandQuant</h1>
@@ -53,6 +55,8 @@ onMounted(() => jobsStore.startGlobalPolling())
         </RouterView>
       </main>
     </div>
+    </NMessageProvider>
+    </NNotificationProvider>
   </NConfigProvider>
 </template>
 
