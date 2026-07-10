@@ -11,9 +11,11 @@ import JobCard from '@/components/JobCard.vue'
 import {
   type EditableParam,
   editableParams,
+  isOverridden,
   type ParamDefaults,
   type ParamEditValue,
   paramOverrides,
+  type ParamValue,
 } from './param-overrides'
 import { friendlyStrategyName } from './run-naming'
 import { useSymbolChips } from './useSymbolChips'
@@ -136,6 +138,18 @@ function setParam(strat: string, key: string, v: ParamEditValue): void {
 function restoreDefaults(strat: string): void {
   const defs = defaultsByStrategy.value[strat]
   if (defs) paramEdits.value[strat] = { ...defs }
+}
+
+/* 参数「已改」高亮(R2-A 收尾) — 单键判定复用提交 diff 的同一纯函数 isOverridden
+ * (null/空白/trim 相等=未改), 保证"亮着的 = 会随提交发出去的"永远一致 */
+function overridden(strat: string, key: string, def: ParamValue): boolean {
+  return isOverridden(paramEdits.value[strat]?.[key] ?? null, def)
+}
+
+/** 单键恢复默认(点「默认 x」触发) — 回填默认值本身, 与整面板「还原默认」同源同形 */
+function resetParam(strat: string, key: string): void {
+  const def = defaultsByStrategy.value[strat]?.[key]
+  if (def !== undefined) setParam(strat, key, def)
 }
 
 watch(
@@ -277,7 +291,14 @@ async function submitBacktest(): Promise<void> {
           <NButton size="tiny" quaternary @click="restoreDefaults(s.name)">还原默认</NButton>
         </header>
         <div class="param-grid">
-          <label v-for="p in editablesByStrategy[s.name]" :key="p.key" class="param-item">
+          <!-- 已改(≠默认)视觉态: 左缘 2px accent 竖线(与左轨激活行同语言);
+               「默认 x」淡字同时变可点 = 单键恢复默认 -->
+          <label
+            v-for="p in editablesByStrategy[s.name]"
+            :key="p.key"
+            class="param-item"
+            :class="{ 'param-item--overridden': overridden(s.name, p.key, p.def) }"
+          >
             <span class="num param-key">{{ p.key }}</span>
             <NInputNumber
               v-if="p.numeric"
@@ -296,7 +317,14 @@ async function submitBacktest(): Promise<void> {
               style="width: 104px"
               @update:value="(v: string) => setParam(s.name, p.key, v)"
             />
-            <span class="param-def">默认 {{ p.def }}</span>
+            <button
+              v-if="overridden(s.name, p.key, p.def)"
+              type="button"
+              class="param-def param-def--reset"
+              :aria-label="`恢复 ${p.key} 默认值 ${p.def}`"
+              @click="resetParam(s.name, p.key)"
+            >默认 {{ p.def }}</button>
+            <span v-else class="param-def">默认 {{ p.def }}</span>
           </label>
         </div>
       </section>
@@ -477,12 +505,21 @@ async function submitBacktest(): Promise<void> {
   gap: var(--space-2) var(--space-4);
 }
 
+/* 常驻透明左缘占位: 「已改」点亮时只变色不改几何, 输入中状态切换不跳版 */
 .param-item {
   align-items: center;
+  border-left: 2px solid transparent;
   color: var(--text-3);
   display: inline-flex;
   font-size: var(--fs-xs);
   gap: var(--space-2);
+  padding-left: var(--space-1);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+/* 已改(当前值≠默认, isOverridden 判定): 左缘 accent 竖线 — 与左轨激活行同视觉语言 */
+.param-item--overridden {
+  border-left-color: var(--accent);
 }
 
 .param-key {
@@ -495,6 +532,25 @@ async function submitBacktest(): Promise<void> {
   font-size: var(--fs-xs);
   opacity: 0.75;
   white-space: nowrap;
+}
+
+/* 已改时「默认 x」变可点(单键恢复默认): 点状下划线示意可点, hover 提亮到 accent */
+.param-def--reset {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.param-def--reset:hover,
+.param-def--reset:focus-visible {
+  color: var(--accent);
+  opacity: 1;
 }
 
 .sym-row {

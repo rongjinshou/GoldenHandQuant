@@ -74,6 +74,9 @@ const run = computed(() => runs.value[selectedIdx.value] ?? null)
 const longOnly = computed(() => run.value?.params?.objective === 'long_only')
 const hasSplit = computed(() => !!run.value?.params?.split)
 const lastSplitHint = computed(() => runs.value[0]?.params?.split ?? null)
+/* 「上轮同款」数据源(最小侵入: 复用已加载的轮次数据, 不另发请求): 取当前选中判决轮的
+ * 因子集合 — 用户正看哪轮, "同款"就是哪轮; 默认选中最新轮(0), 与"最新一轮"语义自然重合。 */
+const lastRunFactorIds = computed(() => run.value?.factors.map((f) => f.factor_id) ?? null)
 
 /* 研究记录退役(设计 docs/feat/0705-research-retire, commit 8dc2558) — 整轮硬删除, 无回收站。
  * 与本次卡片化重排(0705-verdict-cards)并行落地在同一文件, 重排时原样保留、随 run-select
@@ -180,7 +183,11 @@ watch(
 
     <ErrorBanner v-if="error" :msg="error" />
 
-    <FactorTestForm :last-split-hint="lastSplitHint" @refresh="loadVerdicts" />
+    <FactorTestForm
+      :last-split-hint="lastSplitHint"
+      :last-run-factor-ids="lastRunFactorIds"
+      @refresh="loadVerdicts"
+    />
 
     <p v-if="loading" class="t-muted">加载判决轮次…</p>
     <p v-else-if="!runs.length" class="t-muted" data-testid="verdicts-empty">

@@ -39,10 +39,21 @@ export function editableParams(defaultParams: Record<string, unknown>): Editable
 }
 
 /**
- * 逐键 diff 出「用户改过」的参数覆盖:
- * - null（InputNumber 清空）/ 空白字符串 = 用默认, 不算覆盖
- * - 字符串 trim 后再比较与提交（"close " ≡ "close", 不发尾随空格）
- * - 与默认严格相等（number===number / string===string）的键不发
+ * 单键「已改」判定 — paramOverrides 的逐键语义抽出复用（单一事实源:
+ * 表单"已改"高亮与提交 diff 永远同判）:
+ * - null（InputNumber 清空）/ 空白字符串 = 用默认 → false
+ * - 字符串 trim 后与默认严格相等 → false（"close " ≡ "close"）
+ * - 其余（含 0 等 falsy 数值）≠ 默认 → true
+ */
+export function isOverridden(edited: ParamEditValue, def: ParamValue): boolean {
+  if (edited === null) return false
+  const val = typeof edited === 'string' ? edited.trim() : edited
+  return val !== '' && val !== def
+}
+
+/**
+ * 逐键 diff 出「用户改过」的参数覆盖（单键判定 = isOverridden, 见上）:
+ * - 字符串 trim 后提交（"open " → "open", 不发尾随空格）
  * - 无默认值的未知键、defaults 缺失的策略一律忽略（不发后端不认的东西）
  * - 一个覆盖都没有 → undefined（调用方据此不带 params 字段）
  */
@@ -55,11 +66,8 @@ export function paramOverrides(
     const defs = defaults[strat]
     if (!defs) continue
     for (const [key, raw] of Object.entries(kv)) {
-      if (!(key in defs)) continue
-      if (raw === null) continue
-      const val = typeof raw === 'string' ? raw.trim() : raw
-      if (val === '' || val === defs[key]) continue
-      ;(out[strat] ??= {})[key] = val
+      if (raw === null || !(key in defs) || !isOverridden(raw, defs[key])) continue
+      ;(out[strat] ??= {})[key] = typeof raw === 'string' ? raw.trim() : raw
     }
   }
   return Object.keys(out).length ? out : undefined

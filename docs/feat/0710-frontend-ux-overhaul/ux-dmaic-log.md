@@ -58,9 +58,23 @@ Control：482 vitest 绿 · 冒烟 PASS · 提交 d14d337。
 
 ---
 
-## R3（下一轮 Measure 候选）
-- 行情「最近查看」升级组合记忆（当前逐标的）
-- 判决因子多选快捷组（如「全 P0+P1」「上轮同款」）
-- 表格列排序（执行/审计/任务列表）
-- 回测叠加对比 `?overlay=` 深链（批三遗留）
-- 参数被改动时输入框高亮"已改"态（R2-A 遗留）
+## R3（已完成 2026-07-11）— 重复操作与遗留收尾专项
+
+| 改进 | 落地 | 证据 |
+|---|---|---|
+| 行情组合记忆 | 「最近」chips 记整组（`000021.SZ +2` 形态），顺序不敏感去重、旧 key 事务式迁移、写失败保数据 | recent-symbols 27 例 |
+| 判决因子快捷组 | P 标签真按钮整组勾/清；「上轮同款」=当前选中轮因子集（跳过下架/禁用并提示，全不可用非破坏） | factor-selection 13 + 表单 5 例 |
+| 表格列排序 | DataTable `sortable` 列（降→升→无序循环、aria-sort、null 沉底、不变异 props、排序态跨轮询保持）；执行 6 列/审计 2 列启用 | DataTable +11 例（TDD 红→绿） |
+| `?overlay=` 深链 | 叠加对比入 URL；"缺席=清空/非法=忽略不回写"两种 null 语义拆读写两函数 | run-selection +17 例 |
+| 参数已改高亮 | 左缘 accent 竖线（占位零跳版）+「默认 x」变可点单键还原；高亮与提交 diff 共用 `isOverridden` 单一事实源 | param-overrides +7 例 |
+
+Control：`verify_all --frontend` 六项全绿（vitest **601**/pytest/ruff/数据门禁/fresh/typecheck）· 冒烟 PASS（console 0 错）。
+
+---
+
+## R4（下一轮 Measure 候选）
+- 判决卡片网格列排序/筛选记忆（sessionStorage 保 filter+sort 跨访问）
+- 回测多策略对比时指标表并排高亮最优列
+- 实盘子视图计数徽章超限 "+"（批二审计 H8.2 遗留：截断数失真）
+- Jobs 日志查找（长日志 Ctrl+F 体验差，加简单过滤框）
+- 全局 `?` 快捷键帮助浮层（快捷键可发现性）

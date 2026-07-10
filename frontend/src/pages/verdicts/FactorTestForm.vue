@@ -7,12 +7,20 @@ import type { Job, MetaFactor } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import JobCard from '@/components/JobCard.vue'
+import { GLOSSARY } from '@/glossary'
+
+import { applyLastRun, toggleGroup } from './factor-selection'
 
 /* 因子检验表单(设计 0705-verdict-cards §3) — 从 Verdicts.vue 抽取, 置顶页面第一屏;
  * 行为对旧版零改动: chips 分组/P0 默认勾/field_ready 禁用/多重检验提示/JobCard 闭环。
  * lastSplitHint: 父层最近一轮判决的切分日, 用于预填 IS/OOS 切分(消除进页即报
- * "多重检验风险"的常驻警告)。 */
-const props = defineProps<{ lastSplitHint: string | null }>()
+ * "多重检验风险"的常驻警告)。
+ * lastRunFactorIds: 父层当前选中判决轮的因子集合 —「上轮同款」一键复用的数据源;
+ * 无轮次时 null → 按钮禁用。 */
+const props = defineProps<{
+  lastSplitHint: string | null
+  lastRunFactorIds?: readonly string[] | null
+}>()
 const emit = defineEmits<{ refresh: [] }>()
 
 const error = ref('')
@@ -52,6 +60,50 @@ function toggleChip(id: string, disabled: boolean): void {
   if (next.has(id)) next.delete(id)
   else next.add(id)
   checked.value = next
+  applyNotice.value = null
+}
+
+// ---- 快捷组(P 标签整组切换 + 上轮同款; 集合运算在 factor-selection.ts) ----
+
+const disabledIds = computed(
+  () =>
+    new Set(
+      chipGroups.value.flatMap((g) =>
+        g.chips.filter((c) => c.disabled).map((c) => c.factor.factor_id),
+      ),
+    ),
+)
+const availableIds = computed(
+  () => new Set(chipGroups.value.flatMap((g) => g.chips.map((c) => c.factor.factor_id))),
+)
+
+/* P 标签已是真按钮, 不再套 GlossaryTip(其触发器本身是 role=button, 嵌套交互元素伤
+ * 键盘可达) — 原 factor_group 术语释义并入原生 title 第二行, 教学不丢。 */
+const groupToggleTitle = `点击全选/清空该组\n${GLOSSARY.factor_group ?? ''}`.trimEnd()
+
+function toggleGroupChecked(g: ChipGroup): void {
+  checked.value = toggleGroup(
+    checked.value,
+    g.chips.map((c) => c.factor.factor_id),
+    disabledIds.value,
+  )
+  applyNotice.value = null
+}
+
+/* 套用结果小字(role=status): 只在有信息量时出现(有跳过/未改动), 手动改勾选即清除。 */
+const applyNotice = ref<string | null>(null)
+
+function applyLastRunSelection(): void {
+  const ids = props.lastRunFactorIds
+  if (!ids?.length) return
+  const res = applyLastRun(checked.value, ids, availableIds.value, disabledIds.value)
+  checked.value = res.next
+  applyNotice.value =
+    res.applied === 0
+      ? `上轮 ${res.skipped} 个因子均已下架/禁用，勾选未改动`
+      : res.skipped > 0
+        ? `已套用上轮组合，跳过 ${res.skipped} 个已下架/禁用因子`
+        : null
 }
 
 const ftStart = ref<string | null>(null)
@@ -122,8 +174,28 @@ async function submitFactorTest(): Promise<void> {
   <details class="card form-card" open data-testid="factor-test-form">
     <summary>因子检验</summary>
     <ErrorBanner v-if="error" :msg="error" />
+    <div v-if="chipGroups.length" class="factor-toolbar">
+      <span v-if="applyNotice" class="apply-notice" role="status" data-testid="ft-last-run-notice">
+        {{ applyNotice }}
+      </span>
+      <NButton
+        size="small"
+        quaternary
+        :disabled="!lastRunFactorIds?.length"
+        :title="lastRunFactorIds?.length ? '把勾选置为当前所选判决轮的因子组合' : '暂无判决轮可复用'"
+        data-testid="ft-apply-last-run"
+        @click="applyLastRunSelection"
+      >上轮同款</NButton>
+    </div>
     <div v-for="g in chipGroups" :key="g.group" class="factor-group" data-testid="ft-factors">
-      <GlossaryTip term="factor_group"><span class="group-title">{{ g.group }}</span></GlossaryTip>
+      <button
+        type="button"
+        class="group-title"
+        :title="groupToggleTitle"
+        :aria-label="`${g.group} 组全选/清空切换`"
+        data-testid="ft-group-toggle"
+        @click="toggleGroupChecked(g)"
+      >{{ g.group }}</button>
       <div class="fchips">
         <button
           v-for="c in g.chips"
@@ -171,6 +243,20 @@ async function submitFactorTest(): Promise<void> {
   font-weight: 600;
 }
 
+/* 因子区右上角快捷条: 常态只有一枚小按钮, 负 margin 让其贴住下方组列表不多占一行高 */
+.factor-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin: 8px 0 -6px;
+}
+
+.apply-notice {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
 .factor-group {
   align-items: baseline;
   display: flex;
@@ -178,12 +264,23 @@ async function submitFactorTest(): Promise<void> {
   margin: 12px 0;
 }
 
+/* P 标签 = 真按钮(整组全选/清空), 视觉沿用旧 span 行标, 加 hover 下划线提示可点 */
 .group-title {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
   color: var(--accent);
+  cursor: pointer;
   font-family: var(--font-display);
   font-size: 12.5px;
   font-weight: 700;
   min-width: 28px;
+  padding: 0;
+  text-align: left;
+}
+
+.group-title:hover {
+  text-decoration: underline dotted;
 }
 
 .fchips {

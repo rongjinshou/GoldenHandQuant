@@ -24,7 +24,13 @@ import {
 import EquityChart from './backtests/EquityChart.vue'
 import { type Cell, ddCell, marketCell, qualityCell } from './backtests/metric-cell'
 import { buildRunLabel, sourceLabel } from './backtests/run-naming'
-import { resolveSelection, selectionFromQuery, shouldSyncRunToUrl } from './backtests/run-selection'
+import {
+  overlayFromQuery,
+  resolveSelection,
+  selectionFromQuery,
+  shouldSyncOverlayToUrl,
+  shouldSyncRunToUrl,
+} from './backtests/run-selection'
 
 /* 回测页 — 旧 backtests.js loadBacktests/renderBtRun 对等:
  * 回测列表(倒序, 同 run 多策略并排, 行点击进详情) + 详情(基准/叠加下拉 + meta 条 +
@@ -46,9 +52,11 @@ const selectedRunId = ref<string | null>(null)
 const benchSel = ref('first_symbol')
 const overlaySel = ref<string | null>(null)
 
-// URL 深链(设计 §12 P7): 选中回测轮 ↔ ?run= query, 可深链/刷新/收藏恢复
+// URL 深链(设计 §12 P7): 选中回测轮 ↔ ?run=、叠加对比 ↔ ?overlay=, 可深链/刷新/收藏恢复
 const route = useRoute()
 const router = useRouter()
+// ?overlay= 首载恢复只做一次(runs 载入后才有列表可验合法性), 见 loadBacktests 内注释
+let overlayRestored = false
 
 const selectedRun = computed(() => runs.value.find((r) => r.run_id === selectedRunId.value) ?? null)
 const first = computed(() => (selectedRun.value ? (firstStrategy(selectedRun.value) ?? null) : null))
@@ -65,6 +73,14 @@ async function loadBacktests(): Promise<void> {
     // 当前详情); 否则 URL ?run= 命中则恢复深链(首次载入/刷新/收藏); 都不命中落最新(倒序首条)
     const urlRun = typeof route.query.run === 'string' ? route.query.run : null
     selectedRunId.value = resolveSelection(runs.value, urlRun, selectedRunId.value)
+    // ?overlay= 挂载恢复: 首次载入成功后(选中已落定, 才能判"等于当前选中")合法则恢复叠加,
+    // 非法静默忽略(URL 值保留)。仅首载回读一次 —— 之后会话内状态为准, 防后台刷新(任务完成/
+    // 删轮触发的重载)让残留 URL 值凭空弹出叠加
+    if (!overlayRestored) {
+      overlayRestored = true
+      const ov = overlayFromQuery(route.query.overlay, runs.value, selectedRunId.value)
+      if (ov !== overlaySel.value) overlaySel.value = ov
+    }
     error.value = ''
   } catch (e) {
     error.value = (e as Error).message
@@ -107,6 +123,26 @@ watch(
   (raw) => {
     const id = selectionFromQuery(raw, runs.value, selectedRunId.value)
     if (id !== null) selectedRunId.value = id
+  },
+)
+
+/* 叠加对比 ↔ ?overlay= 深链(批三收尾) — 与 ?run= 同模式两向 watch + 幂等刹车。 */
+// 叠加 → URL: 现值不同才 replace; 「因 URL 值非法被置空」不回写(shouldSyncOverlayToUrl
+// 静默容错分支, 保住用户手输的值); null 时 rest-omit 摘键(同 Explorer.vue 深链写法)
+watch(overlaySel, (id) => {
+  const cur = typeof route.query.overlay === 'string' ? route.query.overlay : null
+  if (!shouldSyncOverlayToUrl(cur, id, runs.value, selectedRunId.value)) return
+  const { overlay: _omit, ...rest } = route.query // 摘掉旧 overlay, 保留其余 query 参数
+  void router.replace({ query: id ? { ...rest, overlay: id } : rest })
+})
+// URL ?overlay= → 叠加: 前进/后退; 缺席=清空, 非法(不在列表/等于当前选中)=忽略置空,
+// 合法=采用(语义见 overlayFromQuery)。注册在 ?run= watch 之后 —— 同一次导航两键齐变时,
+// 选中轮先落定, 本回调读到的 selectedRunId 已是新值
+watch(
+  () => route.query.overlay,
+  (raw) => {
+    const next = overlayFromQuery(raw, runs.value, selectedRunId.value)
+    if (next !== overlaySel.value) overlaySel.value = next
   },
 )
 

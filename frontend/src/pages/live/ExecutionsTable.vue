@@ -1,22 +1,17 @@
 <script setup lang="ts">
-import { computed, h, type VNode } from 'vue'
+import { computed, h } from 'vue'
 
 import type { ExecutionRecord } from '@/api/types'
-import DataTable from '@/components/DataTable.vue'
+import DataTable, { type Column } from '@/components/DataTable.vue'
 
 import { directionLabel, execStatusLabel } from './labels'
 import LvBadge from './LvBadge.vue'
 import { num, sliceTime, statusBadge } from './logic'
 
 /* 执行留痕表 — 旧 live.js 执行段对等, 走自研 DataTable(50 行 + 展开态跨轮询保持):
- * 方向买红卖绿(t-buy/t-sell), 状态走统一徽章语义(statusBadge), 限价/金额/置信缺失显 '-'。 */
-
-type Col = {
-  key: string
-  title: string
-  render?: (row: Record<string, unknown>) => VNode | string
-  align?: 'right'
-}
+ * 方向买红卖绿(t-buy/t-sell), 状态走统一徽章语义(statusBadge), 限价/金额/置信缺失显 '-'。
+ * 数值/时间/状态列 sortable(按行原始值排: 数值列数值序且 null 恒沉底,
+ * 时间是 ISO 串故字典序即时间序), 列类型直接复用 DataTable 导出的 Column。 */
 
 const props = defineProps<{ executions: ExecutionRecord[] }>()
 
@@ -29,8 +24,13 @@ function asExec(row: Record<string, unknown>): ExecutionRecord {
   return row as unknown as ExecutionRecord
 }
 
-const columns: Col[] = [
-  { key: 'submitted_at', title: '时间', render: (r) => sliceTime(asExec(r).submitted_at) },
+const columns: Column[] = [
+  {
+    key: 'submitted_at',
+    title: '时间',
+    sortable: true,
+    render: (r) => sliceTime(asExec(r).submitted_at),
+  },
   { key: 'symbol', title: '标的' },
   {
     key: 'direction',
@@ -44,6 +44,7 @@ const columns: Col[] = [
     key: 'exec_price',
     title: '限价',
     align: 'right',
+    sortable: true,
     render: (r) => {
       const p = asExec(r).exec_price
       return p !== null && p !== undefined ? p.toFixed(2) : '-'
@@ -53,16 +54,24 @@ const columns: Col[] = [
     key: 'volume',
     title: '数量',
     align: 'right',
+    sortable: true,
     render: (r) => {
       const v = asExec(r).volume
       return v !== null && v !== undefined ? String(v) : '-'
     },
   },
-  { key: 'notional', title: '金额', align: 'right', render: (r) => num(asExec(r).notional) },
+  {
+    key: 'notional',
+    title: '金额',
+    align: 'right',
+    sortable: true,
+    render: (r) => num(asExec(r).notional),
+  },
   {
     key: 'confidence',
     title: '置信',
     align: 'right',
+    sortable: true,
     render: (r) => {
       const c = asExec(r).confidence
       return c !== null && c !== undefined ? c.toFixed(2) : '-'
@@ -71,6 +80,7 @@ const columns: Col[] = [
   {
     key: 'status',
     title: '状态',
+    sortable: true,
     render: (r) => {
       const s = asExec(r).status
       return h(LvBadge, { kind: statusBadge(s) }, { default: () => execStatusLabel(s) })

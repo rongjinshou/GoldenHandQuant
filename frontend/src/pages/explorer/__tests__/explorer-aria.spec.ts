@@ -133,29 +133,43 @@ describe('Explorer.vue P7 URL 深链接线(?symbols= ↔ 标的组合)', () => {
   })
 })
 
-describe('Explorer.vue 「最近查看」chips(识别>回忆, 易用性迭代任务 1)', () => {
-  it('接入 recent-symbols 纯逻辑模块(读/写/清)', () => {
+describe('Explorer.vue 「最近查看」组合 chips(识别>回忆, R3 组合记忆)', () => {
+  it('接入 recent-symbols 纯逻辑模块(读/写/清/label 格式化)', () => {
     expect(explorer).toContain("from './explorer/recent-symbols'")
-    expect(explorer).toContain('loadRecent')
-    expect(explorer).toContain('pushRecent')
-    expect(explorer).toContain('clearRecent')
+    expect(explorer).toContain('loadRecentSets')
+    expect(explorer).toContain('pushRecentSet')
+    expect(explorer).toContain('clearRecentSets')
+    expect(explorer).toContain('formatSetLabel')
   })
 
-  it('只在 loadAll 成功路径记入 —— 深链恢复/最近 chip 点击同走 loadAll, 一并记入', () => {
-    expect(explorer).toMatch(/hasLoaded\.value = true[\s\S]{0,200}?pushRecent\(symbols\)/)
+  it('只在 loadAll 成功路径整组记入 —— 深链恢复/最近组合点击同走 loadAll, 一并记入', () => {
+    expect(explorer).toMatch(/hasLoaded\.value = true[\s\S]{0,200}?pushRecentSet\(symbols\)/)
     // 失败分支(catch)不记入
-    expect(explorer).not.toMatch(/catch[\s\S]{0,120}?pushRecent/)
+    expect(explorer).not.toMatch(/catch[\s\S]{0,120}?pushRecentSet/)
   })
 
   it('最近行/清空按钮模板锚点; 记录为空整行不渲染', () => {
     expect(explorer).toContain('data-testid="explorer-recent"')
     expect(explorer).toContain('data-testid="recent-clear"')
-    expect(explorer).toMatch(/v-if="recentSymbols\.length"/)
+    expect(explorer).toMatch(/v-if="recentSets\.length"/)
+  })
+
+  it('组合 chip 文案走 formatSetLabel(多标的截断「首标的 +N」), title/aria-label 带完整列表', () => {
+    expect(explorer).toContain('{{ formatSetLabel(set) }}')
+    expect(explorer).toMatch(/:title="[^"]*set\.join/)
+    expect(explorer).toMatch(/:aria-label="[^"]*set\.join/)
+  })
+
+  it('点击 = 整组替换当前 chips 再加载(setChips 置换助手, 非并入), 与深链恢复共用置入路径', () => {
+    expect(explorer).toMatch(/function pickRecentSet[\s\S]{0,240}?setChips\(set\)[\s\S]{0,120}?loadAll\(\)/)
+    expect(explorer).toMatch(/applySymbolsFromQuery[\s\S]*?setChips\(list\)/)
+    // 整组替换语义: 点击路径不走"并入"(commitText)
+    expect(explorer).not.toMatch(/pickRecentSet[\s\S]{0,240}?commitText/)
   })
 
   it('加载在途时最近 chip 禁点(与"加载"按钮同口径, 保住 loadAll 无并发不变量)', () => {
-    expect(explorer).toMatch(/class="recent-chip"[\s\S]{0,120}?:disabled="loadingData"/)
-    expect(explorer).toMatch(/function pickRecent[\s\S]{0,120}?if \(loadingData\.value\) return/)
+    expect(explorer).toMatch(/class="recent-chip"[\s\S]{0,160}?:disabled="loadingData"/)
+    expect(explorer).toMatch(/function pickRecentSet[\s\S]{0,120}?if \(loadingData\.value\) return/)
   })
 })
 

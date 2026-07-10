@@ -42,8 +42,11 @@ const stubs = {
   },
 }
 
-function mountForm(lastSplitHint: string | null = null) {
-  return mount(FactorTestForm, { props: { lastSplitHint }, global: { stubs } })
+function mountForm(
+  lastSplitHint: string | null = null,
+  lastRunFactorIds: string[] | null = null,
+) {
+  return mount(FactorTestForm, { props: { lastSplitHint, lastRunFactorIds }, global: { stubs } })
 }
 
 let fetchMock: ReturnType<typeof vi.fn>
@@ -182,6 +185,66 @@ describe('FactorTestForm', () => {
 
     await endInput!.setValue('')
     expect(hint()).toBe('留空 = 全历史（2021-01-01 起）')
+  })
+
+  // ---- 快捷组: P 标签整组切换 + 上轮同款(集合运算详测见 factor-selection.spec.ts) ----
+
+  it('P 标签是带 title 的真按钮: 点击 P1 补全该组, 再点清空', async () => {
+    const w = mountForm()
+    await flushPromises()
+    const toggles = w.findAll('[data-testid="ft-group-toggle"]')
+    expect(toggles).toHaveLength(2) // P0 / P1
+    expect(toggles[0]!.element.tagName).toBe('BUTTON')
+    expect(toggles[0]!.attributes('title')).toContain('点击全选/清空该组')
+
+    const f03 = () => w.findAll('[data-testid="ft-factor-chip"]')[2]!
+    await toggles[1]!.trigger('click') // P1 组(F03)未全选 → 补全
+    expect(f03().classes()).toContain('checked')
+    await toggles[1]!.trigger('click') // 已全选 → 清空
+    expect(f03().classes()).not.toContain('checked')
+  })
+
+  it('P0 组含禁用项: 默认即"可用项全选" → 点击清空, 再点只补可用项', async () => {
+    const w = mountForm()
+    await flushPromises()
+    const p0 = w.findAll('[data-testid="ft-group-toggle"]')[0]!
+    const chips = () => w.findAll('[data-testid="ft-factor-chip"]')
+
+    await p0.trigger('click') // F01(组内唯一可用)已勾 → 视为全选 → 清空
+    expect(chips()[0]!.classes()).not.toContain('checked')
+    await p0.trigger('click') // 补全: 只勾 F01, 禁用 F02 仍不勾
+    expect(chips()[0]!.classes()).toContain('checked')
+    expect(chips()[1]!.classes()).not.toContain('checked')
+  })
+
+  it('无判决轮数据时「上轮同款」禁用', async () => {
+    const w = mountForm()
+    await flushPromises()
+    expect(w.find('[data-testid="ft-apply-last-run"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('上轮同款: 勾选被置为上轮集合(整体替换), 未知因子跳过并小字提示', async () => {
+    const w = mountForm(null, ['F03', 'F99']) // F99 已不在本期因子表
+    await flushPromises()
+    await w.find('[data-testid="ft-apply-last-run"]').trigger('click')
+
+    const chips = w.findAll('[data-testid="ft-factor-chip"]')
+    expect(chips[2]!.classes()).toContain('checked') // F03 = 上轮同款
+    expect(chips[0]!.classes()).not.toContain('checked') // 默认勾选 F01 被替换掉
+    expect(w.find('[data-testid="ft-last-run-notice"]').text()).toContain('跳过 1 个')
+  })
+
+  it('上轮因子全部不可用: 勾选不动 + 提示未改动; 手动改勾选后提示清除', async () => {
+    const w = mountForm(null, ['F99', 'F02']) // F99 未知 + F02 禁用
+    await flushPromises()
+    await w.find('[data-testid="ft-apply-last-run"]').trigger('click')
+
+    const chips = w.findAll('[data-testid="ft-factor-chip"]')
+    expect(chips[0]!.classes()).toContain('checked') // 默认 F01 保持
+    expect(w.find('[data-testid="ft-last-run-notice"]').text()).toContain('勾选未改动')
+
+    await chips[2]!.trigger('click') // 手动改动 → 过期提示清除
+    expect(w.find('[data-testid="ft-last-run-notice"]').exists()).toBe(false)
   })
 
   it('勾选多因子且未设切分 → 显示多重检验提示', async () => {

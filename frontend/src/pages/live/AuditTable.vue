@@ -1,21 +1,16 @@
 <script setup lang="ts">
-import { computed, h, type VNode } from 'vue'
+import { computed, h } from 'vue'
 
 import type { AuditLog } from '@/api/types'
-import DataTable from '@/components/DataTable.vue'
+import DataTable, { type Column } from '@/components/DataTable.vue'
 
 import { auditActionLabel } from './labels'
 import { sliceTime } from './logic'
 
 /* 审计日志表 — 旧 live.js 审计段对等, 走自研 DataTable(50 行 + 展开态跨轮询保持):
- * 资源列拼 type:id, 明细列 <code> 截前 120 字(Vue 文本节点自转义, 无需手工 escHtml)。 */
-
-type Col = {
-  key: string
-  title: string
-  render?: (row: Record<string, unknown>) => VNode | string
-  align?: 'right'
-}
+ * 资源列拼 type:id, 明细列 <code> 截前 120 字(Vue 文本节点自转义, 无需手工 escHtml)。
+ * 时间/动作列 sortable(按行原始值排: timestamp 是 ISO 串故字典序即时间序,
+ * null 恒沉底; action 按原始码), 列类型直接复用 DataTable 导出的 Column。 */
 
 const props = defineProps<{ logs: AuditLog[] }>()
 
@@ -27,9 +22,14 @@ function asLog(row: Record<string, unknown>): AuditLog {
   return row as unknown as AuditLog
 }
 
-const columns: Col[] = [
-  { key: 'timestamp', title: '时间', render: (r) => sliceTime(asLog(r).timestamp) },
-  { key: 'action', title: '动作', render: (r) => auditActionLabel(asLog(r).action) },
+const columns: Column[] = [
+  {
+    key: 'timestamp',
+    title: '时间',
+    sortable: true,
+    render: (r) => sliceTime(asLog(r).timestamp),
+  },
+  { key: 'action', title: '动作', sortable: true, render: (r) => auditActionLabel(asLog(r).action) },
   {
     key: 'resource',
     title: '资源',

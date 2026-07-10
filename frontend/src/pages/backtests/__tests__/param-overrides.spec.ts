@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { editableParams, type ParamDefaults, paramOverrides } from '../param-overrides'
+import { editableParams, isOverridden, type ParamDefaults, paramOverrides } from '../param-overrides'
 
 /* 参数覆盖 diff — 提交体只带「改过(≠默认)」的键; 全默认不发 params 字段。
  * 契约对齐后端 BacktestJobRequest.params: dict[str, dict[str, float|int|str]]。 */
@@ -93,6 +93,41 @@ describe('paramOverrides(编辑态 vs 默认 → 只发改过的键)', () => {
   it('0 是合法覆盖值（不与 null/空混淆）', () => {
     const edited = { micro_value: { top_n: 0 } }
     expect(paramOverrides(edited, DEFAULTS)).toEqual({ micro_value: { top_n: 0 } })
+  })
+})
+
+describe('isOverridden(单键「已改」判定 — 表单高亮与提交 diff 同语义)', () => {
+  it('null(InputNumber 清空) = 用默认 → false', () => {
+    expect(isOverridden(null, 5)).toBe(false)
+  })
+
+  it('空串 / 纯空白串 = 用默认 → false', () => {
+    expect(isOverridden('', 'close')).toBe(false)
+    expect(isOverridden('   ', 'close')).toBe(false)
+  })
+
+  it('数值等于默认 → false; 改成别的数 → true', () => {
+    expect(isOverridden(5, 5)).toBe(false)
+    expect(isOverridden(7, 5)).toBe(true)
+  })
+
+  it('0 是真实改动(falsy 数值不与"空"混淆) → true; 默认本就是 0 → false', () => {
+    expect(isOverridden(0, 20)).toBe(true)
+    expect(isOverridden(0, 0)).toBe(false)
+  })
+
+  it('字符串 trim 后与默认相等("close " ≡ "close") → false', () => {
+    expect(isOverridden('close ', 'close')).toBe(false)
+    expect(isOverridden(' close', 'close')).toBe(false)
+  })
+
+  it('字符串改成别的值 → true(含仅由 trim 归一后的不同值)', () => {
+    expect(isOverridden('open', 'close')).toBe(true)
+    expect(isOverridden(' open ', 'close')).toBe(true)
+  })
+
+  it('类型不同(字符串 "5" vs 数值 5)严格比较 → true(与提交 diff 一致)', () => {
+    expect(isOverridden('5', 5)).toBe(true)
   })
 })
 

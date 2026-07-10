@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveSelection, selectionFromQuery, shouldSyncRunToUrl } from '../run-selection'
+import {
+  overlayFromQuery,
+  resolveSelection,
+  selectionFromQuery,
+  shouldSyncOverlayToUrl,
+  shouldSyncRunToUrl,
+} from '../run-selection'
 
-/* 回测轮选中 ↔ URL ?run= 深链纯决策(设计 §12 P7) — 双向 watch 靠幂等互相刹车,
- * 杜绝 选中→写URL→读URL→选中 死循环。三个纯函数各自可单测。 */
+/* 回测轮选中 ↔ URL ?run= / 叠加 ↔ ?overlay= 深链纯决策(设计 §12 P7 + 批三收尾) —
+ * 双向 watch 靠幂等互相刹车, 杜绝 状态→写URL→读URL→改状态 死循环。纯函数各自可单测。 */
 
 const runs = (...ids: string[]) => ids.map((run_id) => ({ run_id }))
 
@@ -87,5 +93,80 @@ describe('shouldSyncRunToUrl(选中 → 是否要 replace 写回 URL)', () => {
 
   it('两者皆空 → 不写(false)', () => {
     expect(shouldSyncRunToUrl(null, null)).toBe(false)
+  })
+})
+
+describe('overlayFromQuery(URL ?overlay= → 叠加选择, 区分两种 null 语义)', () => {
+  // —— 「缺席=清空」: URL 没有(或给不出)单值 overlay → 叠加应清空 ——
+  it('?overlay= 缺省(undefined) → null(清空叠加)', () => {
+    expect(overlayFromQuery(undefined, runs('A', 'B'), 'A')).toBeNull()
+  })
+
+  it('有键无值(vue-router 给 null) → null(清空)', () => {
+    expect(overlayFromQuery(null, runs('A', 'B'), 'A')).toBeNull()
+  })
+
+  it('空串值(?overlay=) → null(清空)', () => {
+    expect(overlayFromQuery('', runs('A', 'B'), 'A')).toBeNull()
+  })
+
+  it('重复参数成数组 → null(只认单值字符串)', () => {
+    expect(overlayFromQuery(['B', 'C'], runs('A', 'B', 'C'), 'A')).toBeNull()
+  })
+
+  // —— 「非法=忽略」: 键在但值没法用 → 状态置空; URL 原值去留由写方向静默容错决定 ——
+  it('run_id 不在列表(手输错/已删轮) → null(忽略, 不采用)', () => {
+    expect(overlayFromQuery('GONE', runs('A', 'B'), 'A')).toBeNull()
+  })
+
+  it('run_id 等于当前选中轮(自己叠自己) → null(忽略)', () => {
+    expect(overlayFromQuery('A', runs('A', 'B'), 'A')).toBeNull()
+  })
+
+  it('空列表(runs 未载/全删) → null', () => {
+    expect(overlayFromQuery('B', [], 'A')).toBeNull()
+  })
+
+  // —— 合法 → 采用 ——
+  it('在列表且非当前选中 → 采用该轮(深链恢复/前进后退)', () => {
+    expect(overlayFromQuery('B', runs('A', 'B', 'C'), 'A')).toBe('B')
+  })
+
+  it('当前选中为 null(空态)时列表命中即合法', () => {
+    expect(overlayFromQuery('B', runs('A', 'B'), null)).toBe('B')
+  })
+})
+
+describe('shouldSyncOverlayToUrl(叠加选择 → 是否写回 ?overlay=)', () => {
+  it('URL 已是该值 → false(幂等刹车, 挡 读URL→回写 回环)', () => {
+    expect(shouldSyncOverlayToUrl('B', 'B', runs('A', 'B'), 'A')).toBe(false)
+  })
+
+  it('两边皆空 → false', () => {
+    expect(shouldSyncOverlayToUrl(null, null, runs('A', 'B'), 'A')).toBe(false)
+  })
+
+  it('选了叠加而 URL 无 → true(写入)', () => {
+    expect(shouldSyncOverlayToUrl(null, 'B', runs('A', 'B'), 'A')).toBe(true)
+  })
+
+  it('换选另一轮 → true(更新)', () => {
+    expect(shouldSyncOverlayToUrl('B', 'C', runs('A', 'B', 'C'), 'A')).toBe(true)
+  })
+
+  it('用户清空合法叠加(URL 值在列表且非选中) → true(摘键)', () => {
+    expect(shouldSyncOverlayToUrl('B', null, runs('A', 'B'), 'A')).toBe(true)
+  })
+
+  it('置空因 URL 值不在列表 → false(静默容错: 手输错值留在地址栏, 不回写抹掉)', () => {
+    expect(shouldSyncOverlayToUrl('GONE', null, runs('A', 'B'), 'A')).toBe(false)
+  })
+
+  it('置空因 URL 值等于当前选中轮 → false(静默容错, 同上)', () => {
+    expect(shouldSyncOverlayToUrl('A', null, runs('A', 'B'), 'A')).toBe(false)
+  })
+
+  it('写方向不审查选择值: 用户在下拉选了当前选中轮也照写(展示由图表层拦)', () => {
+    expect(shouldSyncOverlayToUrl(null, 'A', runs('A', 'B'), 'A')).toBe(true)
   })
 })

@@ -34,7 +34,7 @@ import {
 } from './explorer/chart-options'
 import { parseSymbolsQuery, symbolsToQuery } from './explorer/deep-link'
 import FeaturePanel from './explorer/FeaturePanel.vue'
-import { clearRecent, loadRecent, pushRecent } from './explorer/recent-symbols'
+import { clearRecentSets, formatSetLabel, loadRecentSets, pushRecentSet } from './explorer/recent-symbols'
 
 use([
   CandlestickChart,
@@ -73,21 +73,32 @@ const hasLoaded = ref(false)
 
 const chips = useSymbolChips()
 
-/* 「最近查看」chips（识别优于回忆, 任务 1）: 每次成功加载后把本轮标的记入 localStorage
- * （去重、最新在前、上限 8 个; 纯读写逻辑在 explorer/recent-symbols）。手动点"加载"、
- * 点最近 chip、?symbols= 深链恢复三条路径都汇到 loadAll 成功路径, 天然一并记入。
- * 点击最近 chip = 该标的并入当前 chips（已存在则去重不动）并立即加载。 */
-const recentSymbols = ref<string[]>(loadRecent())
+/* 「最近查看」组合 chips（识别优于回忆; R3: 逐标的 → 组合记忆）: 每次成功加载后把本轮标的
+ * 组合整组记入 localStorage（组合按集合身份去重·顺序不敏感、最新在前、上限 6 组; 纯读写与
+ * 旧 key 迁移逻辑在 explorer/recent-symbols, 首次读取自动迁移 R1 逐标的存量）。手动点"加载"、
+ * 点最近组合 chip、?symbols= 深链恢复三条路径都汇到 loadAll 成功路径, 天然一并记入。
+ * 点击组合 chip = 整组替换当前 chips 并立即加载（"回到那组"心智, 非并入; 单标的组合 =
+ * 长度 1 替换, 与 R1 点击行为的差异仅在不保留当前已有 chips）。 */
+const recentSets = ref<string[][]>(loadRecentSets())
 
-function pickRecent(sym: string): void {
+/** 整组置入 chips（清联想在途/浮层/校验错误, 不触发加载）—— 最近组合点击与深链恢复共用。 */
+function setChips(list: readonly string[]): void {
+  chips.clearPending() // 清在途联想防抖, 防旧候选回填
+  chips.onEscape() // 收起残留候选浮层
+  chips.symbols.value = [...list]
+  chips.input.value = ''
+  chips.err.value = ''
+}
+
+function pickRecentSet(set: readonly string[]): void {
   if (loadingData.value) return // 与"加载"按钮同禁用口径: 保住 loadAll 无并发的既有不变量
-  chips.commitText(sym) // 去重追加 —— 与手输完整代码即时成 chip 同一 API
+  setChips(set) // 整组替换(非并入)
   void loadAll()
 }
 
 function onClearRecent(): void {
-  clearRecent()
-  recentSymbols.value = []
+  clearRecentSets()
+  recentSets.value = []
 }
 
 /* P7 URL 深链: 当前加载的标的组合 ↔ ?symbols=(逗号分隔)。挂载/前进后退从 URL 恢复并加载,
@@ -252,7 +263,7 @@ async function loadAll(): Promise<void> {
     barsBySymbol.value = new Map(barsEntries)
     loadedSymbols.value = symbols
     hasLoaded.value = true
-    recentSymbols.value = pushRecent(symbols) // 成功加载才记入「最近查看」(失败/清空不记)
+    recentSets.value = pushRecentSet(symbols) // 成功加载才把本轮组合记入「最近查看」(失败/清空不记)
     if (myFeatureGen === featureFetchGen) {
       featuresBySymbol.value = featureMap
       lastFeatureNames = names
@@ -302,11 +313,7 @@ async function refetchFeatures(names: string[]): Promise<void> {
 /** 用给定合法标的清单填充 chips 并复用 loadAll 加载; 与当前已加载集合规范化后一致则跳过(幂等)。 */
 async function applySymbolsFromQuery(list: string[]): Promise<void> {
   if (symbolsToQuery(list) === symbolsToQuery(loadedSymbols.value)) return
-  chips.clearPending() // 清在途联想防抖, 防旧候选回填
-  chips.onEscape() // 收起残留候选浮层
-  chips.symbols.value = [...list] // 直接置入(list 已是解析校验过的合法集合)
-  chips.input.value = ''
-  chips.err.value = ''
+  setChips(list) // 直接置入(list 已是解析校验过的合法集合; 助手与最近组合点击共用)
   await loadAll()
 }
 
@@ -394,19 +401,20 @@ onMounted(() => {
         </div>
       </label>
       <NButton type="primary" :loading="loadingData" :disabled="loadingData" data-testid="explorer-load" @click="loadAll">加载</NButton>
-      <!-- 「最近查看」(识别>回忆): 点 chip = 并入当前标的并立即加载; 空记录整行不渲染 -->
-      <div v-if="recentSymbols.length" class="recent-row" data-testid="explorer-recent">
+      <!-- 「最近查看」组合(识别>回忆): 单标的组合显代码, 多标的显「首标的 +N」(title/aria 带完整列表);
+           点 chip = 整组替换当前标的并立即加载; 空记录整行不渲染 -->
+      <div v-if="recentSets.length" class="recent-row" data-testid="explorer-recent">
         <span class="recent-label">最近：</span>
         <button
-          v-for="sym in recentSymbols"
-          :key="sym"
+          v-for="set in recentSets"
+          :key="set.join(',')"
           type="button"
           class="recent-chip"
           :disabled="loadingData"
-          :aria-label="`加载最近查看的标的 ${sym}`"
-          :title="`加入并加载 ${sym}`"
-          @click="pickRecent(sym)"
-        >{{ sym }}</button>
+          :aria-label="`加载最近查看的标的组合 ${set.join('、')}`"
+          :title="`整组替换并加载 ${set.join(', ')}`"
+          @click="pickRecentSet(set)"
+        >{{ formatSetLabel(set) }}</button>
         <button
           type="button"
           class="recent-clear"
