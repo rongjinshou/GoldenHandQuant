@@ -22,7 +22,7 @@ import {
   truncatedTradesStrategy,
 } from './backtests/chart-data'
 import EquityChart from './backtests/EquityChart.vue'
-import { type Cell, ddCell, marketCell, qualityCell } from './backtests/metric-cell'
+import { bestByColumn, type Cell, ddCell, marketCell, qualityCell } from './backtests/metric-cell'
 import { buildRunLabel, sourceLabel } from './backtests/run-naming'
 import {
   overlayFromQuery,
@@ -285,6 +285,18 @@ const metricRows = computed(() =>
   (selectedRun.value?.strategies ?? []).map((s) => ({
     name: s.strategy,
     range: `${s.start_date ?? '?'} ~ ${s.end_date ?? '?'}`,
+    // 裸值与 cells 列序严格一致(供 bestByColumn 按 METRIC_DIRECTIONS 逐列评优)
+    values: [
+      s.total_return,
+      s.annualized_return,
+      s.max_drawdown,
+      s.sharpe_ratio,
+      s.sortino_ratio,
+      s.calmar_ratio,
+      s.win_rate,
+      s.trade_count,
+      s.turnover_rate,
+    ],
     cells: [
       marketCell(s.total_return, pct),
       marketCell(s.annualized_return, pct),
@@ -298,6 +310,9 @@ const metricRows = computed(() =>
     ] as Cell[],
   })),
 )
+
+// 多策略同轮对比(≥2 行)才评优: 每列最优单元格键集 "ri-ci"(纯函数已单测, 单行返回空集)
+const bestCells = computed(() => bestByColumn(metricRows.value.map((r) => r.values)))
 
 function onFormDone(): void {
   void loadBacktests()
@@ -461,7 +476,7 @@ function onFormDone(): void {
       <div class="table-wrap card">
         <table data-testid="bt-table">
           <caption class="table-legend t-muted">
-            红=正收益/涨，绿=负收益/跌（A股行情色）；夏普等质量指标为中性
+            红=正收益/涨，绿=负收益/跌（A股行情色）；夏普等质量指标为中性<template v-if="bestCells.size">；<b class="legend-best">加粗橙底线</b>=该列最优</template>
           </caption>
           <thead>
             <tr>
@@ -482,7 +497,12 @@ function onFormDone(): void {
             <tr v-for="(row, ri) in metricRows" :key="ri">
               <td>{{ row.name }}</td>
               <td class="num range-cell">{{ row.range }}</td>
-              <td v-for="(c, ci) in row.cells" :key="ci" class="num" :class="c.cls">{{ c.text }}</td>
+              <td
+                v-for="(c, ci) in row.cells"
+                :key="ci"
+                class="num"
+                :class="[c.cls, { 'cell-best': bestCells.has(`${ri}-${ci}`) }]"
+              >{{ c.text }}</td>
             </tr>
           </tbody>
         </table>
@@ -878,5 +898,19 @@ td.num:not(.range-cell) {
 .range-cell {
   color: var(--text-3);
   font-size: 12px;
+}
+
+/* 每列最优(仅多策略同轮对比时标): 2px accent 底线 + 稍重字重 — 只动边线与字重、
+   不动文字色, 不与涨跌红绿打架; 沿用 .run-row.active 的 accent 标记语言 */
+td.cell-best {
+  border-bottom: 2px solid var(--accent);
+  font-weight: 600;
+}
+
+/* 图例小样: 与单元格标记同款视觉, 见样知义 */
+.legend-best {
+  border-bottom: 2px solid var(--accent);
+  color: inherit;
+  font-weight: 600;
 }
 </style>

@@ -2,7 +2,7 @@
 export interface SubNavItem {
   key: string
   label: string
-  badge?: number
+  badge?: number | string // string 供截断形态 "500+"（Live 子视图, R4）
 }
 
 defineProps<{ items: SubNavItem[]; modelValue: string }>()

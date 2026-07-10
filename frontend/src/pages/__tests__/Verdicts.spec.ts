@@ -76,6 +76,7 @@ function mountPage() {
 }
 
 beforeEach(() => {
+  sessionStorage.clear() // 视角记忆(ghq-verdicts-view)不得跨用例泄漏
   runsResp = [mkRun()]
   vi.stubGlobal(
     'fetch',

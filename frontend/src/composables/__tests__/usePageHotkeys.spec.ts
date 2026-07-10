@@ -91,6 +91,37 @@ describe('shouldHandleHotkey(守卫纯函数)', () => {
   })
 })
 
+describe("shouldHandleHotkey allowShift('?' 路径守卫)", () => {
+  it("allowShift 放行 shift: '?' 本就靠 Shift+/ 产出, shift 属键的一部分而非修饰意图", () => {
+    expect(shouldHandleHotkey(makeEvent({ shiftKey: true }), null, { allowShift: true })).toBe(true)
+    // 不带 shift 的 '?'(部分布局可直出)同样放行
+    expect(shouldHandleHotkey(makeEvent(), null, { allowShift: true })).toBe(true)
+  })
+
+  it('缺省不传 opts 时 shift 仍拒 —— 数字键路径语义回归锚(Shift+2 不切页)', () => {
+    expect(shouldHandleHotkey(makeEvent({ shiftKey: true }))).toBe(false)
+    expect(shouldHandleHotkey(makeEvent({ shiftKey: true }), null, {})).toBe(false)
+  })
+
+  it('allowShift 只松 shift: ctrl/meta/alt 组合仍拒(不劫持 Ctrl+Shift+/ 类系统习惯)', () => {
+    expect(shouldHandleHotkey(makeEvent({ shiftKey: true, ctrlKey: true }), null, { allowShift: true })).toBe(false)
+    expect(shouldHandleHotkey(makeEvent({ shiftKey: true, metaKey: true }), null, { allowShift: true })).toBe(false)
+    expect(shouldHandleHotkey(makeEvent({ shiftKey: true, altKey: true }), null, { allowShift: true })).toBe(false)
+  })
+
+  it('allowShift 不解除输入场景/合成守卫: 输入框里打 "?" 是正文不是快捷键', () => {
+    expect(
+      shouldHandleHotkey(makeEvent({ shiftKey: true, target: document.createElement('input') }), null, {
+        allowShift: true,
+      }),
+    ).toBe(false)
+    expect(
+      shouldHandleHotkey(makeEvent({ shiftKey: true }), document.createElement('textarea'), { allowShift: true }),
+    ).toBe(false)
+    expect(shouldHandleHotkey(makeEvent({ shiftKey: true, isComposing: true }), null, { allowShift: true })).toBe(false)
+  })
+})
+
 describe('usePageHotkeys(挂载接线)', () => {
   const Stub = defineComponent({ render: () => h('div') })
   const Host = defineComponent({
@@ -172,5 +203,92 @@ describe('usePageHotkeys(挂载接线)', () => {
     press('6')
     await flushPromises()
     expect(push).not.toHaveBeenCalled() // 零调用 → window 监听已卸干净
+  })
+
+  it("不传回调时按 '?' 不报错也不切页(回调可选, 向后兼容)", async () => {
+    const { router, wrapper } = await mountHost()
+    press('?', { shiftKey: true })
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe(NAV_ITEMS[0].name)
+    wrapper.unmount()
+  })
+})
+
+describe("usePageHotkeys('?' 帮助回调接线)", () => {
+  const Stub = defineComponent({ render: () => h('div') })
+  const onShowHelp = vi.fn()
+  const Host = defineComponent({
+    setup() {
+      usePageHotkeys(onShowHelp)
+      return () => h('div')
+    },
+  })
+
+  async function mountHost() {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: NAV_ITEMS.map((n) => ({ path: `/${n.name}`, name: n.name, component: Stub })),
+    })
+    await router.push({ name: NAV_ITEMS[0].name })
+    const wrapper = mount(Host, { global: { plugins: [router] } })
+    return { router, wrapper }
+  }
+
+  function press(key: string, init: KeyboardEventInit = {}): void {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key, ...init }))
+  }
+
+  afterEach(() => {
+    onShowHelp.mockClear()
+    document.body.innerHTML = ''
+  })
+
+  it("按 '?'(Shift+/ 产出, shiftKey=true) → 回调触发且不切页", async () => {
+    const { router, wrapper } = await mountHost()
+    press('?', { shiftKey: true })
+    await flushPromises()
+    expect(onShowHelp).toHaveBeenCalledTimes(1)
+    expect(router.currentRoute.value.name).toBe(NAV_ITEMS[0].name) // '?' 只开帮助, 不碰路由
+    wrapper.unmount()
+  })
+
+  it("数字键带 shift 仍不切页(allowShift 仅 '?' 路径, 数字守卫语义未松)", async () => {
+    const { router, wrapper } = await mountHost()
+    press('2', { shiftKey: true })
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe(NAV_ITEMS[0].name)
+    expect(onShowHelp).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("焦点在输入框时 '?' 不触发(正文输入让路)", async () => {
+    const { wrapper } = await mountHost()
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    expect(document.activeElement).toBe(input)
+
+    press('?', { shiftKey: true }) // window 派发, 靠 activeElement 拦
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: '?', shiftKey: true, bubbles: true })) // target=input 路径
+    await flushPromises()
+    expect(onShowHelp).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("带 ctrl/meta 的 '?' 不触发(allowShift 不放行其他修饰)", async () => {
+    const { wrapper } = await mountHost()
+    press('?', { shiftKey: true, ctrlKey: true })
+    press('?', { shiftKey: true, metaKey: true })
+    await flushPromises()
+    expect(onShowHelp).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("卸载后 '?' 不再触发回调(监听卸干净)", async () => {
+    const { wrapper } = await mountHost()
+    wrapper.unmount()
+    press('?', { shiftKey: true })
+    await flushPromises()
+    expect(onShowHelp).not.toHaveBeenCalled()
   })
 })

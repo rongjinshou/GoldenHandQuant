@@ -22,13 +22,25 @@ function inInputContext(node: EventTarget | Element | null): boolean {
   return (node as Element).closest(INPUT_CONTEXT_SELECTOR) !== null
 }
 
+/** 守卫选项: allowShift 仅给 '?' 这类本就靠 Shift 组合才打得出的键用 ——
+ * shift 是该键产出的一部分而非"修饰意图", 数字键路径缺省不传, shift 照拒。 */
+export interface HotkeyGuardOptions {
+  allowShift?: boolean
+}
+
 /** 快捷键守卫(纯函数, R2-D): 全部命中才放行 ——
- * ① 无任何修饰键(ctrl/meta/alt/shift, 避免劫持 Ctrl+1 切浏览器页签类系统习惯);
+ * ① 无 ctrl/meta/alt 修饰(避免劫持 Ctrl+1 切浏览器页签类系统习惯);
+ *    shift 缺省同拒, 仅 allowShift 时放行(如 '?' 需 Shift+/ 产出, 见 HotkeyGuardOptions);
  * ② 非输入法合成中(isComposing, 拼音敲数字选字不切页);
  * ③ 事件目标与 activeElement 均不在输入场景(双保险: 事件可能从 window 派发, target 不一定是焦点元素)。
  * activeElement 由调用方显式传入(通常为 document.activeElement), 保持本函数纯。 */
-export function shouldHandleHotkey(e: HotkeyEventLike, activeElement: Element | null = null): boolean {
-  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false
+export function shouldHandleHotkey(
+  e: HotkeyEventLike,
+  activeElement: Element | null = null,
+  { allowShift = false }: HotkeyGuardOptions = {},
+): boolean {
+  if (e.ctrlKey || e.metaKey || e.altKey) return false
+  if (e.shiftKey && !allowShift) return false
   if (e.isComposing) return false
   if (inInputContext(e.target)) return false
   if (inInputContext(activeElement)) return false
@@ -41,12 +53,18 @@ export function hotkeyIndex(key: string): number | null {
   return /^[1-6]$/.test(key) ? Number(key) - 1 : null
 }
 
-/** R2-D 专家效率: 数字键 1-6 直达六页签(可发现性挂在 nav-link 的 title 上)。
- * onMounted 挂 window keydown / onUnmounted 卸, 不残留监听; 不 preventDefault(数字键无默认行为可抢)。 */
-export function usePageHotkeys(): void {
+/** R2-D 专家效率: 数字键 1-6 直达六页签 + '?' 唤起快捷键帮助(可发现性入口)。
+ * onMounted 挂 window keydown / onUnmounted 卸, 不残留监听; 不 preventDefault(两类键均无默认行为可抢)。
+ * onShowHelp: '?' 命中时回调(由 App 打开 HotkeyHelp 浮层); Escape 关闭交给浮层自身(NModal closeOnEsc)。 */
+export function usePageHotkeys(onShowHelp?: () => void): void {
   const router = useRouter()
 
   function onKeydown(e: KeyboardEvent): void {
+    // '?' 多数布局靠 Shift+/ 产出 → 守卫放行 shift; ctrl/alt/meta/输入场景/合成中仍拒
+    if (e.key === '?') {
+      if (onShowHelp && shouldHandleHotkey(e, document.activeElement, { allowShift: true })) onShowHelp()
+      return
+    }
     const index = hotkeyIndex(e.key)
     if (index === null || index >= NAV_ITEMS.length) return
     if (!shouldHandleHotkey(e, document.activeElement)) return

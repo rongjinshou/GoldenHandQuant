@@ -27,6 +27,13 @@ export function wan(v: number): string {
   return Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(1)}万` : `${v}`
 }
 
+/* 子导航徽章计数(批二审计 H8.2 截断标识): 明细端点响应被 limit 截断,
+ * 行数打满上限时真实总数未知 — 显示 "500+" 诚实形态而非冒充精确数;
+ * 未达上限原样显示。len>limit 同样归入 "+"(防御后端异常多给)。 */
+export function badgeCount(len: number, limit: number): string {
+  return len < limit ? String(len) : `${limit}+`
+}
+
 export type BadgeKind = 'info' | 'pass' | 'warn' | 'fail'
 
 /* 执行状态 → 徽章语义(对等旧 STATUS_BADGE; 未知状态回退 info) */

@@ -16,6 +16,7 @@ import { resolveReloadSelection } from './verdicts/reload-selection'
 import { runQueryNeedsUpdate, selectionFromRunParam } from './verdicts/run-deeplink'
 import { buildVerdictRunLabel } from './verdicts/run-naming'
 import { SORT_OPTIONS, filterFactors, sortFactors, type FilterKey, type SortKey } from './verdicts/sort'
+import { loadVerdictsView, saveVerdictsView } from './verdicts/view-state'
 
 /* 因子判决页(设计 0705-verdict-cards) — 检验表单置顶 + 判决结果卡片化:
  * 卡片替代表格行, 闸门轨道为签名元素, 点击卡片开详情弹框, 排序+过滤工具条。 */
@@ -119,9 +120,10 @@ const metaItems = computed(() => {
   ]
 })
 
-// ---- 过滤 + 排序 ----
-const filterKey = ref<FilterKey>('all')
-const sortKey = ref<SortKey>('verdict')
+// ---- 过滤 + 排序 (会话记忆: setup 恢复上次视角, 变更即写 — view-state.ts; 坏值已在 load 内回默认) ----
+const initialView = loadVerdictsView()
+const filterKey = ref<FilterKey>(initialView.filter)
+const sortKey = ref<SortKey>(initialView.sort)
 
 const totalCount = computed(() => run.value?.factors.length ?? 0)
 const passCount = computed(() => run.value?.factors.filter((f) => f.passed).length ?? 0)
@@ -149,7 +151,11 @@ watch(modalOpen, (open) => {
 
 // 过滤/排序或切换轮次时, 弹框下标语义会变 — 直接关闭而非静默指向别的因子
 watch(() => run.value?.run_id, () => { modalOpen.value = false })
-watch([filterKey, sortKey], () => { modalOpen.value = false })
+// 过滤/排序变更还要即写会话记忆(变更即写, 无需 unmount 钩子) — 进出页保持视角
+watch([filterKey, sortKey], ([filter, sort]) => {
+  modalOpen.value = false
+  saveVerdictsView({ filter, sort })
+})
 // 选中回到最新轮(点"查看最新"或手动选最新)后, "新轮就绪"提示失去意义 → 清除
 watch(selectedIdx, (i) => { if (i === 0) newRunNotice.value = null })
 

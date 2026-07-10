@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isNearBottom, jobBadgeKind, terminalNotification } from '../ui'
+import { filterLogLines, isNearBottom, jobBadgeKind, terminalNotification } from '../ui'
 
 describe('jobBadgeKind', () => {
   it('五态映射到 AppBadge kind(设计 §7)', () => {
@@ -39,6 +39,35 @@ describe('isNearBottom', () => {
   it('阈值可覆盖', () => {
     expect(isNearBottom(300, 250, 40, 10)).toBe(false) // 距底 10, 不小于 10
     expect(isNearBottom(300, 255, 40, 10)).toBe(true) // 距底 5 < 10
+  })
+})
+
+describe('filterLogLines', () => {
+  it('q 为空串返回原数组引用(零开销直通)', () => {
+    const lines = ['a', 'b']
+    expect(filterLogLines(lines, '')).toBe(lines)
+    const empty: string[] = []
+    expect(filterLogLines(empty, '')).toBe(empty)
+  })
+
+  it('大小写不敏感子串匹配, 保持原行序', () => {
+    const lines = ['Epoch 1 loss=0.52', 'saving checkpoint', 'EPOCH 2 loss=0.41', 'epoch 3 loss=0.38']
+    expect(filterLogLines(lines, 'epoch')).toEqual([
+      'Epoch 1 loss=0.52',
+      'EPOCH 2 loss=0.41',
+      'epoch 3 loss=0.38',
+    ])
+    expect(filterLogLines(lines, 'POCH 2')).toEqual(['EPOCH 2 loss=0.41'])
+    expect(filterLogLines(lines, 'LOSS=0.4')).toEqual(['EPOCH 2 loss=0.41'])
+  })
+
+  it('无命中返回空数组; 空行集非空 q 亦空数组', () => {
+    expect(filterLogLines(['a', 'b'], 'zz')).toEqual([])
+    expect(filterLogLines([], 'x')).toEqual([])
+  })
+
+  it('空白字符按字面子串处理(不 trim, 可精确定位含空格片段)', () => {
+    expect(filterLogLines(['a b', 'ab'], ' ')).toEqual(['a b'])
   })
 })
 

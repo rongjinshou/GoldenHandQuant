@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NButton, NDatePicker, NInput, NInputNumber, NPopconfirm } from 'naive-ui'
-import { computed, nextTick, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 
 import type { ApiError } from '@/api/fetch'
 import { fetchJSON, postJSON } from '@/api/fetch'
@@ -15,7 +15,7 @@ import { useJobsStore } from '@/stores/jobs'
 
 import { STATUS_LABEL, TERMINAL_STATUS, durationOf, jobTypeLabel, paramsSummary } from './jobs/format'
 import { resultRoute } from './jobs/result-route'
-import { isNearBottom, jobBadgeKind } from './jobs/ui'
+import { filterLogLines, isNearBottom, jobBadgeKind } from './jobs/ui'
 
 /* 任务中心 — 旧 jobs.js loadJobsPage/showJobLog/initMlForms 对等 + 批二硬化:
  * 列表 5s 轮询 + 活跃数写回 store; ID 单元格真 button 承载日志钻取(键盘可达 + aria-expanded);
@@ -83,6 +83,24 @@ const logDisplay = computed(() =>
 let logTimer: ReturnType<typeof setInterval> | null = null
 let logSeq = 0 // 切换任务后丢弃前一任务迟到响应
 
+// ---- 日志行过滤: 长日志(ML 训练数千行)找关键行 ----
+// 面板内容是整串(log_tail join '\n') → 按行 split 交纯函数 filterLogLines;
+// 全链 computed 惰性: 未过滤时不 split(直通原串), 计数行 v-if 隐藏也不触发求值。
+const logFilter = ref('')
+const logFilterOn = computed(() => logFilter.value !== '')
+const logAllLines = computed(() => logDisplay.value.split('\n'))
+const logShownLines = computed(() => filterLogLines(logAllLines.value, logFilter.value))
+const logShown = computed(() =>
+  logFilterOn.value ? logShownLines.value.join('\n') : logDisplay.value,
+)
+
+// 清空过滤 → 恢复全量并跟随滚底(过滤期间自动滚底暂停, 见 tick; 行集突变抢滚会跳动)
+watch(logFilter, async (q) => {
+  if (q !== '') return
+  await nextTick()
+  scrollLogToBottom()
+})
+
 function measureLogAtBottom(): boolean {
   const el = logEl.value
   return !el || isNearBottom(el.scrollHeight, el.scrollTop, el.clientHeight)
@@ -136,7 +154,8 @@ function openLog(jobId: string): void {
     if (TERMINAL_STATUS.has(job.status)) stopLogPolling()
     await nextTick()
     // 仅当用户在底部附近才跟随滚底, 否则保留其滚动位置并显「回到最新」
-    if (stick) scrollLogToBottom()
+    // (过滤态整体暂停跟随: 行集随输入/新日志变化, 抢滚会跳动; 清空时恢复, 见 logFilter watch)
+    if (stick && !logFilterOn.value) scrollLogToBottom()
     else logAtBottom.value = measureLogAtBottom()
   }
 
@@ -327,13 +346,27 @@ function onMlDone(): void {
       </p>
     </div>
 
-    <h3 class="section-title log-head">
-      任务日志
-      <span v-if="logLive" class="live-dot" aria-hidden="true"></span>
-      <span class="t-muted log-title num" data-testid="job-log-title">{{ logTitle }}</span>
-    </h3>
+    <div class="log-head-row">
+      <h3 class="section-title log-head">
+        任务日志
+        <span v-if="logLive" class="live-dot" aria-hidden="true"></span>
+        <span class="t-muted log-title num" data-testid="job-log-title">{{ logTitle }}</span>
+      </h3>
+      <!-- 行过滤: 非空仅显含子串行(大小写不敏感); 过滤期间暂停自动滚底, 清空恢复全量+滚底 -->
+      <input
+        v-model="logFilter"
+        type="search"
+        class="log-filter"
+        placeholder="过滤日志行"
+        aria-label="过滤日志行"
+        data-testid="job-log-filter"
+      />
+    </div>
+    <p v-if="logFilterOn" class="t-muted filter-count num" data-testid="job-log-filter-count">
+      {{ logShownLines.length }}/{{ logAllLines.length }} 行
+    </p>
     <div class="log-wrap">
-      <pre ref="logEl" id="job-log-panel" class="job-log" data-testid="job-log" @scroll="onLogScroll">{{ logDisplay }}</pre>
+      <pre ref="logEl" id="job-log-panel" class="job-log" data-testid="job-log" @scroll="onLogScroll">{{ logShown }}</pre>
       <button
         v-if="!logAtBottom"
         class="jump-latest"
@@ -516,6 +549,49 @@ td code {
 /* 日志面板: 终端质感 + 轮询呼吸灯 */
 .log-head {
   margin-bottom: 8px;
+}
+
+/* 标题行 + 右缘过滤框成一行(输入框不放 h3 内, 免污染标题可及名) */
+.log-head-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  margin: var(--gap-lg) 0 8px;
+}
+
+.log-head-row .log-head {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+}
+
+/* 过滤框: 轻量原生 input(不引 NInput 重主题), 终端配色对齐日志面板 */
+.log-filter {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  flex: none;
+  font: inherit;
+  font-size: var(--fs-xs);
+  padding: 4px 9px;
+  width: 180px;
+}
+
+.log-filter::placeholder {
+  color: var(--text-3);
+}
+
+.log-filter:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* 过滤命中统计: 右对齐贴过滤框正下方 */
+.filter-count {
+  font-size: var(--fs-xs);
+  margin: 0 0 6px;
+  text-align: right;
 }
 
 .log-title {

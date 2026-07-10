@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { AccountSnapshot, LiveConfig, PositionSnapshot } from '@/api/types'
 
 import {
+  badgeCount,
   cumReturn,
   daemonBadge,
   equityAriaLabel,
@@ -276,5 +277,24 @@ describe('equityAriaLabel', () => {
     expect(equityAriaLabel(series)).toBe(
       `账户权益曲线，2 条：dry_run 最新总资产 ${num(105000)}；live 最新总资产 ${num(200000)}；区间 2026-07-04 09:30:00 至 2026-07-05 15:00:00`,
     )
+  })
+})
+
+describe('badgeCount', () => {
+  it('未达截断上限: 原样显示行数', () => {
+    expect(badgeCount(0, 500)).toBe('0')
+    expect(badgeCount(1, 500)).toBe('1')
+    expect(badgeCount(499, 500)).toBe('499')
+    expect(badgeCount(999, 1000)).toBe('999')
+  })
+
+  it('打满上限: 转 "limit+" 截断形态(真实总数未知, 不冒充精确数)', () => {
+    expect(badgeCount(500, 500)).toBe('500+')
+    expect(badgeCount(1000, 1000)).toBe('1000+')
+  })
+
+  it('超过上限(防御后端异常多给)同样归入 "+"', () => {
+    expect(badgeCount(501, 500)).toBe('500+')
+    expect(badgeCount(9999, 1000)).toBe('1000+')
   })
 })

@@ -26,7 +26,7 @@ import AuditTable from './live/AuditTable.vue'
 import CyclesTable from './live/CyclesTable.vue'
 import ExecutionsTable from './live/ExecutionsTable.vue'
 import { auditActionLabel } from './live/labels'
-import { cumReturn, num, sliceTime } from './live/logic'
+import { badgeCount, cumReturn, num, sliceTime } from './live/logic'
 import OverviewPanel from './live/OverviewPanel.vue'
 import PositionsTable from './live/PositionsTable.vue'
 import TableSkeleton from './live/TableSkeleton.vue'
@@ -46,6 +46,12 @@ import TicketPanel from './live/TicketPanel.vue'
  * usePolling 的暂停/迟到丢弃/退避机制不受影响: 只是各端点 intervalMs 不同 + 额外手动 refresh。 */
 const POLL = 5000
 const POLL_SLOW = 30_000
+
+/* 明细端点截断上限 — 请求 URL 与子导航徽章共用单源(改 limit 只动这里):
+ * 行数打满上限说明后端仍有行被截断, 徽章转 "500+" 形态(badgeCount), 不冒充精确总数。 */
+const CYCLES_LIMIT = 500
+const EXECUTIONS_LIMIT = 1000
+const AUDIT_LIMIT = 500
 
 const route = useRoute()
 const router = useRouter()
@@ -82,7 +88,7 @@ function equityUrl(): string {
   return mode.value ? `/api/live/equity?mode=${mode.value}&limit=2000` : '/api/live/equity?limit=2000'
 }
 function auditUrl(): string {
-  return `/api/live/audit?limit=500${auditAction.value ? `&action=${auditAction.value}` : ''}`
+  return `/api/live/audit?limit=${AUDIT_LIMIT}${auditAction.value ? `&action=${auditAction.value}` : ''}`
 }
 
 // ---- 多端点并行轮询(各自独立, 单点失败互不牵连; 概览 5s, 明细 30s 降频) ----
@@ -95,7 +101,7 @@ const {
   error: cyclesError,
   refresh: refreshCycles,
 } = usePolling<{ cycles: TradingCycle[] }>(
-  () => fetchJSON<{ cycles: TradingCycle[] }>('/api/live/cycles?limit=500'),
+  () => fetchJSON<{ cycles: TradingCycle[] }>(`/api/live/cycles?limit=${CYCLES_LIMIT}`),
   { intervalMs: POLL_SLOW },
 )
 const {
@@ -104,7 +110,7 @@ const {
   refresh: refreshExecutions,
 } = usePolling<{
   executions: ExecutionRecord[]
-}>(() => fetchJSON<{ executions: ExecutionRecord[] }>('/api/live/executions?limit=1000'), {
+}>(() => fetchJSON<{ executions: ExecutionRecord[] }>(`/api/live/executions?limit=${EXECUTIONS_LIMIT}`), {
   intervalMs: POLL_SLOW,
 })
 const {
@@ -254,13 +260,14 @@ const mktValSub = computed(() => {
   return `${n} 只持仓`
 })
 
-type NavItem = { key: string; label: string; badge?: number }
+type NavItem = { key: string; label: string; badge?: number | string }
+// 截断形态 "500+" 由纯函数 badgeCount 保证并单测; SubNav badge 已放宽 number|string
 const subnavItems = computed<NavItem[]>(() => [
   { key: 'overview', label: '概览' },
   { key: 'positions', label: '持仓', badge: positions.value.length },
-  { key: 'cycles', label: '循环', badge: cycles.value.length },
-  { key: 'executions', label: '执行', badge: executions.value.length },
-  { key: 'audit', label: '审计', badge: auditLogs.value.length },
+  { key: 'cycles', label: '循环', badge: badgeCount(cycles.value.length, CYCLES_LIMIT) },
+  { key: 'executions', label: '执行', badge: badgeCount(executions.value.length, EXECUTIONS_LIMIT) },
+  { key: 'audit', label: '审计', badge: badgeCount(auditLogs.value.length, AUDIT_LIMIT) },
   { key: 'tickets', label: 'Ticket', badge: tickets.value.length },
 ])
 

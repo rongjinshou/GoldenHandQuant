@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { NConfigProvider, NMessageProvider, NNotificationProvider, zhCN, dateZhCN } from 'naive-ui'
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 
 import AppBadge from '@/components/AppBadge.vue'
+import HotkeyHelp from '@/components/HotkeyHelp.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { usePageHotkeys } from '@/composables/usePageHotkeys'
 import { NAV_ITEMS } from '@/router'
@@ -12,8 +13,11 @@ import { useThemeStore } from '@/stores/theme'
 const themeStore = useThemeStore()
 const jobsStore = useJobsStore()
 
-// R2-D 专家效率: 数字键 1-6 直达页签(输入框/修饰键/输入法合成中自动让路)
-usePageHotkeys()
+// R2-D 专家效率: 数字键 1-6 直达页签, '?' 唤起快捷键帮助(输入框/修饰键/输入法合成中自动让路)
+const showHotkeyHelp = ref(false)
+usePageHotkeys(() => {
+  showHotkeyHelp.value = true
+})
 
 // 任务徽章全局鲜活: App 级轮询回填 activeCount, 使任意页(非仅任务页)徽章与 503 写锁文案随任务变化(设计 §10)
 onMounted(() => jobsStore.startGlobalPolling())
@@ -59,6 +63,8 @@ onMounted(() => jobsStore.startGlobalPolling())
           </Transition>
         </RouterView>
       </main>
+
+      <HotkeyHelp v-model:show="showHotkeyHelp" />
     </div>
     </NMessageProvider>
     </NNotificationProvider>

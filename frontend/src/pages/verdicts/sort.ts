@@ -12,7 +12,9 @@ export const SORT_OPTIONS: { label: string; value: SortKey }[] = [
   { label: '提交顺序', value: 'submitted' },
 ]
 
-export type FilterKey = 'all' | 'pass' | 'fail'
+/** 过滤键运行时清单 — 类型由它派生(单一事实源); 会话记忆(view-state.ts)校验持久化值复用。 */
+export const FILTER_KEYS = ['all', 'pass', 'fail'] as const
+export type FilterKey = (typeof FILTER_KEYS)[number]
 
 function nn(v: number | null | undefined): number {
   return v === null || v === undefined ? Number.NEGATIVE_INFINITY : v
