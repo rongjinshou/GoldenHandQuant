@@ -11,6 +11,7 @@ import {
   buildKlineOption,
   buildUnionDates,
   DEFAULT_FEATURES,
+  FEATURE_GROUPS,
   featureLabel,
   FEATURE_META,
   featureLineDash,
@@ -76,6 +77,34 @@ describe('FEATURE_META / featureLabel / DEFAULT_FEATURES', () => {
 
   it('默认勾选与改动前一致', () => {
     expect(DEFAULT_FEATURES).toEqual(['return_20d', 'volatility_20d'])
+  })
+})
+
+describe('FEATURE_GROUPS — 特征分组(Miller 分块, 任务 2)', () => {
+  it('分组并集恰好 = FEATURE_META 全集: 无遗漏、无重复(防新增特征忘归组/一名双组)', () => {
+    const grouped = FEATURE_GROUPS.flatMap((g) => g.items.map((i) => i.name))
+    expect(new Set(grouped).size).toBe(grouped.length) // 组间不相交
+    expect([...grouped].sort()).toEqual(FEATURE_META.map((f) => f.name).sort()) // 并集相等
+  })
+
+  it('items 中文标签由 FEATURE_META 派生(单一真相源, 不双写文案)', () => {
+    for (const g of FEATURE_GROUPS) {
+      for (const item of g.items) expect(item.label).toBe(featureLabel(item.name))
+    }
+  })
+
+  it('固定四组语义标签, 每组非空', () => {
+    expect(FEATURE_GROUPS.map((g) => g.label)).toEqual(['收益', '波动', '量能', '技术'])
+    for (const g of FEATURE_GROUPS) expect(g.items.length).toBeGreaterThan(0)
+  })
+
+  it('归组抽样: 偏度在波动组, 非流动性/OBV斜率在量能组, 均线在技术组', () => {
+    const groupOf = (name: string): string | undefined =>
+      FEATURE_GROUPS.find((g) => g.items.some((i) => i.name === name))?.label
+    expect(groupOf('skewness_20d')).toBe('波动')
+    expect(groupOf('illiquidity_20d')).toBe('量能')
+    expect(groupOf('obv_slope_20d')).toBe('量能')
+    expect(groupOf('ma_20')).toBe('技术')
   })
 })
 

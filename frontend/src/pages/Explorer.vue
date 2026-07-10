@@ -33,6 +33,7 @@ import {
 } from './explorer/chart-options'
 import { parseSymbolsQuery, symbolsToQuery } from './explorer/deep-link'
 import FeaturePanel from './explorer/FeaturePanel.vue'
+import { clearRecent, loadRecent, pushRecent } from './explorer/recent-symbols'
 
 use([
   CandlestickChart,
@@ -70,6 +71,23 @@ const loadingData = ref(false)
 const hasLoaded = ref(false)
 
 const chips = useSymbolChips()
+
+/* 「最近查看」chips（识别优于回忆, 任务 1）: 每次成功加载后把本轮标的记入 localStorage
+ * （去重、最新在前、上限 8 个; 纯读写逻辑在 explorer/recent-symbols）。手动点"加载"、
+ * 点最近 chip、?symbols= 深链恢复三条路径都汇到 loadAll 成功路径, 天然一并记入。
+ * 点击最近 chip = 该标的并入当前 chips（已存在则去重不动）并立即加载。 */
+const recentSymbols = ref<string[]>(loadRecent())
+
+function pickRecent(sym: string): void {
+  if (loadingData.value) return // 与"加载"按钮同禁用口径: 保住 loadAll 无并发的既有不变量
+  chips.commitText(sym) // 去重追加 —— 与手输完整代码即时成 chip 同一 API
+  void loadAll()
+}
+
+function onClearRecent(): void {
+  clearRecent()
+  recentSymbols.value = []
+}
 
 /* P7 URL 深链: 当前加载的标的组合 ↔ ?symbols=(逗号分隔)。挂载/前进后退从 URL 恢复并加载,
  * 加载成功后 router.replace 写回(不 push, 不污染历史)。序列化/解析纯逻辑在 explorer/deep-link。 */
@@ -227,6 +245,7 @@ async function loadAll(): Promise<void> {
     barsBySymbol.value = new Map(barsEntries)
     loadedSymbols.value = symbols
     hasLoaded.value = true
+    recentSymbols.value = pushRecent(symbols) // 成功加载才记入「最近查看」(失败/清空不记)
     if (myFeatureGen === featureFetchGen) {
       featuresBySymbol.value = featureMap
       lastFeatureNames = names
@@ -368,6 +387,28 @@ onMounted(() => {
         </div>
       </label>
       <NButton type="primary" :loading="loadingData" :disabled="loadingData" data-testid="explorer-load" @click="loadAll">加载</NButton>
+      <!-- 「最近查看」(识别>回忆): 点 chip = 并入当前标的并立即加载; 空记录整行不渲染 -->
+      <div v-if="recentSymbols.length" class="recent-row" data-testid="explorer-recent">
+        <span class="recent-label">最近：</span>
+        <button
+          v-for="sym in recentSymbols"
+          :key="sym"
+          type="button"
+          class="recent-chip"
+          :disabled="loadingData"
+          :aria-label="`加载最近查看的标的 ${sym}`"
+          :title="`加入并加载 ${sym}`"
+          @click="pickRecent(sym)"
+        >{{ sym }}</button>
+        <button
+          type="button"
+          class="recent-clear"
+          data-testid="recent-clear"
+          aria-label="清空最近查看记录"
+          title="清空最近"
+          @click="onClearRecent"
+        >✕</button>
+      </div>
     </div>
     <p v-if="chips.err.value" class="form-hint sym-err t-warn" role="alert">{{ chips.err.value }}</p>
 
@@ -516,6 +557,62 @@ onMounted(() => {
 .form-hint {
   font-size: 12.5px;
   margin: 6px 0 var(--gap);
+}
+
+/* 「最近查看」行: 淡底小 chips, 视觉弱于当前标的 chips(accent-soft), 不喧宾夺主 */
+.recent-row {
+  align-items: center;
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recent-label {
+  color: var(--text-3);
+  flex: none;
+  font-size: var(--fs-xs);
+}
+
+.recent-chip {
+  background: var(--bg-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  padding: 2px 8px;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.recent-chip:hover:enabled {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.recent-chip:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.recent-clear {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 6px;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.recent-clear:hover {
+  color: var(--c-fail);
 }
 
 .chart-card {

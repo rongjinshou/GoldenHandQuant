@@ -3,12 +3,14 @@ import { NButton, NDatePicker } from 'naive-ui'
 import { computed, ref } from 'vue'
 
 import { fetchJSON, postJSON } from '@/api/fetch'
-import type { Job, OverviewData } from '@/api/types'
+import type { BacktestRun, Job, OverviewData, StrategyMeta, VerdictRun } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import JobCard from '@/components/JobCard.vue'
 import KpiCard from '@/components/KpiCard.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PipelineMap from '@/components/PipelineMap.vue'
+
+import { backtestActivity, latestOf, verdictActivity } from './overview/recent-activity'
 
 /* 数据资产总览 — 旧 pages/overview.js 对等:
  * 单次加载 /api/research/overview; 四表卡片; 空态; 数据刷新表单(data-refresh job)。 */
@@ -61,6 +63,36 @@ function subOf(table: string, s: { symbols: number; min_date: string | null; max
   if (table === 'instruments') return `上市日期 ${range}`
   return `${s.symbols.toLocaleString()} 只标的 · 数据覆盖 ${range}`
 }
+
+/* ---- 最近动态(发射台): 最新判决轮/回测轮, 整卡深链直达对应详情 ----
+ * 附加区不拖垮总览主体: 任一端点失败 → 静默藏对应卡(双双失败整区不渲染), 不占 ErrorBanner;
+ * meta 失败仅降级策略命名(buildRunLabel 回退原名), 不藏回测卡。 */
+const verdictRuns = ref<VerdictRun[] | null>(null)
+const backtestRuns = ref<BacktestRun[] | null>(null)
+const strategyMeta = ref<StrategyMeta[]>([])
+
+async function loadActivity(): Promise<void> {
+  const [v, b, m] = await Promise.allSettled([
+    fetchJSON<{ runs: VerdictRun[] }>('/api/research/verdicts'),
+    fetchJSON<{ runs: BacktestRun[] }>('/api/research/backtests'),
+    fetchJSON<{ strategies: StrategyMeta[] }>('/api/meta/strategies'),
+  ])
+  if (v.status === 'fulfilled') verdictRuns.value = v.value.runs
+  if (b.status === 'fulfilled') backtestRuns.value = b.value.runs
+  if (m.status === 'fulfilled') strategyMeta.value = m.value.strategies
+}
+
+void loadActivity()
+
+const verdictCard = computed(() => {
+  const run = verdictRuns.value ? latestOf(verdictRuns.value) : null
+  return run ? verdictActivity(run) : null
+})
+
+const backtestCard = computed(() => {
+  const run = backtestRuns.value ? latestOf(backtestRuns.value) : null
+  return run ? backtestActivity(run, strategyMeta.value) : null
+})
 
 // ---- 数据刷新表单(旧 initRefreshForm 对等) ----
 const drStart = ref<string | null>(null)
@@ -123,6 +155,59 @@ function onRefreshDone(): void {
       />
     </div>
 
+    <!-- 最近动态(发射台): 总览下半不再空白 — 最新判决/回测一眼可见, 整卡深链直达详情;
+         端点失败静默藏卡(不占 ErrorBanner), 空库显引导空态 -->
+    <template v-if="verdictRuns || backtestRuns">
+      <p class="section-label t-muted">最近动态 — 最新一轮判决与回测，点击卡片直达详情</p>
+      <div class="activity-row" data-testid="recent-activity">
+        <RouterLink
+          v-if="verdictCard"
+          class="card card--hoverable activity-card"
+          :to="{ name: 'verdicts', query: { run: verdictCard.runId } }"
+          data-testid="activity-verdict"
+        >
+          <span class="activity-kicker">最新判决轮</span>
+          <span class="activity-main">
+            {{ verdictCard.factorCount }} 因子 ·
+            <b class="t-pass">PASS {{ verdictCard.passCount }}</b><span class="t-muted"> / </span><b class="t-fail">FAIL {{ verdictCard.failCount }}</b>
+          </span>
+          <span class="activity-sub t-muted">{{ verdictCard.splitText }} · 入库 <span class="num">{{ verdictCard.createdAt }}</span></span>
+        </RouterLink>
+        <RouterLink
+          v-else-if="verdictRuns"
+          class="card card--hoverable activity-card"
+          :to="{ name: 'verdicts' }"
+          data-testid="activity-verdict-empty"
+        >
+          <span class="activity-kicker">最新判决轮</span>
+          <span class="activity-main t-muted">暂无判决记录 — 去提交第一轮</span>
+        </RouterLink>
+
+        <RouterLink
+          v-if="backtestCard"
+          class="card card--hoverable activity-card"
+          :to="{ name: 'backtests', query: { run: backtestCard.runId } }"
+          data-testid="activity-backtest"
+        >
+          <span class="activity-kicker">最新回测轮</span>
+          <span class="activity-main">
+            {{ backtestCard.title }} ·
+            <b class="num" :class="backtestCard.ret.cls">{{ backtestCard.ret.text }}</b>
+          </span>
+          <span class="activity-sub t-muted">入库 <span class="num">{{ backtestCard.createdAt }}</span></span>
+        </RouterLink>
+        <RouterLink
+          v-else-if="backtestRuns"
+          class="card card--hoverable activity-card"
+          :to="{ name: 'backtests' }"
+          data-testid="activity-backtest-empty"
+        >
+          <span class="activity-kicker">最新回测轮</span>
+          <span class="activity-main t-muted">暂无回测记录 — 去提交第一轮</span>
+        </RouterLink>
+      </div>
+    </template>
+
     <details class="card form-card" :open="data !== null && totalRows === 0">
       <summary>数据刷新（QMT 增量, 只刷缺口）</summary>
       <div class="form-row">
@@ -160,6 +245,49 @@ function onRefreshDone(): void {
   50% {
     opacity: 0.55;
   }
+}
+
+/* 最近动态: 两张发射台小卡并排(窄屏自动堆叠) — 整卡即 RouterLink */
+.activity-row {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin-bottom: var(--gap);
+}
+
+/* 覆盖全局 a 基础样式: 卡内正文用文字色, 悬停不整卡变淡(反馈交给 .card--hoverable 抬升) */
+.activity-card {
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+.activity-card:hover {
+  opacity: 1;
+}
+
+.activity-kicker {
+  color: var(--text-3);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.activity-main {
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+}
+
+.activity-main b {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.activity-sub {
+  font-size: var(--fs-sm);
 }
 
 .form-card {

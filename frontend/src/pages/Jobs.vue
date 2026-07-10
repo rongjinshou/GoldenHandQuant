@@ -309,8 +309,10 @@ function onMlDone(): void {
       </table>
       <!-- 首载未返回时 7 列孤表头下给 loading 占位; 空态仍要求列表已返回 -->
       <p v-if="!listData" class="t-muted empty" data-testid="jobs-loading">加载中…</p>
+      <!-- 空态入口链接化: 三个入口词直达对应页签(全局注册 RouterLink, 同 App.vue 用法 —
+           不显式 import, 单测无 router 环境下降级为惰性元素不炸); 链接色承全局 a 样式 -->
       <p v-else-if="jobs.length === 0" class="t-muted empty" data-testid="jobs-empty">
-        暂无任务 — 在各页签提交回测/因子检验/数据刷新。
+        暂无任务 — 在各页签提交<RouterLink :to="{ name: 'backtests' }">回测</RouterLink>/<RouterLink :to="{ name: 'verdicts' }">因子检验</RouterLink>/<RouterLink :to="{ name: 'overview' }">数据刷新</RouterLink>。
       </p>
     </div>
 

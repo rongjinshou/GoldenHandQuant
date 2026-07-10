@@ -8,11 +8,13 @@ import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import JobCard from '@/components/JobCard.vue'
 
+import { friendlyStrategyName } from './run-naming'
 import { useSymbolChips } from './useSymbolChips'
 
 /* 新建回测表单 — 旧 backtests.js initBacktestForm/renderParamInputs/submitBacktest 对等:
- * 策略勾选(dual_ma 默认)/每策略参数(切换保留已改值)/日期资金配置/标的 chips 联想/
- * 截面策略禁标的框 + 提示/提交 → JobCard 闭环(成功 emit done 让父页刷列表)。 */
+ * 策略勾选(dual_ma 默认, 主文字中文显示名+代码名小字)/每策略参数(切换保留已改值)/
+ * 日期资金配置/标的 chips 联想/截面策略禁标的框 + 提示/提交 → JobCard 闭环
+ * (成功 emit done 让父页刷列表)。 */
 const props = defineProps<{ strategyMeta: StrategyMeta[] }>()
 const emit = defineEmits<{ done: [] }>()
 
@@ -49,6 +51,12 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
 
 function typeOf(name: string): string | undefined {
   return props.strategyMeta.find((s) => s.name === name)?.strategy_type
+}
+
+/* 勾选框主文字 = 中文显示名(识别>回忆), 与轮次列表标题同源 run-naming.friendlyStrategyName;
+ * 代码名(dual_ma 等)降为次要小字, 仍可对照 CLI/配置。 */
+function displayName(s: StrategyMeta): string {
+  return friendlyStrategyName(s.name, props.strategyMeta)
 }
 
 /* 选中策略按 meta 顺序(与 DOM 勾选顺序等价), 供参数/提交/提示 */
@@ -202,7 +210,9 @@ async function submitBacktest(): Promise<void> {
             :checked="checked.has(s.name)"
             @update:checked="(v: boolean) => toggleStrategy(s.name, v)"
           >
-            {{ s.name }}
+            {{ displayName(s) }}
+            <!-- 显示名回退成代码名时(description 缺失)不重复渲染同一串 -->
+            <span v-if="displayName(s) !== s.name" class="strat-code num">{{ s.name }}</span>
           </NCheckbox>
           <GlossaryTip :term="s.strategy_type === 'cross_section' ? 'cs_strategy' : 'ts_strategy'">
             <span class="type-badge">[{{ s.strategy_type === 'cross_section' ? '截面' : '时序' }}]</span>
@@ -337,6 +347,13 @@ async function submitBacktest(): Promise<void> {
   align-items: center;
   display: inline-flex;
   gap: 4px;
+}
+
+/* 代码名次要小字: 淡色+mono(.num), 主文字(中文显示名)保持勾选框默认字号 */
+.strat-code {
+  color: var(--text-3);
+  font-size: 11px;
+  margin-left: 2px;
 }
 
 .type-badge {

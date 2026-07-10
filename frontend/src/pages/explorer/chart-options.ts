@@ -31,6 +31,27 @@ export function featureLabel(name: string): string {
   return FEATURE_META.find((f) => f.name === name)?.label ?? name
 }
 
+/* 特征勾选分组（Miller 分块，易用性迭代任务 2）— 勾选区按语义分组展示, 组内顺序即展示顺序。
+ * 单一真相源仍是 FEATURE_META（中文标签/虚实线次序都从它来）: 这里只声明"哪些名字归哪组",
+ * items 的 label 经 featureLabel 查表派生, 不双写文案。约束「分组并集 = FEATURE_META 全集,
+ * 无遗漏无重复」由 chart-options.spec.ts 断言防漂移 —— 新增特征忘记归组会在测试期炸出来。 */
+export interface FeatureGroup {
+  label: string
+  items: { name: string; label: string }[]
+}
+
+const FEATURE_GROUP_NAMES: { label: string; names: string[] }[] = [
+  { label: '收益', names: ['return_5d', 'return_20d', 'return_60d'] },
+  { label: '波动', names: ['volatility_20d', 'volatility_60d', 'skewness_20d'] },
+  { label: '量能', names: ['turnover_rate', 'avg_turnover_20d', 'illiquidity_20d', 'obv_slope_20d'] },
+  { label: '技术', names: ['rsi_14', 'macd', 'ma_20'] },
+]
+
+export const FEATURE_GROUPS: FeatureGroup[] = FEATURE_GROUP_NAMES.map((g) => ({
+  label: g.label,
+  items: g.names.map((n) => ({ name: n, label: featureLabel(n) })),
+}))
+
 /* 标的元信息(供多标的叠加图使用): color 由调用方按"当前标的集合"(loadedSymbols)下标算好
  * (symbolColor)后传入 — 本文件的 build* 函数不再自行按下标反查颜色, 避免和调用方对
  * "当前标的是哪几个/顺序如何"产生第二套口径。 */

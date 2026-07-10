@@ -54,10 +54,11 @@ describe('sourceLabel', () => {
   })
 })
 
-describe('friendlyStrategyName', () => {
+describe('friendlyStrategyName（策略显示名解析 — 轮次列表标题与表单勾选框共用）', () => {
   const meta = [
     mkMeta({ name: 'dual_ma', description: 'DualMa 双均线策略 (MA5/MA10 金叉死叉)' }),
     mkMeta({ name: 'micro_value', description: '微盘价值质量增强策略' }),
+    mkMeta({ name: 'ml_return_prediction', description: 'ML 收益预测选股策略（LightGBM）' }),
   ]
 
   it('取 description 括号前首短语', () => {
@@ -68,8 +69,22 @@ describe('friendlyStrategyName', () => {
     expect(friendlyStrategyName('micro_value', meta)).toBe('微盘价值质量增强策略')
   })
 
+  it('全角括号（）同样截断', () => {
+    expect(friendlyStrategyName('ml_return_prediction', meta)).toBe('ML 收益预测选股策略')
+  })
+
   it('meta 查不到时回退传入名本身(不炸)', () => {
     expect(friendlyStrategyName('unknown_strategy', meta)).toBe('unknown_strategy')
+  })
+
+  it('description 为空时回退代码名(勾选框主文字不渲染成空)', () => {
+    const bare = [mkMeta({ name: 'dual_ma', description: '' })]
+    expect(friendlyStrategyName('dual_ma', bare)).toBe('dual_ma')
+  })
+
+  it('description 以括号起头(首短语截出空串)同样回退代码名', () => {
+    const weird = [mkMeta({ name: 'dual_ma', description: '（仅括号补充说明）' })]
+    expect(friendlyStrategyName('dual_ma', weird)).toBe('dual_ma')
   })
 })
 

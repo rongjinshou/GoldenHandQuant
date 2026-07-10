@@ -183,9 +183,10 @@ const option = computed(() => {
       itemGap: 14,
       textStyle: { color: t.dim, fontSize: 11 },
     },
+    // 回撤子图 19%→17%: 底部让出 slider dataZoom 一条, 子图 x 轴日期标签不被压住
     grid: [
       { left: 66, right: 26, top: 46, height: '50%' },
-      { left: 66, right: 26, top: '72%', height: '19%' },
+      { left: 66, right: 26, top: '72%', height: '17%' },
     ],
     xAxis: [
       {
@@ -227,7 +228,21 @@ const option = computed(() => {
         axisLabel: { color: t.dim, fontSize: 11, formatter: '{value}%' },
       },
     ],
-    dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }],
+    // inside 滚轮缩放不可见 → 加底部 slider 让缩放能力可发现, 样式对齐 K 线图
+    // (explorer/chart-options.ts): 品牌色柔和填充/透明边框, 两图缩放形态一致
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1] },
+      {
+        type: 'slider',
+        xAxisIndex: [0, 1],
+        height: 14,
+        bottom: 6,
+        borderColor: 'transparent',
+        fillerColor: `${t.brand}22`,
+        handleStyle: { color: t.brand },
+        textStyle: { color: t.dim },
+      },
+    ],
     series: [
       // 策略净值: 平滑; 主策略品牌渐变面积, 其余仅描线避免叠加糊面
       ...withCurve.map((s, si) => ({

@@ -19,7 +19,7 @@ import type { FeatureData } from '@/api/types'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import { useChartTheme } from '@/composables/useChartTheme'
 
-import { buildFeatureAriaLabel, buildFeaturePanelOption, FEATURE_META, type SymbolMeta } from './chart-options'
+import { buildFeatureAriaLabel, buildFeaturePanelOption, FEATURE_GROUPS, type SymbolMeta } from './chart-options'
 
 use([
   LineChart,
@@ -86,15 +86,25 @@ function toggleFeature(name: string, checked: boolean): void {
     <div class="panel-head">
       <span class="t-muted picker-label">特征</span>
       <div class="feature-list">
-        <NCheckbox
-          v-for="fm in FEATURE_META"
-          :key="fm.name"
-          :checked="modelValue.includes(fm.name)"
-          size="small"
-          @update:checked="(v: boolean) => toggleFeature(fm.name, v)"
+        <!-- 分组展示(Miller 分块, 任务 2): 组 = 语义类别, 组标签小字 + 组间距 > 组内距 -->
+        <div
+          v-for="g in FEATURE_GROUPS"
+          :key="g.label"
+          class="feature-group"
+          role="group"
+          :aria-label="`${g.label}类特征`"
         >
-          <GlossaryTip :term="fm.name"><span class="feature-name">{{ fm.label }}</span></GlossaryTip>
-        </NCheckbox>
+          <span class="group-label" aria-hidden="true">{{ g.label }}</span>
+          <NCheckbox
+            v-for="fm in g.items"
+            :key="fm.name"
+            :checked="modelValue.includes(fm.name)"
+            size="small"
+            @update:checked="(v: boolean) => toggleFeature(fm.name, v)"
+          >
+            <GlossaryTip :term="fm.name"><span class="feature-name">{{ fm.label }}</span></GlossaryTip>
+          </NCheckbox>
+        </div>
       </div>
       <span
         v-if="fetching"
@@ -165,8 +175,21 @@ function toggleFeature(name: string, checked: boolean): void {
   display: flex;
   flex: 1 1 auto;
   flex-wrap: wrap;
-  gap: 8px 14px;
+  gap: 8px 22px; /* 组间列距(22px) > 组内列距(12px): 靠近性成组, 分块可感知 */
   min-width: 0;
+}
+
+.feature-group {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.group-label {
+  color: var(--text-3);
+  flex: none;
+  font-size: var(--fs-xs);
 }
 
 .feature-name {

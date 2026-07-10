@@ -24,11 +24,13 @@ export function sourceLabel(source: string | null | undefined): string {
 const UNIVERSE_LABELS: Record<string, string> = { mainboard: '主板' }
 
 /* meta description 首短语(括号前部分) — 单一来源于 /api/meta/strategies,
- * 不在前端另写映射表以免随后端策略增减漂移; 查不到时回退传入名本身 */
+ * 不在前端另写映射表以免随后端策略增减漂移; 查不到时回退传入名本身。
+ * 轮次列表标题与表单策略勾选框共用此函数(单一真相源, 两处显示名保持一致);
+ * description 为空/纯括号时同样回退代码名, 勾选框主文字不至于渲染成空。 */
 export function friendlyStrategyName(metaName: string, meta: StrategyMeta[]): string {
   const m = meta.find((x) => x.name === metaName)
   if (!m) return metaName
-  return m.description.split(/[（(]/)[0].trim()
+  return m.description.split(/[（(]/)[0].trim() || metaName
 }
 
 export interface RunLabel {

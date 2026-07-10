@@ -129,6 +129,13 @@ async function deleteRun(runId: string): Promise<void> {
 /* run 业务化标题(设计 0705 §3.B) — 展示层纯函数, 不改 run_id/不入库 */
 const runLabels = computed(() => new Map(runs.value.map((r) => [r.run_id, buildRunLabel(r, strategyMeta.value)])))
 
+/* 左轨行原生 tooltip: 标题/副行窄轨下 ellipsis 截断, 悬停读全(标题换行 + 副行含 run_id)。
+ * 挂行容器而非内部按钮 — 无 title 的后代悬停时继承祖先 title, 整行同一提示。 */
+function runRowTitle(runId: string): string {
+  const label = runLabels.value.get(runId)
+  return label ? `${label.title}\n${label.subtitle} · ${runId}` : runId
+}
+
 // ---- 基准: 同额买入持有(异步取 /bars 现算, seq 守卫过期丢弃) ----
 const benchRaw = shallowRef<{ series: (number | null)[] | null; note: string }>({
   series: null,
@@ -293,13 +300,14 @@ function onFormDone(): void {
               :key="r.run_id"
               class="run-row"
               :class="{ active: r.run_id === selectedRunId }"
+              :title="runRowTitle(r.run_id)"
               data-testid="bt-run-row"
             >
+              <!-- 选择钮不设 title(设了会遮住行容器完整提示), 悬停继承行容器 tooltip -->
               <button
                 type="button"
                 class="run-select"
                 data-testid="bt-run-select"
-                :title="r.run_id"
                 :aria-current="r.run_id === selectedRunId ? 'true' : undefined"
                 @click="selectRun(r.run_id)"
               >

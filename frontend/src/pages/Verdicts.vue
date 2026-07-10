@@ -213,20 +213,6 @@ watch(
           aria-label="判决轮次"
           data-testid="run-select"
         />
-        <NPopconfirm
-          positive-text="删除"
-          negative-text="取消"
-          @positive-click="deleteCurrentRun"
-        >
-          <template #trigger>
-            <NButton size="small" quaternary :loading="deletingRun" data-testid="verdict-delete">删除本轮</NButton>
-          </template>
-          <div class="confirm-body">
-            <div>删除这轮判决？</div>
-            <div><b>{{ runOptions[selectedIdx]?.label }}</b></div>
-            <div class="t-muted">不可恢复</div>
-          </div>
-        </NPopconfirm>
         <div class="filter-seg" role="group" aria-label="按判决过滤" data-testid="verdict-filter">
           <button type="button" :class="{ active: filterKey === 'all' }" :aria-pressed="filterKey === 'all'" @click="filterKey = 'all'">全部 {{ totalCount }}</button>
           <button type="button" :class="{ active: filterKey === 'pass' }" :aria-pressed="filterKey === 'pass'" @click="filterKey = 'pass'">PASS {{ passCount }}</button>
@@ -240,6 +226,30 @@ watch(
           aria-label="因子排序"
           data-testid="verdict-sort"
         />
+        <!-- 删除本轮(易用性迭代·Fitts 隔离): 破坏性操作挪到工具条最右端, 靠 .del-run-btn 的
+             margin-left:auto 与高频过滤/排序拉开物理距离(窄屏 wrap 时仍收尾在末行右缘);
+             常态淡色降视觉权重, hover 才显 fail 语义 — NPopconfirm 确认与 :loading 原样保留, 删除逻辑未动。 -->
+        <NPopconfirm
+          positive-text="删除"
+          negative-text="取消"
+          @positive-click="deleteCurrentRun"
+        >
+          <template #trigger>
+            <NButton size="small" quaternary class="del-run-btn" :loading="deletingRun" data-testid="verdict-delete">
+              <template #icon>
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2.5 4.2h11M6 4.2V2.6h4v1.6M4.2 4.2l.7 9.2h6.2l.7-9.2M6.6 7v4M9.4 7v4" />
+                </svg>
+              </template>
+              删除本轮
+            </NButton>
+          </template>
+          <div class="confirm-body">
+            <div>删除这轮判决？</div>
+            <div><b>{{ runOptions[selectedIdx]?.label }}</b></div>
+            <div class="t-muted">不可恢复</div>
+          </div>
+        </NPopconfirm>
       </div>
 
       <div class="meta-strip card">
@@ -340,6 +350,21 @@ watch(
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
+}
+
+/* 删除本轮(Fitts 隔离): margin-left:auto 推到工具条最右, 与高频过滤/排序拉开;
+   常态 text-3 淡色降权, hover/键盘聚焦才显 fail 语义 — 同回测页 .run-delete 的视觉语言。
+   选择器带 button 元素名把特异性抬到 (0,n,1), 确定性压过 naive-ui 运行时注入的
+   .n-button:not(.n-button--disabled):hover (0,3,0), 不赌 <style> 注入顺序。 */
+button.del-run-btn {
+  color: var(--text-3);
+  margin-left: auto;
+}
+
+button.del-run-btn:not(.n-button--disabled):hover,
+button.del-run-btn:not(.n-button--disabled):focus-visible {
+  background-color: var(--c-fail-soft);
+  color: var(--c-fail);
 }
 
 .filter-seg {

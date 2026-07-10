@@ -132,3 +132,43 @@ describe('Explorer.vue P7 URL 深链接线(?symbols= ↔ 标的组合)', () => {
     expect(explorer).toMatch(/syncQueryFromLoaded[\s\S]*?loadedQ\s*===\s*parseSymbolsQuery\(route\.query\.symbols\)\.join/)
   })
 })
+
+describe('Explorer.vue 「最近查看」chips(识别>回忆, 易用性迭代任务 1)', () => {
+  it('接入 recent-symbols 纯逻辑模块(读/写/清)', () => {
+    expect(explorer).toContain("from './explorer/recent-symbols'")
+    expect(explorer).toContain('loadRecent')
+    expect(explorer).toContain('pushRecent')
+    expect(explorer).toContain('clearRecent')
+  })
+
+  it('只在 loadAll 成功路径记入 —— 深链恢复/最近 chip 点击同走 loadAll, 一并记入', () => {
+    expect(explorer).toMatch(/hasLoaded\.value = true[\s\S]{0,200}?pushRecent\(symbols\)/)
+    // 失败分支(catch)不记入
+    expect(explorer).not.toMatch(/catch[\s\S]{0,120}?pushRecent/)
+  })
+
+  it('最近行/清空按钮模板锚点; 记录为空整行不渲染', () => {
+    expect(explorer).toContain('data-testid="explorer-recent"')
+    expect(explorer).toContain('data-testid="recent-clear"')
+    expect(explorer).toMatch(/v-if="recentSymbols\.length"/)
+  })
+
+  it('加载在途时最近 chip 禁点(与"加载"按钮同口径, 保住 loadAll 无并发不变量)', () => {
+    expect(explorer).toMatch(/class="recent-chip"[\s\S]{0,120}?:disabled="loadingData"/)
+    expect(explorer).toMatch(/function pickRecent[\s\S]{0,120}?if \(loadingData\.value\) return/)
+  })
+})
+
+describe('FeaturePanel.vue 特征勾选分组(Miller 分块, 易用性迭代任务 2)', () => {
+  it('按 FEATURE_GROUPS 分组渲染: 组容器 role=group + aria-label, 组标签小字', () => {
+    expect(featurePanel).toContain('FEATURE_GROUPS')
+    expect(featurePanel).toContain('role="group"')
+    expect(featurePanel).toContain('group-label')
+    // 组标签用 --text-3 小字(任务 2 视觉要求)
+    expect(featurePanel).toMatch(/\.group-label[\s\S]*?color: var\(--text-3\)/)
+  })
+
+  it('GlossaryTip 悬停释义保留(逐特征)', () => {
+    expect(featurePanel).toMatch(/FEATURE_GROUPS[\s\S]*?GlossaryTip :term="fm\.name"/)
+  })
+})
