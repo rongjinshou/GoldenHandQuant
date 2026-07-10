@@ -11,6 +11,7 @@ import {
   buildKlineOption,
   buildUnionDates,
   DEFAULT_FEATURES,
+  EXPLORER_CHART_GROUP,
   FEATURE_GROUPS,
   featureLabel,
   FEATURE_META,
@@ -377,6 +378,85 @@ describe('buildFeaturePanelOption', () => {
     const option = buildFeaturePanelOption(palette, symbols, cache, ['return_20d']) as Record<string, any>
     expect(option.series).toHaveLength(1)
     expect(option.series.some((s: any) => s.name.startsWith('D.SZ'))).toBe(false)
+  })
+})
+
+/* R2-B 缩放联动: 特征图/多标的对比图补可发现的 slider dataZoom, 且四个分支 dataZoom 形状统一为
+ * [inside, slider] 两件同序 —— connect 跨图按组件自动 id(数组下标)路由手势, 形状不一致会静默丢联动。
+ * slider 样式对齐 K 线图既有 slider: brand 22 填充/透明边框/dim 文字/小高度(16)。 */
+describe('dataZoom 形状与 slider 样式(R2-B 缩放联动)', () => {
+  const palette = mkPalette()
+
+  // K 线图既有 slider 的样式锚点 — 四个分支的 slider 都必须命中同一份
+  const sliderStyle = {
+    type: 'slider',
+    height: 16,
+    bottom: 8,
+    borderColor: 'transparent',
+    fillerColor: `${palette.brand}22`,
+    handleStyle: { color: palette.brand },
+    textStyle: { color: palette.dim },
+  }
+
+  function expectInsidePlusSlider(dz: any): void {
+    expect(Array.isArray(dz)).toBe(true)
+    expect(dz).toHaveLength(2)
+    expect(dz[0].type).toBe('inside')
+    expect(dz[1]).toMatchObject(sliderStyle)
+  }
+
+  it('K 线单标的分支: slider 保持原字面量字段(零回归锚点), 双 pane xAxisIndex 不丢', () => {
+    const symbols: SymbolMeta[] = [{ symbol: 'A.SZ', color: 'c0' }]
+    const o = buildKlineOption(palette, symbols, new Map([['A.SZ', mkBars()]])) as Record<string, any>
+    expectInsidePlusSlider(o.dataZoom)
+    expect(o.dataZoom[0].xAxisIndex).toEqual([0, 1])
+    expect(o.dataZoom[1].xAxisIndex).toEqual([0, 1])
+  })
+
+  it('K 线多标的对比分支: 补 slider, 且 grid 加高 bottom 给 slider 留空间不压 x 轴标签', () => {
+    const symbols: SymbolMeta[] = [
+      { symbol: 'A.SZ', color: 'colorA' },
+      { symbol: 'B.SZ', color: 'colorB' },
+    ]
+    const bars = new Map([
+      ['A.SZ', mkBars()],
+      ['B.SZ', mkBars()],
+    ])
+    const o = buildKlineOption(palette, symbols, bars) as Record<string, any>
+    expectInsidePlusSlider(o.dataZoom)
+    // slider 占 bottom 8..24px, 类目轴标签(margin 8 + 字高)还需 ~21px → bottom ≥ 60 才互不压
+    expect(o.grid.bottom).toBeGreaterThanOrEqual(60)
+  })
+
+  it('特征图单标的分支: 原仅 inside → 补 slider, grid bottom 同步留空间', () => {
+    const symbols: SymbolMeta[] = [{ symbol: '000001.SZ', color: 'c0' }]
+    const o = buildFeaturePanelOption(
+      palette,
+      symbols,
+      new Map([['000001.SZ', mkFeatures()]]),
+      ['return_20d'],
+    ) as Record<string, any>
+    expectInsidePlusSlider(o.dataZoom)
+    expect(o.grid.bottom).toBeGreaterThanOrEqual(60)
+  })
+
+  it('特征图多标的分支: 同样 [inside, slider] + grid bottom 留空间', () => {
+    const symbols: SymbolMeta[] = [
+      { symbol: 'A.SZ', color: 'colorA' },
+      { symbol: 'B.SZ', color: 'colorB' },
+    ]
+    const cache = new Map([
+      ['A.SZ', mkFeatures()],
+      ['B.SZ', mkFeatures()],
+    ])
+    const o = buildFeaturePanelOption(palette, symbols, cache, ['return_20d']) as Record<string, any>
+    expectInsidePlusSlider(o.dataZoom)
+    expect(o.grid.bottom).toBeGreaterThanOrEqual(60)
+  })
+
+  it('EXPLORER_CHART_GROUP 为非空字符串(vue-echarts group prop 以 truthy 判定才挂到实例上)', () => {
+    expect(typeof EXPLORER_CHART_GROUP).toBe('string')
+    expect(EXPLORER_CHART_GROUP.length).toBeGreaterThan(0)
   })
 })
 

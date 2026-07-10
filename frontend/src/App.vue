@@ -4,12 +4,16 @@ import { onMounted } from 'vue'
 
 import AppBadge from '@/components/AppBadge.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import { usePageHotkeys } from '@/composables/usePageHotkeys'
 import { NAV_ITEMS } from '@/router'
 import { useJobsStore } from '@/stores/jobs'
 import { useThemeStore } from '@/stores/theme'
 
 const themeStore = useThemeStore()
 const jobsStore = useJobsStore()
+
+// R2-D 专家效率: 数字键 1-6 直达页签(输入框/修饰键/输入法合成中自动让路)
+usePageHotkeys()
 
 // 任务徽章全局鲜活: App 级轮询回填 activeCount, 使任意页(非仅任务页)徽章与 503 写锁文案随任务变化(设计 §10)
 onMounted(() => jobsStore.startGlobalPolling())
@@ -29,11 +33,12 @@ onMounted(() => jobsStore.startGlobalPolling())
         <h1 class="brand">GoldenHandQuant</h1>
         <nav class="nav" aria-label="主导航">
           <RouterLink
-            v-for="item in NAV_ITEMS"
+            v-for="(item, i) in NAV_ITEMS"
             :key="item.name"
             :to="{ name: item.name }"
             class="nav-link"
             :data-testid="`nav-${item.name}`"
+            :title="`${item.label} (${i + 1})`"
           >
             {{ item.label }}
             <AppBadge

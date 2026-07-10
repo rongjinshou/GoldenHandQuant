@@ -8,13 +8,22 @@ import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import JobCard from '@/components/JobCard.vue'
 
+import {
+  type EditableParam,
+  editableParams,
+  type ParamDefaults,
+  type ParamEditValue,
+  paramOverrides,
+} from './param-overrides'
 import { friendlyStrategyName } from './run-naming'
 import { useSymbolChips } from './useSymbolChips'
 
 /* 新建回测表单 — 旧 backtests.js initBacktestForm/renderParamInputs/submitBacktest 对等:
- * 策略勾选(dual_ma 默认, 主文字中文显示名+代码名小字)/每策略参数(切换保留已改值)/
- * 日期资金配置/标的 chips 联想/截面策略禁标的框 + 提示/提交 → JobCard 闭环
- * (成功 emit done 让父页刷列表)。 */
+ * 策略勾选(dual_ma 默认, 主文字中文显示名+代码名小字)/每策略参数区(渐进披露: 勾选才展开,
+ * 数值 NInputNumber、字符串 NInput, 初值=默认+「默认 x」淡字标注, 可一键还原默认,
+ * 取消勾选值仍保留重勾不丢)/日期资金配置/标的 chips 联想/截面策略禁标的框 + 提示/
+ * 提交 → JobCard 闭环(成功 emit done 让父页刷列表)。
+ * 提交体 params 只带 ≠默认 的键(diff 纯函数 param-overrides.ts, 已单测), 全默认不发。 */
 const props = defineProps<{ strategyMeta: StrategyMeta[] }>()
 const emit = defineEmits<{ done: [] }>()
 
@@ -73,29 +82,60 @@ function toggleStrategy(name: string, v: boolean): void {
   checked.value = next
 }
 
-// ---- 参数输入(切换策略保留已改值, 勾第二个策略不重置第一个) ----
-interface ParamRow {
-  strat: string
-  key: string
-  def: string
-  value: string
-}
-const paramRows = ref<ParamRow[]>([])
+// ---- 参数编辑(渐进披露: 勾选策略才展开参数区; 取消勾选值仍保留, 重勾不丢) ----
+/** 编辑态: 策略 → { 参数 → 当前值 }; null = 用默认(NInputNumber 清空) */
+const paramEdits = ref<Record<string, Record<string, ParamEditValue>>>({})
 
-function rebuildParams(): void {
-  const kept = new Map(paramRows.value.map((r) => [`${r.strat}.${r.key}`, r.value]))
-  const rows: ParamRow[] = []
+/** 每策略可编辑参数(null/字典参数不生成输入行, 数值/字符串分控件) */
+const editablesByStrategy = computed<Record<string, EditableParam[]>>(() => {
+  const out: Record<string, EditableParam[]> = {}
+  for (const s of props.strategyMeta) out[s.name] = editableParams(s.default_params ?? {})
+  return out
+})
+
+/** 归一化默认值表 — 种子/还原/提交 diff 三处同源 */
+const defaultsByStrategy = computed<ParamDefaults>(() => {
+  const out: ParamDefaults = {}
+  for (const [name, list] of Object.entries(editablesByStrategy.value)) {
+    out[name] = Object.fromEntries(list.map((p) => [p.key, p.def]))
+  }
+  return out
+})
+
+/** 勾选中且有可编辑参数的策略 → 各自展开一块参数面板 */
+const paramStrategies = computed(() =>
+  props.strategyMeta.filter(
+    (s) => checked.value.has(s.name) && editablesByStrategy.value[s.name].length > 0,
+  ),
+)
+
+/** 勾选/元数据就绪时补种默认值为初值(已有编辑不覆盖) */
+function seedEdits(): void {
   for (const name of selectedStrategies.value) {
-    const meta = props.strategyMeta.find((s) => s.name === name)
-    if (!meta) continue
-    for (const [key, val] of Object.entries(meta.default_params ?? {})) {
-      if (val === null || typeof val === 'object') continue // null(None)/字典参数不生成输入行(对等旧版 typeof null==='object')
-      const def = String(val)
-      const keep = kept.get(`${name}.${key}`)
-      rows.push({ strat: name, key, def, value: keep ?? def })
+    if (!paramEdits.value[name]) {
+      const defs = defaultsByStrategy.value[name]
+      if (defs) paramEdits.value[name] = { ...defs }
     }
   }
-  paramRows.value = rows
+}
+
+function numValue(strat: string, key: string): number | null {
+  const v = paramEdits.value[strat]?.[key]
+  return typeof v === 'number' ? v : null
+}
+
+function strValue(strat: string, key: string): string {
+  const v = paramEdits.value[strat]?.[key]
+  return typeof v === 'string' ? v : ''
+}
+
+function setParam(strat: string, key: string, v: ParamEditValue): void {
+  ;(paramEdits.value[strat] ??= {})[key] = v
+}
+
+function restoreDefaults(strat: string): void {
+  const defs = defaultsByStrategy.value[strat]
+  if (defs) paramEdits.value[strat] = { ...defs }
 }
 
 watch(
@@ -106,11 +146,11 @@ watch(
     if (checked.value.size === 0 && meta.some((s) => s.name === 'dual_ma')) {
       checked.value = new Set(['dual_ma'])
     }
-    rebuildParams()
+    seedEdits()
   },
   { immediate: true },
 )
-watch(selectedStrategies, rebuildParams)
+watch(selectedStrategies, seedEdits)
 
 // ---- 标的 chips 输入接线(native input 保留 inputType 粘贴检测) ----
 function onSymInput(e: Event): void {
@@ -171,14 +211,14 @@ async function submitBacktest(): Promise<void> {
   if (!hasCross.value && chips.symbols.value.length) payload.symbols = [...chips.symbols.value]
   if (capital.value !== null && capital.value > 0) payload.initial_capital = capital.value
   if (config.value) payload.config = config.value
-  // 仅传与默认不同的参数(逐条对等旧版)
-  const params: Record<string, Record<string, string>> = {}
-  for (const r of paramRows.value) {
-    if (r.value !== r.def) {
-      ;(params[r.strat] ??= {})[r.key] = r.value
-    }
+  // 仅传与默认不同的参数(纯函数 diff): 只取本次提交策略的编辑态; 全默认 → 不带 params 字段
+  const edited: Record<string, Record<string, ParamEditValue>> = {}
+  for (const name of strategies) {
+    const kv = paramEdits.value[name]
+    if (kv) edited[name] = kv
   }
-  if (Object.keys(params).length) payload.params = params
+  const params = paramOverrides(edited, defaultsByStrategy.value)
+  if (params) payload.params = params
   submitting.value = true
   try {
     const job = await postJSON<Job>('/api/jobs/backtest', payload)
@@ -221,11 +261,45 @@ async function submitBacktest(): Promise<void> {
       </span>
     </div>
 
-    <div v-if="paramRows.length" class="form-row" data-testid="bt-params">
-      <label v-for="r in paramRows" :key="`${r.strat}.${r.key}`" class="param-label">
-        {{ r.strat }}.{{ r.key }}
-        <NInput v-model:value="r.value" size="small" style="width: 96px" />
-      </label>
+    <!-- 渐进披露: 仅勾选的策略展开参数面板(取消勾选即藏, 已改值保留); 初值=默认, 只提交改过的键 -->
+    <div v-if="paramStrategies.length" class="param-area" data-testid="bt-params">
+      <section
+        v-for="s in paramStrategies"
+        :key="s.name"
+        class="param-panel"
+        :data-testid="`bt-params-${s.name}`"
+      >
+        <header class="param-head">
+          <span class="param-title">
+            {{ displayName(s) }} 参数
+            <span v-if="displayName(s) !== s.name" class="num param-code">{{ s.name }}</span>
+          </span>
+          <NButton size="tiny" quaternary @click="restoreDefaults(s.name)">还原默认</NButton>
+        </header>
+        <div class="param-grid">
+          <label v-for="p in editablesByStrategy[s.name]" :key="p.key" class="param-item">
+            <span class="num param-key">{{ p.key }}</span>
+            <NInputNumber
+              v-if="p.numeric"
+              size="small"
+              :show-button="false"
+              :value="numValue(s.name, p.key)"
+              :placeholder="String(p.def)"
+              style="width: 104px"
+              @update:value="(v: number | null) => setParam(s.name, p.key, v)"
+            />
+            <NInput
+              v-else
+              size="small"
+              :value="strValue(s.name, p.key)"
+              :placeholder="String(p.def)"
+              style="width: 104px"
+              @update:value="(v: string) => setParam(s.name, p.key, v)"
+            />
+            <span class="param-def">默认 {{ p.def }}</span>
+          </label>
+        </div>
+      </section>
     </div>
 
     <!-- 字段统一 160px 栅格, 配置收尾 280px — 行内框边对齐 -->
@@ -363,12 +437,64 @@ async function submitBacktest(): Promise<void> {
   font-weight: 700;
 }
 
-.param-label {
-  color: var(--text-3);
+/* 参数区 — 视觉克制: --bg-3 微凹底、--space-2 紧凑距、--fs-xs 标签, 不与 CTA 争焦点 */
+.param-area {
   display: flex;
   flex-direction: column;
-  font-size: 12px;
-  gap: 5px;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 14px;
+}
+
+.param-panel {
+  background: var(--bg-3);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.param-head {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.param-title {
+  color: var(--text-3);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.param-code {
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+.param-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.param-item {
+  align-items: center;
+  color: var(--text-3);
+  display: inline-flex;
+  font-size: var(--fs-xs);
+  gap: var(--space-2);
+}
+
+.param-key {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+
+/* 「默认 5」淡字标注 — 改动后仍可对照原默认 */
+.param-def {
+  font-size: var(--fs-xs);
+  opacity: 0.75;
+  white-space: nowrap;
 }
 
 .sym-row {

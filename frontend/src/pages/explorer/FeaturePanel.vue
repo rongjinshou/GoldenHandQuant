@@ -19,7 +19,13 @@ import type { FeatureData } from '@/api/types'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import { useChartTheme } from '@/composables/useChartTheme'
 
-import { buildFeatureAriaLabel, buildFeaturePanelOption, FEATURE_GROUPS, type SymbolMeta } from './chart-options'
+import {
+  buildFeatureAriaLabel,
+  buildFeaturePanelOption,
+  EXPLORER_CHART_GROUP,
+  FEATURE_GROUPS,
+  type SymbolMeta,
+} from './chart-options'
 
 use([
   LineChart,
@@ -71,6 +77,10 @@ const ariaLabel = computed(() => buildFeatureAriaLabel(props.symbols, props.mode
  * 在标的数跨越 1↔2+ 边界时收到形状迥异的新 option, merge 会残留旧形状的内部组件引用, 抛
  * `xAxis "0" not found` 等运行时错误并使组件此后持续处于损坏渲染状态。固定传 notMerge:true
  * 让每次 option 变化都整份替换, 避免这条合并路径。 */
+
+/* 缩放联动(R2-B): 本呈现框图表挂 EXPLORER_CHART_GROUP 入页级 connect 组, 与 Explorer 的
+ * K 线图及其他呈现框同步缩放(单组结构依据/日期域一致性证据见 chart-options 该常量注释;
+ * connect() 由 Explorer 挂载时统一调一次, 本组件只负责挂组名)。 */
 
 /* 兼容既有截图脚本(scripts/ui_smoke.py / frontend/scripts/shot.py): 第一个呈现框固定叫
  * "feature-chart"(不能改), 第二个及以后按当前位置编号追加后缀。 */
@@ -139,6 +149,7 @@ function toggleFeature(name: string, checked: boolean): void {
         v-else-if="option"
         role="img"
         :aria-label="ariaLabel"
+        :group="EXPLORER_CHART_GROUP"
         :option="option"
         :update-options="{ notMerge: true }"
         autoresize

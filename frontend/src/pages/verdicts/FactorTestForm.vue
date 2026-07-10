@@ -79,6 +79,14 @@ const OBJECTIVE_OPTIONS = [
 
 const ftHint = computed(() => checked.value.size > 1 && !ftSplit.value)
 
+/* 日期语义就地透明(回忆→识别): 起止全空提示全历史; 任一端填了改为区间回显,
+ * 空端回显其全历史语义。常驻渲染保持布局稳定。 */
+const dateHint = computed(() =>
+  !ftStart.value && !ftEnd.value
+    ? '留空 = 全历史（2021-01-01 起）'
+    : `检验区间：${ftStart.value || '全历史起点'} ～ ${ftEnd.value || '全历史终点'}`,
+)
+
 async function submitFactorTest(): Promise<void> {
   error.value = ''
   if (checked.value.size === 0) {
@@ -87,13 +95,16 @@ async function submitFactorTest(): Promise<void> {
   }
   const payload: Record<string, unknown> = {
     factors: [...checked.value].join(','),
-    start_date: ftStart.value ?? '',
-    end_date: ftEnd.value ?? '',
     objective: ftObjective.value,
     num_layers: ftLayers.value,
     rebalance_days: ftRebalance.value,
     cost_rate: ftCost.value,
   }
+  /* 留空不发键(同 split_date 惯例) → 后端 FactorTestJobRequest Field 默认生效
+   * = 全历史(2021-01-01 起), 与上方 dateHint 文案一致; 旧版发 '' 会撞
+   * pattern=^\d{4}-\d{2}-\d{2}$ 校验直接 422, "留空=全历史"从未真正走通 */
+  if (ftStart.value) payload.start_date = ftStart.value
+  if (ftEnd.value) payload.end_date = ftEnd.value
   if (ftSplit.value) payload.split_date = ftSplit.value
   submitting.value = true
   try {
@@ -142,6 +153,7 @@ async function submitFactorTest(): Promise<void> {
       <label><GlossaryTip term="cost_rate">成本率</GlossaryTip> <NInputNumber v-model:value="ftCost" :step="0.001" style="width: 110px" /></label>
       <NButton type="primary" :loading="submitting" :disabled="submitting" data-testid="ft-submit" @click="submitFactorTest">提交检验</NButton>
     </div>
+    <p class="t-muted date-hint" data-testid="ft-date-hint">{{ dateHint }}</p>
     <p v-if="ftHint" class="t-warn hint">
       多因子批量检验未设 IS/OOS 切分——存在多重检验风险，建议保留切分日期。
     </p>
@@ -235,5 +247,11 @@ async function submitFactorTest(): Promise<void> {
 
 .hint {
   font-size: 12.5px;
+}
+
+/* 紧贴日期行下方的语义小字(常驻, 不随填写增删布局) */
+.date-hint {
+  font-size: var(--fs-xs);
+  margin: -6px 0 10px;
 }
 </style>

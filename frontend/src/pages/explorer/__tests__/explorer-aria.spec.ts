@@ -159,6 +159,28 @@ describe('Explorer.vue 「最近查看」chips(识别>回忆, 易用性迭代任
   })
 })
 
+describe('Explorer 缩放联动(R2-B): K 线与特征图同组 connect', () => {
+  it('Explorer.vue 从 echarts/core 引入 connect, 并在挂载时对共享组调用一次', () => {
+    expect(explorer).toMatch(/import \{ connect, use \} from 'echarts\/core'/)
+    expect(explorer).toMatch(/onMounted\(\(\) => connect\(EXPLORER_CHART_GROUP\)\)/)
+  })
+
+  it('K 线 VChart 绑定共享 group(vue-echarts group prop), 常量取自 chart-options 单一真相源', () => {
+    expect(explorer).toContain(':group="EXPLORER_CHART_GROUP"')
+    expect(explorer).toMatch(/EXPLORER_CHART_GROUP,[\s\S]*?\} from '\.\/explorer\/chart-options'/)
+  })
+
+  it('特征呈现框 VChart 绑定同一共享 group —— 页内 K 线↔特征(含多呈现框)同步缩放', () => {
+    expect(featurePanel).toContain(':group="EXPLORER_CHART_GROUP"')
+    expect(featurePanel).toMatch(/EXPLORER_CHART_GROUP,[\s\S]*?\} from '\.\/chart-options'/)
+  })
+
+  it('呈现框只挂组名不自调 connect(由 Explorer 统一调一次, 防止职责双写)', () => {
+    expect(featurePanel).not.toMatch(/connect\(EXPLORER_CHART_GROUP\)/)
+    expect(featurePanel).not.toMatch(/import \{[^}]*\bconnect\b[^}]*\} from 'echarts\/core'/)
+  })
+})
+
 describe('FeaturePanel.vue 特征勾选分组(Miller 分块, 易用性迭代任务 2)', () => {
   it('按 FEATURE_GROUPS 分组渲染: 组容器 role=group + aria-label, 组标签小字', () => {
     expect(featurePanel).toContain('FEATURE_GROUPS')

@@ -3,7 +3,9 @@
  * buildKlineOption/buildFeaturePanelOption 的"1 个标的"分支逐字复刻改动前 klineOption/featureOption
  * computed 的输出结构(零回归); "2+ 个标的"分支改单 pane 对比图(涨跌幅重定基 / 特征笛卡尔积),
  * 日期对齐一律走 buildUnionDates+alignByDate 共享工具, 不允许两处各写一份。
- * 无 Vue/ECharts 渲染依赖, Vitest 直测。 */
+ * 无 Vue/ECharts 渲染依赖, Vitest 直测。
+ * R2-B 缩放联动: 四个分支的 dataZoom 统一为 [inside, slider] 两件同序(slider 单一真相源
+ * xSliderZoom, 样式即 K 线图原有 slider) —— 这是同页 connect 联动能路由任意缩放手势的前提。 */
 
 import type { BarsData, FeatureData } from '@/api/types'
 import { axisStyle, type ChartPalette, tooltipStyle } from '@/composables/useChartTheme'
@@ -65,6 +67,13 @@ export interface SymbolMeta {
  * 这里给一个宽松具名别名, 让导出函数的签名可读、可断言。 */
 export type ChartOption = Record<string, unknown>
 
+/* 缩放联动共享 group(R2-B): 行情页全部图表(页级 K 线 + 每个特征呈现框)同入这一个 ECharts
+ * connect 组。页内只有一个 K 线图而一个实例只能属于一个 group ⇒ "每呈现框独立分组"结构上
+ * 不成立(K 线无法同时与多个组联动); 且各图 x 轴同为"同一批已加载标的 × 后端 _default_range
+ * 近一年窗口"的日期域(bars/features 同库同窗, 见 api/routes/research.py), 按百分比广播的
+ * 缩放不会错位 —— 跨呈现框同步是同一时间上下文下的一致行为, 不是串扰。 */
+export const EXPLORER_CHART_GROUP = 'explorer-sync'
+
 /* 标的配色: 下标 = 该标的在"当前标的集合"(调用方决定是哪个数组、什么顺序)中的位置,
  * 取模循环 6 色板(超过 6 只标的会撞色, 由调用方在 UI 侧做软提示, 这里不管)。 */
 export function symbolColor(palette: ChartPalette, index: number): string {
@@ -96,6 +105,23 @@ export function alignByDate<T>(unionDates: string[], ownDates: string[], ownValu
 
 function round1(v: number): number {
   return Math.round(v * 10) / 10
+}
+
+/* x 轴 slider dataZoom(R2-B) — 单一真相源: 样式逐字对齐 K 线图原有 slider(brand 22 填充/
+ * 透明边框/dim 文字/小高度), 特征图与多标的对比图补 slider 一律从这里取, 不得另写一份。
+ * connect 跨图广播按组件自动生成 id(由 dataZoom 数组下标决定)路由手势, 因此各分支的
+ * dataZoom 必须保持 [inside, slider] 同序同形 —— 缺第二件的图会静默丢掉对侧 slider 拖动。 */
+function xSliderZoom(t: ChartPalette, xAxisIndex?: number[]): Record<string, unknown> {
+  return {
+    type: 'slider',
+    ...(xAxisIndex ? { xAxisIndex } : {}),
+    height: 16,
+    bottom: 8,
+    borderColor: 'transparent',
+    fillerColor: `${t.brand}22`,
+    handleStyle: { color: t.brand },
+    textStyle: { color: t.dim },
+  }
 }
 
 /* 涨跌幅%序列: 基准 = 该标的自身序列里第一个非 null 收盘价; 全窗口无有效收盘价 → 整条 null。
@@ -165,19 +191,8 @@ export function buildKlineOption(
         { scale: true, gridIndex: 0, ...axisStyle(t) },
         { gridIndex: 1, ...axisStyle(t), axisLabel: { show: false }, splitLine: { show: false } },
       ],
-      dataZoom: [
-        { type: 'inside', xAxisIndex: [0, 1] },
-        {
-          type: 'slider',
-          xAxisIndex: [0, 1],
-          height: 16,
-          bottom: 8,
-          borderColor: 'transparent',
-          fillerColor: `${t.brand}22`,
-          handleStyle: { color: t.brand },
-          textStyle: { color: t.dim },
-        },
-      ],
+      // slider 收敛进 xSliderZoom(输出字段与原字面量逐一相同, 零回归), 见该助手注释
+      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }, xSliderZoom(t, [0, 1])],
       series: [
         {
           name: meta.symbol,
@@ -246,7 +261,8 @@ export function buildKlineOption(
       itemHeight: 8,
       textStyle: { color: t.dim, fontSize: 11 },
     },
-    grid: { left: 58, right: 22, top: 56, bottom: 40 },
+    // bottom 40→60: 给 slider(高16+距底8)留出空间, 不压 x 轴日期标签(R2-B)
+    grid: { left: 58, right: 22, top: 56, bottom: 60 },
     xAxis: {
       type: 'category',
       data: unionDates,
@@ -262,7 +278,7 @@ export function buildKlineOption(
       axisLabel: { color: t.dim, fontSize: 11, formatter: '{value}%' },
       splitLine: { lineStyle: { color: t.split } },
     },
-    dataZoom: [{ type: 'inside' }],
+    dataZoom: [{ type: 'inside' }, xSliderZoom(t)],
     series,
   }
 }
@@ -308,7 +324,8 @@ export function buildFeaturePanelOption(
         itemHeight: 8,
         textStyle: { color: t.dim, fontSize: 11 },
       },
-      grid: { left: 58, right: 22, top: 46, bottom: 40 },
+      // bottom 40→60: 给 slider(高16+距底8)留出空间, 不压 x 轴日期标签(R2-B)
+      grid: { left: 58, right: 22, top: 46, bottom: 60 },
       xAxis: {
         type: 'category',
         data: data.dates,
@@ -317,7 +334,8 @@ export function buildFeaturePanelOption(
         splitLine: { show: false },
       },
       yAxis: { type: 'value', scale: true, ...axisStyle(t) },
-      dataZoom: [{ type: 'inside' }],
+      // 原仅 inside(不可发现) → 补 slider(R2-B), 样式与形状约束见 xSliderZoom 注释
+      dataZoom: [{ type: 'inside' }, xSliderZoom(t)],
       series: pickedFeatures.map((n) => ({
         name: featureLabel(n), // 图例/悬浮提示用中文标签
         type: 'line',
@@ -372,7 +390,8 @@ export function buildFeaturePanelOption(
       itemHeight: 8,
       textStyle: { color: t.dim, fontSize: 11 },
     },
-    grid: { left: 58, right: 22, top: 46, bottom: 40 },
+    // bottom 40→60: 给 slider(高16+距底8)留出空间, 不压 x 轴日期标签(R2-B)
+    grid: { left: 58, right: 22, top: 46, bottom: 60 },
     xAxis: {
       type: 'category',
       data: unionDates,
@@ -381,7 +400,8 @@ export function buildFeaturePanelOption(
       splitLine: { show: false },
     },
     yAxis: { type: 'value', scale: true, ...axisStyle(t) },
-    dataZoom: [{ type: 'inside' }],
+    // 原仅 inside(不可发现) → 补 slider(R2-B), 样式与形状约束见 xSliderZoom 注释
+    dataZoom: [{ type: 'inside' }, xSliderZoom(t)],
     series,
   }
 }

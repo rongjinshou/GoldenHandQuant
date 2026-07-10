@@ -9,7 +9,7 @@ import {
   TitleComponent,
   TooltipComponent,
 } from 'echarts/components'
-import { use } from 'echarts/core'
+import { connect, use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { NButton } from 'naive-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -28,6 +28,7 @@ import {
   buildKlineAriaLabel,
   buildKlineOption,
   DEFAULT_FEATURES,
+  EXPLORER_CHART_GROUP,
   symbolColor,
   type SymbolMeta,
 } from './explorer/chart-options'
@@ -162,6 +163,12 @@ const klineAriaLabel = computed(() => buildKlineAriaLabel(loadedSymbolMetas.valu
  * 会因合并不到旧组件引用而抛 `xAxis "0" not found` 等运行时错误, 且此后持续处于损坏渲染状态
  * (含"新增呈现框"等其他响应式更新一并失效)。notMerge:true 让每次 option 变化整份替换, 规避
  * 该合并路径; FeaturePanel.vue 的特征图同理处理。 */
+
+/* 缩放联动(R2-B): 页级 K 线图与全部特征呈现框图表同挂 EXPLORER_CHART_GROUP 入一个 connect
+ * 组(单组而非每呈现框一组的结构依据/日期域一致性证据, 见 chart-options 该常量注释)。
+ * connect(字符串) 只是把组名标记为已联动 —— 之后才挂载的图表实例(含"新增呈现框"动态加的)
+ * 只要 group prop 同名即自动入组, 因此挂载时调一次即可, 不必每加呈现框重连。 */
+onMounted(() => connect(EXPLORER_CHART_GROUP))
 
 function onSymInput(e: Event): void {
   chips.input.value = (e.target as HTMLInputElement).value
@@ -419,6 +426,7 @@ onMounted(() => {
         v-else-if="klineOption"
         role="img"
         :aria-label="klineAriaLabel"
+        :group="EXPLORER_CHART_GROUP"
         :option="klineOption"
         :update-options="{ notMerge: true }"
         autoresize

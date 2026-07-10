@@ -14,6 +14,7 @@ import { usePolling } from '@/composables/usePolling'
 import { useJobsStore } from '@/stores/jobs'
 
 import { STATUS_LABEL, TERMINAL_STATUS, durationOf, jobTypeLabel, paramsSummary } from './jobs/format'
+import { resultRoute } from './jobs/result-route'
 import { isNearBottom, jobBadgeKind } from './jobs/ui'
 
 /* 任务中心 — 旧 jobs.js loadJobsPage/showJobLog/initMlForms 对等 + 批二硬化:
@@ -303,6 +304,16 @@ function onMlDone(): void {
                   <div class="confirm-body">取消任务 <code>{{ j.job_id }}</code>？</div>
                 </NPopconfirm>
               </template>
+              <!-- 成功且有结果页的类型(backtest/factor_test)给「查看结果」直达 —
+                   落点判定抽纯函数 resultRoute; RouterLink 全局注册(同上空态链接用法),
+                   .stop 防触发行 click 的日志钻取 -->
+              <RouterLink
+                v-else-if="resultRoute(j.job_type, j.status)"
+                :to="resultRoute(j.job_type, j.status)!"
+                class="result-link"
+                data-testid="job-row-result"
+                @click.stop
+              >查看结果</RouterLink>
             </td>
           </tr>
         </tbody>
@@ -484,6 +495,12 @@ td code {
 
 .canceling {
   font-size: 12px;
+}
+
+/* 「查看结果」链接: 色承全局 a(accent-strong), 只收字号与断行 */
+.result-link {
+  font-size: var(--fs-xs);
+  white-space: nowrap;
 }
 
 /* NPopconfirm 默认插槽是 flex 布局 — 显式约束宽度 */

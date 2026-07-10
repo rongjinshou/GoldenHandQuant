@@ -20,7 +20,14 @@ function jsonResp(body: unknown) {
 // naive-ui 组件运行时 .name 不带 N 前缀(如 NSelect.name === 'Select'), 字符串字面量 key
 // 匹配不上、真实组件会穿透渲染——按 Task 7 整体复核发现的同类问题, 统一用 [Component.name as string]。
 const stubs = {
-  [NDatePicker.name as string]: true,
+  // 造互动 stub: 渲染 input 承接 v-model:formatted-value, 供测试 setValue 驱动日期
+  // (空串回 null 模拟 naive clearable 清空语义); 表单内顺序 = [起始, 结束, 切分]
+  [NDatePicker.name as string]: {
+    props: ['formattedValue'],
+    emits: ['update:formattedValue'],
+    template:
+      '<input class="dp-stub" :value="formattedValue" @input="$emit(\'update:formattedValue\', $event.target.value || null)" />',
+  },
   [NInputNumber.name as string]: true,
   [NSelect.name as string]: true,
   // 只用 <slot/>, 不额外写 @click="$emit('click')": 那样会和 attrs fallthrough
@@ -107,7 +114,7 @@ describe('FactorTestForm', () => {
     expect(fetchMock.mock.calls.some((c) => String(c[0]) === '/api/jobs/factor-test')).toBe(false)
   })
 
-  it('提交默认载荷含默认勾选因子与默认表单值', async () => {
+  it('提交默认载荷含默认勾选因子与默认表单值, 起止留空不发键(后端默认=全历史)', async () => {
     const w = mountForm()
     await flushPromises()
     await w.find('[data-testid="ft-submit"]').trigger('click')
@@ -116,16 +123,30 @@ describe('FactorTestForm', () => {
     const call = fetchMock.mock.calls.find((c) => String(c[0]) === '/api/jobs/factor-test')
     expect(call).toBeTruthy()
     const body = JSON.parse((call?.[1] as { body: string }).body)
+    // 不含 start_date/end_date 键: 发 '' 会撞后端 pattern 校验 422, 留空必须省键
     expect(body).toEqual({
       factors: 'F01',
-      start_date: '',
-      end_date: '',
       objective: 'long_only',
       num_layers: 5,
       rebalance_days: 5,
       cost_rate: 0.003,
     })
     expect(w.find('[data-testid="ft-job-area"]').find('[data-testid="job-card"]').exists()).toBe(true)
+  })
+
+  it('填了起止日期则载荷带 start_date/end_date', async () => {
+    const w = mountForm()
+    await flushPromises()
+    const [startInput, endInput] = w.findAll('input.dp-stub')
+    await startInput!.setValue('2024-01-01')
+    await endInput!.setValue('2024-06-30')
+    await w.find('[data-testid="ft-submit"]').trigger('click')
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find((c) => String(c[0]) === '/api/jobs/factor-test')
+    const body = JSON.parse((call?.[1] as { body: string }).body)
+    expect(body.start_date).toBe('2024-01-01')
+    expect(body.end_date).toBe('2024-06-30')
   })
 
   it('lastSplitHint 预填切分日, 提交载荷带 split_date', async () => {
@@ -136,6 +157,31 @@ describe('FactorTestForm', () => {
     const call = fetchMock.mock.calls.find((c) => String(c[0]) === '/api/jobs/factor-test')
     const body = JSON.parse((call?.[1] as { body: string }).body)
     expect(body.split_date).toBe('2024-06-30')
+  })
+
+  it('起止全空显示「留空 = 全历史」提示', async () => {
+    const w = mountForm()
+    await flushPromises()
+    expect(w.find('[data-testid="ft-date-hint"]').text()).toBe('留空 = 全历史（2021-01-01 起）')
+  })
+
+  it('填任一端 → 提示改为区间回显(空端回显全历史语义), 清空后还原', async () => {
+    const w = mountForm()
+    await flushPromises()
+    const hint = () => w.find('[data-testid="ft-date-hint"]').text()
+    const [startInput, endInput] = w.findAll('input.dp-stub')
+
+    await startInput!.setValue('2024-01-01')
+    expect(hint()).toBe('检验区间：2024-01-01 ～ 全历史终点')
+
+    await endInput!.setValue('2024-06-30')
+    expect(hint()).toBe('检验区间：2024-01-01 ～ 2024-06-30')
+
+    await startInput!.setValue('') // 清空(naive clearable → null)
+    expect(hint()).toBe('检验区间：全历史起点 ～ 2024-06-30')
+
+    await endInput!.setValue('')
+    expect(hint()).toBe('留空 = 全历史（2021-01-01 起）')
   })
 
   it('勾选多因子且未设切分 → 显示多重检验提示', async () => {
