@@ -590,9 +590,10 @@ td code {
   color: var(--text-3);
 }
 
+/* R6-06: border 变色保留; 不再 outline:none 吞焦点环 — 键盘/文本输入聚焦时
+ * base.css 全局 :focus-visible 环(2px accent, offset 2px)照常生效 */
 .log-filter:focus {
   border-color: var(--accent);
-  outline: none;
 }
 
 /* 过滤命中统计: 右对齐贴过滤框正下方 */

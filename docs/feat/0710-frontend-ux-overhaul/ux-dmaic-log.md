@@ -121,3 +121,31 @@ Define：前四轮改进仅经"单测+静态暗色截图"验证；本轮用**新
 ### R5 遗留（低优先）
 - light 主题若干 hover 瞬时态 accent 小字 <4.5（axe 静态扫不到）——下轮批量套 accent-strong。
 - GlossaryTip 触发器 aria-label 用 term 键而非中文。
+
+---
+
+## R6（已完成 2026-07-11）— 瞬时态与降级态专项
+
+Define：静态可见缺陷已归零（R5）；剩余暗区=**时间维度上的状态**。仪器扩展 E 网络降级仿真（route abort，零服务端副作用）/ F 键盘全旅程 / G hover 对比度枚举 / pytest 抖动率。
+
+### Measure（12 findings + 1 工具链）
+- **R6-01（高）断连零指示坐实**：三张截图 MD5 逐字节相同——断连 13s 页面与实时无法区分（批二 isStale 从未接线的后果）。
+- 键盘旅程六页无焦点陷阱；3 处 `outline:none` 无环输入框；帮助浮层焦点困住但无可见落点。
+- hover 枚举 7/7 不达标（light 悬停掉到 accent 2.44-2.96——"悬停即降级"）。
+- **新真缺陷**：总览刷新留空日期 422——后端 `DataRefreshJobRequest` 两日期必填无默认，"留空=自动补缺口"只在 CLI 存在，**Web 通道从未走通**；帮助文案一直在撒谎。
+- pytest 抖动率：受控 5/5 全绿，此前 1 次红为不可复现瞬态（记录监控，不追凶）。
+
+### Improve（全部落地，680 vitest）
+- **StaleIndicator**：实盘页头常驻「数据更新于 HH:mm:ss」，断连转「⚠ 连接中断，显示 X 前数据，重试中…」（warn-strong 色 + aria-live），恢复自动回正——探针 E2.1 实测指示词出现 ✓。
+- 刷新表单前端必填校验（buildRefreshRequest 纯函数，载荷恰两非空键）+ 修正撒谎文案。
+- 错误横幅：技术串移出正文（存 title 悬停）+ Overview/Verdicts/FactorTestForm 接 dismissible。
+- 焦点环 3 处（chip-input×2 内嵌环 / log-filter 走全局环）；HotkeyHelp 开 closable 给焦点可见落点。
+- hover 7 处 → accent-strong（实算 5.57/5.14/4.69/4.59）；LvBadge pass/warn/fail → strong 三件套（C 节复扫揪出的最后漏网）。
+
+### Control
+探针 **E 8/8 PASS**（断连指示/恢复自愈/前端拦截零副作用）· **G 归零** · **C axe 双主题归零**；`verify_all --frontend` 六项全绿。E4 断言随新契约更新（空日期改由前端拦截，422 路径退役）。
+
+### R6 遗留（R7 候选）
+- BacktestForm/ML 表单同型空日期 422 隐患（日期有默认但 clearable 清空可触发）——同款 build*Request 收口。
+- Jobs 顶部聚合横幅未接 dismissible/technical；stale 指示器可复用到 Jobs 列表轮询。
+- GlossaryTip aria-label 用 term 键而非中文（R5 顺延）。

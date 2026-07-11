@@ -30,18 +30,19 @@ defineProps<{ kind: BadgeKind }>()
   color: var(--text-2);
 }
 
+/* 文字用 -strong 变体: 语义色压 16-18% 混合底不足 4.5(R5/R6 axe 实测同款病灶) */
 .pass {
   background: color-mix(in srgb, var(--c-pass) 16%, transparent);
-  color: var(--c-pass);
+  color: var(--c-pass-strong, var(--c-pass));
 }
 
 .warn {
   background: color-mix(in srgb, var(--c-warn) 18%, transparent);
-  color: var(--c-warn);
+  color: var(--c-warn-strong, var(--c-warn));
 }
 
 .fail {
   background: color-mix(in srgb, var(--c-fail) 16%, transparent);
-  color: var(--c-fail);
+  color: var(--c-fail-strong, var(--c-fail));
 }
 </style>

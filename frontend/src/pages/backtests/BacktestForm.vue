@@ -549,7 +549,7 @@ async function submitBacktest(): Promise<void> {
 
 .param-def--reset:hover,
 .param-def--reset:focus-visible {
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* R6-12a: 文字级 accent(静息态 inherit 灰阶, 不涉整改) */
   opacity: 1;
 }
 
@@ -621,6 +621,12 @@ async function submitBacktest(): Promise<void> {
   min-width: 180px;
   outline: none;
   padding: 4px 2px;
+}
+
+/* R6-05(同 Explorer R6-04): 补 input 自身焦点环, -2px 内嵌避免与 chips-box 边框叠挤 */
+.chip-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .suggest {

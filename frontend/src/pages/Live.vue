@@ -29,6 +29,7 @@ import { auditActionLabel } from './live/labels'
 import { badgeCount, cumReturn, num, sliceTime } from './live/logic'
 import OverviewPanel from './live/OverviewPanel.vue'
 import PositionsTable from './live/PositionsTable.vue'
+import StaleIndicator from './live/StaleIndicator.vue'
 import TableSkeleton from './live/TableSkeleton.vue'
 import TicketPanel from './live/TicketPanel.vue'
 
@@ -92,10 +93,16 @@ function auditUrl(): string {
 }
 
 // ---- 多端点并行轮询(各自独立, 单点失败互不牵连; 概览 5s, 明细 30s 降频) ----
-const { data: overviewData, error: overviewError } = usePolling<LiveOverview>(
-  () => fetchJSON<LiveOverview>('/api/live/overview'),
-  { intervalMs: POLL },
-)
+// isStale/lastSuccessAt(R6-01): 只消费主节拍 overview 端点的陈旧感知 — 它驱动 KPI 主数值,
+// 也是全页新鲜度的权威信号; 明细端点 30s 降频, 拿它们判陈旧会误报。
+const {
+  data: overviewData,
+  error: overviewError,
+  isStale: overviewStale,
+  lastSuccessAt: overviewLastSuccessAt,
+} = usePolling<LiveOverview>(() => fetchJSON<LiveOverview>('/api/live/overview'), {
+  intervalMs: POLL,
+})
 const {
   data: cyclesData,
   error: cyclesError,
@@ -300,6 +307,9 @@ const AUDIT_OPTIONS = [
       >
       为纸面模式。网页永远无法下单或修改交易配置。
     </PageHeader>
+
+    <!-- 连接状态行(R6-01): 常驻显示数据新鲜度, overview 轮询断连时就地转警示 -->
+    <StaleIndicator :is-stale="overviewStale" :last-success-at="overviewLastSuccessAt" />
 
     <ErrorBanner v-if="bannerMsg" :msg="bannerMsg" />
 

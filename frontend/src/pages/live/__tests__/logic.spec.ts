@@ -7,6 +7,7 @@ import {
   cumReturn,
   daemonBadge,
   equityAriaLabel,
+  formatClockTime,
   num,
   positionRow,
   returnPct,
@@ -54,6 +55,18 @@ describe('returnPct', () => {
     expect(returnPct(-0.1)).toBe('-10.00%')
     expect(returnPct(0)).toBe('+0.00%')
     expect(returnPct(0.12345)).toBe('+12.35%') // 四舍五入到 2 位
+  })
+})
+
+describe('formatClockTime(R6-01 连接状态行)', () => {
+  it('本地时钟 HH:mm:ss, 各段补零', () => {
+    // 用本地时区构造 Date, 断言不依赖运行环境时区
+    expect(formatClockTime(new Date(2026, 6, 9, 9, 5, 7).getTime())).toBe('09:05:07')
+    expect(formatClockTime(new Date(2026, 6, 9, 23, 59, 59).getTime())).toBe('23:59:59')
+  })
+
+  it('午夜零点全零', () => {
+    expect(formatClockTime(new Date(2026, 0, 1, 0, 0, 0).getTime())).toBe('00:00:00')
   })
 })
 

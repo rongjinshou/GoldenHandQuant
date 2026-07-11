@@ -297,7 +297,7 @@ tbody tr.expanded {
 }
 
 .ct-expand:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent); /* 图形边框走 3:1 门槛, 保留品牌橙 */
+  color: var(--accent-strong, var(--accent)); /* R6-09: light 裸 accent 悬停文字 2.96 → 5.57 */
 }
 </style>

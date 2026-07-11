@@ -224,7 +224,7 @@ td {
 }
 
 .dt-sort:hover {
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* R6-07: light 裸 accent 压卡底仅 2.74:1 → 5.14 */
 }
 
 /* 指示符恒占位一格: 无序时也占 1em, 排序切换不改表头宽度(thead 零布局漂移) */
@@ -270,7 +270,7 @@ tbody tr.row-clickable:hover {
 }
 
 .dt-expand:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent); /* 图形边框走 3:1 门槛, 保留品牌橙 */
+  color: var(--accent-strong, var(--accent)); /* R6-08: 文字级换 strong */
 }
 </style>

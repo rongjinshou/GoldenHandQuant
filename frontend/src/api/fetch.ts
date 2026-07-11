@@ -4,7 +4,8 @@ import { useJobsStore } from '@/stores/jobs'
  * - 404 记录不存在 / 422 参数校验失败(+ FastAPI detail) / 5xx 服务内部错误 / 503 服务暂时不可用
  * - 网络错误(fetch 抛 TypeError): 无法连接 dashboard 服务
  * - 503 且活跃任务>0: 转 DuckDB 写锁友好文案(样板保留)
- * - 原始技术串始终保留(消息尾括号 + err.technical 附加字段, 供"技术详情"展开) */
+ * - message 只留中文 lead(R6-02: 英文技术串内联括号伤扫读); 原始技术串仅存 err.technical,
+ *   由消费方决定呈现(ErrorBanner :technical → title 悬停可见) */
 
 export interface ApiError extends Error {
   status: number
@@ -32,7 +33,7 @@ function extractDetail(body: string): string | undefined {
   return undefined
 }
 
-/** status → 三段式中文(纯函数, 便于单测)。原始技术串保留在消息尾括号与 err.technical。 */
+/** status → 中文 lead(纯函数, 便于单测)。原始技术串不进 message, 仅存 err.technical。 */
 export function humanizeError(status: number, url: string, body: string): ApiError {
   const detail = extractDetail(body)
   const technical = `${status} ${url}: ${body.slice(0, 200)}`
@@ -48,7 +49,7 @@ export function humanizeError(status: number, url: string, body: string): ApiErr
   } else {
     lead = detail ? `请求失败：${detail}` : `请求失败（${status}）`
   }
-  const err = new Error(`${lead}（${technical}）`) as ApiError
+  const err = new Error(lead) as ApiError
   err.status = status
   err.technical = technical
   if (detail) err.detail = detail

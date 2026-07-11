@@ -544,6 +544,13 @@ onMounted(() => {
   padding: 4px 2px;
 }
 
+/* R6-04: outline:none 曾把全局焦点环一并抹掉, 键盘焦点只剩容器 :focus-within 变色兜底 —
+ * 给 input 自身补可见环; -2px 内嵌: chips-box 内衬仅 5px, 外扩环会与容器边框叠挤 */
+.chip-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .suggest {
   left: 0;
   list-style: none;
@@ -607,7 +614,7 @@ onMounted(() => {
 
 .recent-chip:hover:enabled {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* R6-10: light 裸 accent 压 soft 合成底仅 2.44 → 4.59 */
 }
 
 .recent-chip:disabled {
@@ -687,7 +694,7 @@ onMounted(() => {
 }
 
 .add-panel-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent); /* 图形边框走 3:1 门槛, 保留品牌橙 */
+  color: var(--accent-strong, var(--accent)); /* R6-11: 文字级换 strong */
 }
 </style>

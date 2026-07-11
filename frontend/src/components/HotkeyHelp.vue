@@ -4,8 +4,10 @@ import { NModal } from 'naive-ui'
 import { NAV_ITEMS } from '@/router'
 
 /* 快捷键帮助浮层('?' 唤起, R4 可发现性): 全站快捷键的唯一集中式说明。
- * Esc/遮罩点击/✕ 三途径关闭均由 NModal preset=card 默认行为覆盖(closeOnEsc/maskClosable
- * 默认 true, 均收敛到 update:show(false) — 同 FactorDetailModal 已验证结论), 本组件只透传 show。
+ * Esc/遮罩点击关闭由 NModal preset=card 默认行为覆盖(closeOnEsc/maskClosable 默认 true,
+ * 均收敛到 update:show(false) — 同 FactorDetailModal 已验证结论), 本组件只透传 show。
+ * closable(R6 F 节): 显式开 ✕ — 浮层正文全是静态文本, 无它则焦点困在 NModal 焦点陷阱的
+ * 哨兵间弹跳、Tab 无可落点; ✕ 是浮层内唯一可聚焦元素, 也是键盘用户的显式关闭途径。
  * 页签行从 NAV_ITEMS 动态生成: 路由增删页签时本浮层零改动跟随。 */
 defineProps<{ show: boolean }>()
 
@@ -18,6 +20,7 @@ const emit = defineEmits<{ 'update:show': [boolean] }>()
     preset="card"
     size="small"
     title="键盘快捷键"
+    closable
     :style="{ width: 'min(360px, 92vw)' }"
     data-testid="hotkey-help"
     @update:show="(v: boolean) => emit('update:show', v)"

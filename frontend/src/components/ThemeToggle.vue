@@ -37,8 +37,8 @@ const label = computed(() => (store.theme === 'dark' ? '切换到日间主题' :
 }
 
 .theme-toggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent); /* 图形边框走 3:1 门槛, 保留品牌橙 */
+  color: var(--accent-strong, var(--accent)); /* R6-12b: 悬停图符文字换 strong */
   transform: translateY(-1px);
 }
 </style>

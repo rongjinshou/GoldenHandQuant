@@ -2,6 +2,7 @@
 import { NButton, NDatePicker } from 'naive-ui'
 import { computed, ref } from 'vue'
 
+import type { ApiError } from '@/api/fetch'
 import { fetchJSON, postJSON } from '@/api/fetch'
 import type { BacktestRun, Job, OverviewData, StrategyMeta, VerdictRun } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
@@ -11,6 +12,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import PipelineMap from '@/components/PipelineMap.vue'
 
 import { backtestActivity, latestOf, verdictActivity } from './overview/recent-activity'
+import { buildRefreshRequest } from './overview/refresh-form'
 
 /* 数据资产总览 — 旧 pages/overview.js 对等:
  * 单次加载 /api/research/overview; 四表卡片; 空态; 数据刷新表单(data-refresh job)。 */
@@ -32,13 +34,21 @@ const TABLE_UNITS: Record<string, string> = {
 const data = ref<OverviewData | null>(null)
 const loading = ref(true)
 const error = ref('')
+// 技术详情(R6-02): 与 error 同生同灭, 经 ErrorBanner :technical 以 title 悬停呈现
+const errorTech = ref('')
+
+function clearError(): void {
+  error.value = ''
+  errorTech.value = ''
+}
 
 async function load(): Promise<void> {
   try {
     data.value = await fetchJSON<OverviewData>('/api/research/overview')
-    error.value = ''
+    clearError()
   } catch (e) {
     error.value = (e as Error).message
+    errorTech.value = (e as ApiError).technical ?? ''
   } finally {
     loading.value = false
   }
@@ -101,16 +111,21 @@ const submitting = ref(false)
 const refreshJobIds = ref<string[]>([])
 
 async function submitRefresh(): Promise<void> {
-  error.value = ''
+  clearError()
+  /* R6-03a: 后端 DataRefreshJobRequest 两日期必填无默认(空串撞 pattern、省键撞
+   * Field required, 都是 422) — 必填校验前置, 不发注定失败的请求(判定在 refresh-form.ts) */
+  const req = buildRefreshRequest(drStart.value, drEnd.value)
+  if (!req.ok) {
+    error.value = req.error
+    return
+  }
   submitting.value = true
   try {
-    const job = await postJSON<Job>('/api/jobs/data-refresh', {
-      start_date: drStart.value ?? '',
-      end_date: drEnd.value ?? '',
-    })
+    const job = await postJSON<Job>('/api/jobs/data-refresh', req.payload)
     refreshJobIds.value.unshift(job.job_id)
   } catch (e) {
     error.value = (e as Error).message
+    errorTech.value = (e as ApiError).technical ?? ''
   } finally {
     submitting.value = false
   }
@@ -129,7 +144,7 @@ function onRefreshDone(): void {
 
     <PipelineMap :overview="data" />
 
-    <ErrorBanner v-if="error" :msg="error" />
+    <ErrorBanner v-if="error" :msg="error" :technical="errorTech || undefined" dismissible @close="clearError" />
 
     <p v-if="data && totalRows === 0" class="t-muted" data-testid="overview-empty">
       暂无数据 — 先运行下方数据刷新（或 quant data refresh）。
@@ -215,7 +230,8 @@ function onRefreshDone(): void {
         <label>结束 <NDatePicker v-model:formatted-value="drEnd" value-format="yyyy-MM-dd" type="date" clearable data-testid="dr-end" /></label>
         <NButton type="primary" :loading="submitting" :disabled="submitting" data-testid="dr-submit" @click="submitRefresh">提交刷新任务</NButton>
       </div>
-      <p class="form-help t-muted">留空 = 按库内缺口自动补齐（默认全区间）；需 QMT 客户端在线。</p>
+      <!-- R6-03a: 旧文案"留空=自动补齐"是 CLI 语义, Web 接口两日期必填 — 文案对齐真实契约 -->
+      <p class="form-help t-muted">起止日期均必填（区间内只补库内缺口，如 2021-01-01 ～ 2025-12-31）；需 QMT 客户端在线。</p>
       <div data-testid="dr-job-area">
         <JobCard v-for="id in refreshJobIds" :key="id" :job-id="id" @done="onRefreshDone" />
       </div>

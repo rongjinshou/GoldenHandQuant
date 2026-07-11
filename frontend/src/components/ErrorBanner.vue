@@ -1,15 +1,17 @@
 <script setup lang="ts">
 /* 错误横幅: 底色用失败红三件套(此前误用品牌橙 --accent-soft)。
- * retry/close 可选, 默认关 → 现有 <ErrorBanner :msg/> 用法零破坏; 接线在批二。 */
-withDefaults(defineProps<{ msg: string; retryable?: boolean; dismissible?: boolean }>(), {
-  retryable: false,
-  dismissible: false,
-})
+ * retry/close/technical 可选, 默认关 → 现有 <ErrorBanner :msg/> 用法零破坏。
+ * technical(R6-02): 原始技术串(status+url+body)不进正文, 渲染为 title 悬停可见 —
+ * 正文只留中文 lead(与 api/fetch humanizeError 的 message/technical 分工对齐)。 */
+withDefaults(
+  defineProps<{ msg: string; technical?: string; retryable?: boolean; dismissible?: boolean }>(),
+  { technical: undefined, retryable: false, dismissible: false },
+)
 defineEmits<{ retry: []; close: [] }>()
 </script>
 
 <template>
-  <div class="error-banner" role="alert" data-testid="error-banner">
+  <div class="error-banner" role="alert" :title="technical" data-testid="error-banner">
     <span class="eb-msg">⚠ {{ msg }}</span>
     <span v-if="retryable || dismissible" class="eb-actions">
       <button v-if="retryable" type="button" class="eb-btn" @click="$emit('retry')">重试</button>

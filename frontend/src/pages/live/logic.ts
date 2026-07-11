@@ -22,6 +22,14 @@ export function sliceTime(s: string | null | undefined): string {
   return (s ?? '').slice(0, 19)
 }
 
+/* epoch 毫秒 → 本地时钟 HH:mm:ss(R6-01 连接状态行"数据更新于 …")。
+ * 手工补零而非 toLocaleTimeString: 输出不随运行环境 locale 漂移, 单测确定。 */
+export function formatClockTime(epochMs: number): string {
+  const d = new Date(epochMs)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 /* 权益 Y 轴刻度: 绝对值 ≥1 万显示 x.x万 */
 export function wan(v: number): string {
   return Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(1)}万` : `${v}`

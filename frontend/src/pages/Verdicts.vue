@@ -3,6 +3,7 @@ import { NButton, NPopconfirm, NSelect } from 'naive-ui'
 import { computed, getCurrentInstance, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import type { ApiError } from '@/api/fetch'
 import { deleteJSON, fetchJSON } from '@/api/fetch'
 import type { VerdictRun } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
@@ -22,8 +23,15 @@ import { loadVerdictsView, saveVerdictsView } from './verdicts/view-state'
  * 卡片替代表格行, 闸门轨道为签名元素, 点击卡片开详情弹框, 排序+过滤工具条。 */
 
 const error = ref('')
+// 技术详情(R6-02): 与 error 同生同灭, 经 ErrorBanner :technical 以 title 悬停呈现
+const errorTech = ref('')
 const loading = ref(true)
 const runs = ref<VerdictRun[]>([])
+
+function clearError(): void {
+  error.value = ''
+  errorTech.value = ''
+}
 const selectedIdx = ref(0)
 /* 新轮到达提示条(设计 §9): reload 保留原选中时, 用它非侵入告知"有更新的轮", 不强切。 */
 const newRunNotice = ref<string | null>(null)
@@ -54,9 +62,10 @@ async function loadVerdicts(): Promise<void> {
       const deepIdx = selectionFromRunParam(route?.query?.run, data.runs)
       if (deepIdx >= 0) selectedIdx.value = deepIdx
     }
-    error.value = ''
+    clearError()
   } catch (e) {
     error.value = (e as Error).message
+    errorTech.value = (e as ApiError).technical ?? ''
   } finally {
     firstLoad = false
     loading.value = false
@@ -93,6 +102,7 @@ async function deleteCurrentRun(): Promise<void> {
     await loadVerdicts()
   } catch (e) {
     error.value = (e as Error).message
+    errorTech.value = (e as ApiError).technical ?? ''
   } finally {
     deletingRun.value = false
   }
@@ -187,7 +197,7 @@ watch(
       先检验因子，判决结果随后以卡片呈现——左缘色条与闸门轨道标出 PASS/FAIL，点击卡片看全部细节。
     </PageHeader>
 
-    <ErrorBanner v-if="error" :msg="error" />
+    <ErrorBanner v-if="error" :msg="error" :technical="errorTech || undefined" dismissible @close="clearError" />
 
     <FactorTestForm
       :last-split-hint="lastSplitHint"

@@ -2,6 +2,7 @@
 import { NButton, NDatePicker, NInputNumber, NSelect } from 'naive-ui'
 import { computed, ref, watch } from 'vue'
 
+import type { ApiError } from '@/api/fetch'
 import { fetchJSON, postJSON } from '@/api/fetch'
 import type { Job, MetaFactor } from '@/api/types'
 import ErrorBanner from '@/components/ErrorBanner.vue'
@@ -24,6 +25,13 @@ const props = defineProps<{
 const emit = defineEmits<{ refresh: [] }>()
 
 const error = ref('')
+// 技术详情(R6-02): 与 error 同生同灭, 经 ErrorBanner :technical 以 title 悬停呈现
+const errorTech = ref('')
+
+function clearError(): void {
+  error.value = ''
+  errorTech.value = ''
+}
 
 interface ChipGroup {
   group: string
@@ -49,6 +57,7 @@ async function loadFactorMeta(): Promise<void> {
     checked.value = new Set(p0?.chips.filter((c) => !c.disabled).map((c) => c.factor.factor_id))
   } catch (e) {
     error.value = (e as Error).message
+    errorTech.value = (e as ApiError).technical ?? ''
   }
 }
 
@@ -140,7 +149,7 @@ const dateHint = computed(() =>
 )
 
 async function submitFactorTest(): Promise<void> {
-  error.value = ''
+  clearError()
   if (checked.value.size === 0) {
     error.value = '至少勾选一个因子'
     return
@@ -164,6 +173,7 @@ async function submitFactorTest(): Promise<void> {
     ftJobIds.value.unshift(job.job_id)
   } catch (e) {
     error.value = (e as Error).message
+    errorTech.value = (e as ApiError).technical ?? ''
   } finally {
     submitting.value = false
   }
@@ -173,7 +183,7 @@ async function submitFactorTest(): Promise<void> {
 <template>
   <details class="card form-card" open data-testid="factor-test-form">
     <summary>因子检验</summary>
-    <ErrorBanner v-if="error" :msg="error" />
+    <ErrorBanner v-if="error" :msg="error" :technical="errorTech || undefined" dismissible @close="clearError" />
     <div v-if="chipGroups.length" class="factor-toolbar">
       <span v-if="applyNotice" class="apply-notice" role="status" data-testid="ft-last-run-notice">
         {{ applyNotice }}
