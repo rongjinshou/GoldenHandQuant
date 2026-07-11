@@ -1,15 +1,20 @@
-# ShopHub 设计-实现一致性 — 已验证发现知识库（findings.md）
+# ShopHub 设计-实现一致性 — 已验证发现索引（findings.md）
 
-本文件是 Stage 1 离线审查产出的**人可审查发现索引**。12 个模块审查 agent 逐模块比对
+> **本文件在本作品里的定位：背景/溯源资料，不是执行入口。** 实际执行路径是
+> `INSTRUCTION.md` → `work/bugs/README.md`（批次表）→ 19 个按批次组织的详细卡片文件
+> （`S1-quick-wins.md`、`S2-events.md`、各模块 `.md`、`S3-audit.md`、`S4-config.md`）——那 19
+> 份文件里的每条卡片都是**自包含**的（文件/现状/期望/改法/验收/勿犯全齐），执行 agent 不需要
+> 也不应该回来读本文件。保留本文件是因为它的「尽调后明确放弃」「已识别但未实施」两节，以及
+> 末尾的验证历史记录，包含 19 份卡片文件里没有逐字复制的推理过程，供人工审阅溯源用。
+
+本文件是离线审查阶段产出的**人可审查发现索引**。12 个模块审查 agent 逐模块比对
 `design-docs/`（冻结验收基准）+ `README.md`（冻结 REST 契约）与 `code/`（唯一待修对象），
 每一条发现整理为 **症状 → 设计依据 → 修复** 三要素。
 
-- **母版来源**：`docs/superpowers/specs/2026-07-05-consistency-fixer-design.md` §6（逐模块发现表）。
-- **集成缺陷来源**：`.superpowers/sdd/progress.md` 的「Task 13 集成缺陷日志」（全系统联调阶段发现）。
-- **落地形态**：本目录 `knowledge-base/code/` 下按原始相对路径存放的每个被改文件即为**已应用修复后的最终内容**，
-  与 `baseline-hashes.txt`（基线 commit `1b1e88f` 的 SHA-256）配套，由 `apply.sh` 做 hash 门控后写入目标工程。
-  下表所有条目均已在本地实修并通过 `mvn -f code/pom.xml test` + `mvn -f test-cases/pom.xml test` 验证。
-- **规模**：第一轮（模块级 97 项 + 跨模块集成 8 项 = 105 项）+ 第二轮深审（§7，28 项）+ 第三轮深审（§8，Batch 1 模块内 11 项 + Batch 2 跨领域 9 项 = 20 项），合计 **153 项**。
+- **验证状态**：下表所有条目均已在作者侧实修，并通过 `mvn -f code/pom.xml test` +
+  `mvn -f test-cases/pom.xml test`（公开黑盒 24 例）验证——修复后的目标代码已直接写进
+  19 份卡片文件的「改法」里，本文件只保留发现本身。
+- **规模**：第一轮（模块级 97 项 + 跨模块集成 8 项 = 105 项）+ 第二轮深审（§7，28 项）+ 第三轮深审（§8，模块内 11 项 + 跨领域 9 项 = 20 项），合计 **153 项**。
 - **置信度**：`definite` = 确定性 bug，已确定性修复；`suspicious` = 需结合隐藏用例/上下文判断，已按设计文档最合理解释修复。
 - **设计依据缩写**：`03` 指 `design-docs/03-通用规范与非功能设计.md`，`04..15` 为对应模块设计文档，
   `附录A/B/C/D` 为对应附录，`README §6/§7` 为冻结 REST 契约 / 错误码，`PUB-xxx` 为对应公开黑盒用例。
@@ -215,7 +220,7 @@
 
 ## 跨模块集成缺陷（Task 13）
 
-全系统联调（`.superpowers/sdd/progress.md`「Task 13 集成缺陷日志」）阶段，在 12 个模块单独修复合并后、
+全系统联调阶段，在 12 个模块单独修复合并后、
 跑全量黑盒时暴露的**跨模块接线缺陷**。这些是单模块视角看不到、必须在整机集成才显现的问题，逐一定位并修复：
 
 | 编号 | 根因 | 修复 |
@@ -227,7 +232,7 @@
 | **BUG-INT-5** ShipmentDeliveredEvent 无监听者 | 发货签收后 logistics 发 `ShipmentDeliveredEvent`，但全仓无监听者 → 订单永远停在 PAID → `OrderQueryServiceImpl.verifyPurchase` 只认 DELIVERED/COMPLETED → 评价被拒。设计意图（附录D §4：order 监听 `ShipmentDeliveredEvent`）就是靠该事件把订单推到 DELIVERED。 | 新增 order 模块 `ShipmentDeliveredEventListener`（AFTER_COMMIT+REQUIRES_NEW），链式校验 PAID→PICKING→SHIPPED→DELIVERED 后置 DELIVERED；幂等（已 DELIVERED/COMPLETED 跳过）。 |
 | **BUG-INT-6** 支付后库存不扣减 | 支付成功后库存从不扣减——`OrderPaymentEventHandler.handlePaymentSuccess`（会扣减）是死代码（0 次执行），真实路径 `OrderQueryServiceImpl.markAsPaid` 只置 PAID+发 `OrderPaidEvent`，不扣库存；无任何 `PaymentSucceededEvent` 监听者做扣减（违反附录D §3：inventory 为 `PaymentSucceededEvent` 监听方）。 | 新增 inventory `PaymentSucceededInventoryListener`（AFTER_COMMIT+REQUIRES_NEW）调幂等的 `deductAfterPayment(orderId)`（预占→扣 onHand+reserved、生成 OutboundOrder）。 |
 | **BUG-INT-7** verifyPurchase 排序字段不存在 | `OrderService.verifyPurchase`（controller 路径）按 `Sort.by("deliveredAt")` 排序，但 Order 实体无 `deliveredAt` 列 → 调 REST `/verify-purchase` 会 `PropertyReferenceException` 500。 | 改按 `"createdAt"` 排（与端口实现一致；签收由 DELIVERED 状态体现而非时间列）。 |
-| **加固** orderNo 同毫秒碰撞 | `generateOrderNo()` 原用 `currentTimeMillis()%10000` 生成序列号，同一毫秒内创建的多笔订单（批量下单）会产生相同 orderNo，违反其唯一约束。 | 改用单调递增计数器 `orderSequence.incrementAndGet()%10000`；所有单笔/批量下单都经同一 `OrderService` bean，计数器共享、无碰撞（commit 9e6274e）。 |
+| **加固** orderNo 同毫秒碰撞 | `generateOrderNo()` 原用 `currentTimeMillis()%10000` 生成序列号，同一毫秒内创建的多笔订单（批量下单）会产生相同 orderNo，违反其唯一约束。 | 改用单调递增计数器 `orderSequence.incrementAndGet()%10000`；所有单笔/批量下单都经同一 `OrderService` bean，计数器共享、无碰撞。 |
 
 ---
 
@@ -304,7 +309,7 @@
 审计 agent，每个先与本文件 §1–§7 逐条去重，只报「新发现」或「复核后判定修复不完整」。汇总裁决后分三批
 实施，每批之后重跑 24 例黑盒确认无回归。
 
-### Batch 1 — 模块内确定性修复（11 项，commit `d08e1cc`）
+### 模块内确定性修复（11 项）
 
 | # | 症状 | 位置 | 置信度 | 设计依据 | 修复 |
 |---|------|------|--------|----------|------|
@@ -320,7 +325,7 @@
 | 10 | 发票税额两步舍入（`setScale(4)`→`roundToCent`）与 `RefundCalculator` 单步不一致，边界值可差 1 分 | `InvoiceService.generateInvoice` | likely | 14§4 + 03§1 | 改单步 `MonetaryUtil.multiply` |
 | 11 | 同一 `couponId` 在一次请求里出现两次会被双重计算折扣 | `PromotionCalculationService.calculateCouponDiscount` | likely | 10§2（一券一单一次） | `couponIds.stream().distinct()` |
 
-### Batch 2 — 跨领域深审修复（9 项，commit `bf0928a`）
+### 跨领域深审修复（9 项）
 
 | # | 症状 | 位置 | 置信度 | 设计依据 | 修复 |
 |---|------|------|--------|----------|------|
@@ -334,7 +339,7 @@
 | 8 | 开票成功从不发通知 | `InvoiceService.generateInvoice` | definite | 15§2（发票通知 → EMAIL） | 注入 `LocalNotificationService`，开票后发 EMAIL（best-effort，失败不影响主流程） |
 | 9 | 物流全流程从不发「发货提醒」 | `ShipmentService.outbound` | definite | 15§2（发货提醒 → SMS） | 出库后发 SMS（best-effort，失败不影响主流程） |
 
-### Batch 3 — 事件失败落库（1 项，跨 6 监听器，commit `4d99953`）
+### 事件失败落库（1 项，跨 6 监听器）
 
 | # | 症状 | 位置 | 置信度 | 设计依据 | 修复 |
 |---|------|------|--------|----------|------|
@@ -354,4 +359,4 @@
 
 ---
 
-*验证结果：完整公开黑盒套件（`PubBasicFlowTest` PUB-001..016 + `PubAdditionalBehaviorTest` PUB-101..108，共 24 例）在清空上下文的重复独立运行下稳定 **24/24 全绿**（第一轮 6+ 次、第二/三轮每个批次提交前各 1 次，累计 17+ 次）。三轮全部改动已通过端到端干跑验证：pristine 基线 `1b1e88f` → `apply.sh`（checked=216/fix=166/added=37/deleted=13/failed=0，RESULT: OK）→ 修复树与工作树逐字节一致（唯一差异为 H2 运行时 `data/` 目录，已 gitignore）→ 独立构建 → 黑盒 24/24 → 再跑 `apply.sh` 幂等（fix=0/added=0/already-fixed=203/del-absent=13）→ `apply.py` 独立复跑结果一致。*
+*验证结果：完整公开黑盒套件（`PubBasicFlowTest` PUB-001..016 + `PubAdditionalBehaviorTest` PUB-101..108，共 24 例）在清空上下文的重复独立运行下稳定 **24/24 全绿**（第一轮 6+ 次、第二/三轮每个批次提交前各 1 次，累计 17+ 次）。三轮全部改动已在作者侧通过端到端干跑验证：从未修复的原始工程出发，应用全部修复（166 处修改 + 37 处新增 + 13 处删除，零失败）→ 独立构建 → 黑盒 24/24 全绿，且修复应用过程验证过幂等（重复应用不产生任何额外改动）。各卡片「改法」里给出的目标代码即来自这份已验证的最终实现。*

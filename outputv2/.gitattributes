@@ -1,0 +1,2 @@
+# 交付物内的 shell 脚本必须以 LF 行尾检出/打包——CRLF 会让 bash 把行尾 \r 当作命令的一部分
+*.sh text eol=lf

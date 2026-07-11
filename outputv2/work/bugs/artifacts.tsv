@@ -1,0 +1,133 @@
+# artifacts.tsv — 批次产物确定性断言清单（check-batch.sh 的数据源，防「空心批次」）
+# 每行 4 列，TAB 分隔：批次<TAB>断言类型<TAB>路径（code/ 相对）<TAB>参数
+#   exists = 该文件必须存在（卡片【新增】的文件；参数留空）
+#   absent = 该文件必须不存在（卡片【删除】的文件；参数留空）
+#   grep   = 该文件里必须能 grep -F 命中固定字符串（参数 = 字符串，非正则；取自卡片「改法」的载重锚点）
+# 收录原则：只收「正常按批次表顺序执行时必然成立」的无条件产物；有条件卡（LOY-10 去重占位、
+# EVT-A3 第 5 步"若存在"分支、USER-4 的"推荐一并加"测试等）不收录，避免误报。
+# 每条断言均已双向验证：参考实现（终态）命中、未修复基线不命中。
+#
+# B01 S1-quick-wins：金额舍入 / 异常构造器 / 错误码
+B01	grep	ecommerce-common/src/main/java/com/ecommerce/common/money/MonetaryUtil.java	RoundingMode.HALF_UP
+B01	grep	ecommerce-common/src/main/java/com/ecommerce/common/exception/ConflictException.java	public ConflictException(String code, String message)
+B01	grep	ecommerce-product/src/main/java/com/ecommerce/product/service/ProductQueryServiceImpl.java	PRODUCT_NOT_FOR_SALE
+#
+# B02 user：注册激活（USER-1）/ 安全配置去重（USER-6 新增测试支撑）
+B02	grep	ecommerce-user/src/main/java/com/ecommerce/user/service/UserRegisterService.java	PENDING_ACTIVATION
+B02	exists	ecommerce-user/src/test/java/com/ecommerce/user/config/TestSecurityConfig.java
+#
+# B03 order §A：金额校验异常（ORD-A4）/ externalOrderNo 幂等（ORD-A9）/ 订单创建通知（ORD-A16）
+B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderValidator.java	OrderValidationException
+B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java	findByExternalOrderNoAndUserId
+B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/listener/OrderEventListener.java	LocalNotificationService
+#
+# B04 order §B：积分抵扣真扣减（ORD-B8）/ 免运费阈值读运行时配置（ORD-B5）
+B04	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java	redeemPoints
+B04	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderTotalCalculator.java	free-shipping-threshold
+#
+# B05 promotion：秒杀接入（PROMO-8 新增 2 文件）/ 券核销标记（PROMO-4/13）
+B05	exists	ecommerce-promotion/src/main/java/com/ecommerce/promotion/entity/SeckillPurchaseRecord.java
+B05	exists	ecommerce-promotion/src/main/java/com/ecommerce/promotion/repository/SeckillPurchaseRecordRepository.java
+B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/CouponService.java	markUsed
+#
+# B06 payment §A：支付侧通知监听器（PAY-A2 新增）/ 枚举值对齐附录C（PAY-A1）/ 回调验签（PAY-A4）
+B06	exists	ecommerce-payment/src/main/java/com/ecommerce/payment/service/PaymentSucceededNotificationListener.java
+B06	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/entity/PaymentStatus.java	CLOSED
+B06	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/PaymentCallbackService.java	valid-signature
+#
+# B07 payment §B：发票幂等键（PAY-B1）/ 结算退款汇总接入退款仓储（PAY-B2）
+B07	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/InvoiceService.java	findByInvoiceRequestNo
+B07	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/SettlementBatchService.java	RefundRecordRepository
+#
+# B08 product：搜索标签过滤（PRODUCT-3 新增 2 文件）/ 库存摘要接入 inventory（PRODUCT-1）
+B08	exists	ecommerce-product/src/main/java/com/ecommerce/product/entity/SpuTagRelation.java
+B08	exists	ecommerce-product/src/main/java/com/ecommerce/product/repository/SpuTagRelationRepository.java
+B08	grep	ecommerce-product/src/main/java/com/ecommerce/product/service/StockInfoFetcher.java	InventoryQueryService
+#
+# B09 inventory：库存摘要 30 秒缓存（INV-4 新增）/ 冻结错误码（INV-7）/ 扣减生成出库单（INV-3）
+B09	exists	ecommerce-inventory/src/main/java/com/ecommerce/inventory/config/InventoryCacheConfig.java
+B09	grep	ecommerce-inventory/src/main/java/com/ecommerce/inventory/service/InventoryReservationServiceImpl.java	INVENTORY_NOT_ENOUGH
+B09	grep	ecommerce-inventory/src/main/java/com/ecommerce/inventory/service/InventoryReservationServiceImpl.java	OutboundOrder
+#
+# B10 cart：纯缓存购物车（CART-1 删除 5 个 JPA 文件 + 重写接缓存）/ 估价接促销（CART-3）
+B10	absent	ecommerce-cart/src/main/java/com/ecommerce/cart/entity/Cart.java
+B10	absent	ecommerce-cart/src/main/java/com/ecommerce/cart/entity/CartItem.java
+B10	absent	ecommerce-cart/src/main/java/com/ecommerce/cart/entity/CartStatus.java
+B10	absent	ecommerce-cart/src/main/java/com/ecommerce/cart/repository/CartRepository.java
+B10	absent	ecommerce-cart/src/main/java/com/ecommerce/cart/repository/CartItemRepository.java
+B10	grep	ecommerce-cart/src/main/java/com/ecommerce/cart/service/CartService.java	CartCacheManager
+B10	grep	ecommerce-cart/src/main/java/com/ecommerce/cart/dto/CartEstimateResponse.java	applicableCoupons
+#
+# B11 common：通知失败落记录（COMMON-2）/ 请求体解析失败按 VALIDATION_FAILED（COMMON-3）
+B11	grep	ecommerce-common/src/main/java/com/ecommerce/common/notification/NotificationRecordService.java	recordFailure
+B11	grep	ecommerce-common/src/main/java/com/ecommerce/common/exception/GlobalExceptionHandler.java	HttpMessageNotReadableException
+#
+# B12 app：401/403 契约错误体（APP-3 新增 2 处理器 + 挂 exceptionHandling）/ verify-purchase 双角色（APP-2）
+B12	exists	ecommerce-app/src/main/java/com/ecommerce/app/security/RestAuthenticationEntryPoint.java
+B12	exists	ecommerce-app/src/main/java/com/ecommerce/app/security/RestAccessDeniedHandler.java
+B12	grep	ecommerce-app/src/main/java/com/ecommerce/app/SecurityConfig.java	exceptionHandling
+B12	grep	ecommerce-app/src/main/java/com/ecommerce/app/SecurityConfig.java	hasAnyRole("USER", "ADMIN")
+#
+# B13 S2-events §A：common 权威事件 5 类（EVT-A1 新增）/ logistics 监听器与测试（EVT-A5 新增）/
+#     影子事件类与冗余监听器删除（EVT-A2/A3/A4/A6）/ markAsPaid 发布真事件（EVT-A7）
+B13	exists	ecommerce-common/src/main/java/com/ecommerce/common/event/OrderPaidEvent.java
+B13	exists	ecommerce-common/src/main/java/com/ecommerce/common/event/PaymentSucceededEvent.java
+B13	exists	ecommerce-common/src/main/java/com/ecommerce/common/event/RefundCompletedEvent.java
+B13	exists	ecommerce-common/src/main/java/com/ecommerce/common/event/ReviewApprovedEvent.java
+B13	exists	ecommerce-common/src/main/java/com/ecommerce/common/event/ShipmentDeliveredEvent.java
+B13	exists	ecommerce-logistics/src/main/java/com/ecommerce/logistics/event/OrderPaidEventListener.java
+B13	exists	ecommerce-logistics/src/test/java/com/ecommerce/logistics/event/OrderPaidEventListenerTest.java
+B13	absent	ecommerce-order/src/main/java/com/ecommerce/order/event/OrderPaidEvent.java
+B13	absent	ecommerce-payment/src/main/java/com/ecommerce/payment/event/PaymentSucceededEvent.java
+B13	absent	ecommerce-payment/src/main/java/com/ecommerce/payment/event/RefundCompletedEvent.java
+B13	absent	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/event/OrderPaidEvent.java
+B13	absent	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/event/ReviewApprovedEvent.java
+B13	absent	ecommerce-review/src/main/java/com/ecommerce/review/event/ReviewApprovedEvent.java
+B13	absent	ecommerce-review/src/main/java/com/ecommerce/review/service/ReviewApprovedEventListener.java
+B13	absent	ecommerce-review/src/test/java/com/ecommerce/review/event/ReviewApprovedEventListenerTest.java
+B13	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderQueryServiceImpl.java	com.ecommerce.common.event.OrderPaidEvent
+#
+# B14 logistics：运费模板 30 分钟缓存（LOGI-7 新增 2 文件）/ 回调验签+幂等（LOGI-5）/ 省份/重量规则参与计算（LOGI-7）
+B14	exists	ecommerce-logistics/src/main/java/com/ecommerce/logistics/config/FreightCacheConfig.java
+B14	exists	ecommerce-logistics/src/main/java/com/ecommerce/logistics/cache/FreightTemplateCacheManager.java
+B14	grep	ecommerce-logistics/src/main/java/com/ecommerce/logistics/service/LogisticsCallbackService.java	valid-signature
+B14	grep	ecommerce-logistics/src/main/java/com/ecommerce/logistics/service/FreightCalculator.java	getProvinceRules()
+#
+# B15 loyalty：年消费统计=事件喂养的本地累计（LOY-5「公开本地查询契约」，绝非直调 OrderQueryService）/ 积分过期定时扫描（LOY-8）
+B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/repository/OrderDataFetcher.java	recordPayment
+B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/service/PointsExpireService.java	@Scheduled
+#
+# B16 S2-events §B：三个跨模块监听器（EVT-B1/B2/B3 新增）+ 监听失败落库（EVT-B4）
+#     ——正是实测中被"空心化"的批次：三个文件全缺、failureRecorder 零命中，verify 却照样固化
+B16	exists	ecommerce-inventory/src/main/java/com/ecommerce/inventory/event/PaymentSucceededInventoryListener.java
+B16	exists	ecommerce-order/src/main/java/com/ecommerce/order/listener/ShipmentDeliveredEventListener.java
+B16	exists	ecommerce-order/src/main/java/com/ecommerce/order/listener/RefundCompletedEventListener.java
+B16	grep	ecommerce-common/src/main/java/com/ecommerce/common/event/DomainEventPublisher.java	recordListenerFailure
+B16	grep	ecommerce-inventory/src/main/java/com/ecommerce/inventory/event/PaymentSucceededInventoryListener.java	failureRecorder
+B16	grep	ecommerce-order/src/main/java/com/ecommerce/order/listener/ShipmentDeliveredEventListener.java	failureRecorder
+B16	grep	ecommerce-order/src/main/java/com/ecommerce/order/listener/RefundCompletedEventListener.java	failureRecorder
+#
+# B17 review：敏感词播种（REV-7 新增）/ 购买+签收校验（REV-1）
+B17	exists	ecommerce-review/src/main/java/com/ecommerce/review/config/SensitiveWordSeeder.java
+B17	grep	ecommerce-review/src/main/java/com/ecommerce/review/service/ReviewService.java	verifyPurchase
+#
+# B18 S3-audit：审计基础设施 3 文件（AUD-1 新增）+ 6 个服务的审计接入（AUD-2..AUD-7）
+B18	exists	ecommerce-common/src/main/java/com/ecommerce/common/audit/AuditLogEntry.java
+B18	exists	ecommerce-common/src/main/java/com/ecommerce/common/audit/AuditLogRepository.java
+B18	exists	ecommerce-common/src/main/java/com/ecommerce/common/audit/AuditLogService.java
+B18	grep	ecommerce-user/src/main/java/com/ecommerce/user/service/UserAuthService.java	AuditLogService
+B18	grep	ecommerce-product/src/main/java/com/ecommerce/product/service/SkuService.java	AuditLogService
+B18	grep	ecommerce-inventory/src/main/java/com/ecommerce/inventory/service/StockAdjustmentService.java	AuditLogService
+B18	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/RefundService.java	AuditLogService
+B18	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/InvoiceService.java	AuditLogService
+B18	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/SettlementBatchService.java	AuditLogService
+#
+# B19 S4-config：商品详情缓存（CFG-5 新增 2 文件 + 接线）+ 4 处限流注解（CFG-1..CFG-4）
+B19	exists	ecommerce-product/src/main/java/com/ecommerce/product/config/ProductCacheConfig.java
+B19	exists	ecommerce-product/src/main/java/com/ecommerce/product/cache/ProductDetailCacheManager.java
+B19	grep	ecommerce-product/src/main/java/com/ecommerce/product/service/ProductDetailService.java	ProductDetailCacheManager
+B19	grep	ecommerce-user/src/main/java/com/ecommerce/user/controller/UserController.java	@RateLimit
+B19	grep	ecommerce-product/src/main/java/com/ecommerce/product/controller/ProductController.java	@RateLimit
+B19	grep	ecommerce-order/src/main/java/com/ecommerce/order/controller/OrderController.java	@RateLimit
+B19	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/controller/PaymentController.java	@RateLimit
+B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/controller/PromotionController.java	getAuthentication().getName()

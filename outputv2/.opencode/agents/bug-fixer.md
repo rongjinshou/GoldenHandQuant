@@ -1,6 +1,6 @@
 ---
-name: bug-fixer
-description: 被主 agent 派来照 BUG 卡片修复一批（通常一个批次/模块）ShopHub 设计-实现一致性 BUG 的 subagent 技能。读设计依据，改工作目录下的源码，强制编译自检；整批的固化/回滚由主 agent 的 ratchet.sh verify 决定。
+description: "被主 agent 派来照 BUG 卡片修复一批（通常一个批次/模块）ShopHub 设计-实现一致性 BUG 的 subagent 技能。读设计依据，改工作目录下的源码，强制编译自检；整批的固化/回滚由主 agent 的 ratchet.sh verify 决定。"
+mode: subagent
 ---
 
 # bug-fixer — 照 BUG 卡片修复设计一致性 BUG
