@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { NPopconfirm } from 'naive-ui'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 
 import type { Job, JobStatus } from '@/api/types'
 import { useJobsStore } from '@/stores/jobs'
@@ -58,6 +59,15 @@ function bodyOf(url: string): unknown {
   const call = fetchMock.mock.calls.find((c) => String(c[0]) === url)
   if (!call) return null
   return JSON.parse((call[1] as { body: string }).body)
+}
+
+/* stub 组件(NDatePicker/NInput = true)按 data-testid 定位后发 v-model 更新事件 —
+ * findComponent(string) 的类型是 WrapperLike(无 vm), 运行时实为组件包装器, 此处收窄 */
+function emitStub(w: ReturnType<typeof mountJobs>, testid: string, event: string, value: unknown): void {
+  const stub = w.findComponent(`[data-testid="${testid}"]`) as unknown as {
+    vm: { $emit(e: string, v: unknown): void }
+  }
+  stub.vm.$emit(event, value)
 }
 
 function mountJobs() {
@@ -335,6 +345,53 @@ describe('Jobs ML 表单', () => {
     })
   })
 
+  /* R7(R6 遗留): 日期有默认但 clearable, 清空提交撞后端 pattern 422 —
+   * 前端必填校验前置(纯函数矩阵在 jobs/__tests__/ml-forms.spec, 此处验组件接线) */
+  it('训练起始日期清空 → 拦截: 零 ml-train 请求 + 横幅提示训练起止必填', async () => {
+    const w = mountJobs()
+    await flushPromises()
+
+    // NDatePicker clearable 清空 = v-model:formatted-value 收到 null
+    emitStub(w, 'ml-start', 'update:formattedValue', null)
+    await nextTick()
+    await w.find('[data-testid="ml-train-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(urls(/\/api\/jobs\/ml-train$/)).toHaveLength(0)
+    expect(w.find('[data-testid="error-banner"]').text()).toContain('训练起止日期均必填')
+  })
+
+  it('评估结束日期清空 → 拦截: 零 ml-evaluate 请求 + 横幅提示评估起止必填', async () => {
+    const w = mountJobs()
+    await flushPromises()
+
+    emitStub(w, 'mle-end', 'update:formattedValue', null)
+    await nextTick()
+    await w.find('[data-testid="ml-eval-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(urls(/\/api\/jobs\/ml-evaluate$/)).toHaveLength(0)
+    expect(w.find('[data-testid="error-banner"]').text()).toContain('评估起止日期均必填')
+  })
+
+  it('模型名清空 → 训练/评估均拦截(后端 pattern 字段, 空串必 422)', async () => {
+    const w = mountJobs()
+    await flushPromises()
+
+    emitStub(w, 'ml-model', 'update:value', '')
+    await nextTick()
+
+    await w.find('[data-testid="ml-train-submit"]').trigger('click')
+    await flushPromises()
+    expect(urls(/\/api\/jobs\/ml-train$/)).toHaveLength(0)
+    expect(w.find('[data-testid="error-banner"]').text()).toContain('模型名必填')
+
+    await w.find('[data-testid="ml-eval-submit"]').trigger('click')
+    await flushPromises()
+    expect(urls(/\/api\/jobs\/ml-evaluate$/)).toHaveLength(0)
+    expect(w.find('[data-testid="error-banner"]').text()).toContain('模型名必填')
+  })
+
   it('训练提交 pending: 提交期间按钮禁用防双击, 完成后复位', async () => {
     // 训练 POST 悬挂以观察 pending 中间态; 其余 URL 复用 beforeEach 实现
     const base = fetchMock.getMockImplementation()! as (i: unknown, init?: { method?: string }) => unknown
@@ -362,5 +419,107 @@ describe('Jobs ML 表单', () => {
     release()
     await flushPromises()
     expect((w.find('[data-testid="ml-train-submit"]').element as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+describe('Jobs 聚合横幅(R7: dismissible/technical)', () => {
+  it('首载失败: 横幅带 technical(title), ✕ 关闭后屏蔽跨失败 tick 保持, 成功 tick 复位', async () => {
+    let listFail = true
+    const base = fetchMock.getMockImplementation()! as (i: unknown, init?: { method?: string }) => unknown
+    fetchMock.mockImplementation((input: unknown, init?: { method?: string }) => {
+      const url = String(input)
+      if (url.startsWith('/api/jobs?limit=')) {
+        if (listFail) return Promise.reject(new Error('conn refused'))
+        return jsonResp({ jobs: listJobs, active: true })
+      }
+      return base(input, init)
+    })
+    const w = mountJobs()
+    await flushPromises()
+
+    const banner = w.find('[data-testid="error-banner"]')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('无法连接')
+    expect(banner.attributes('title')).toContain('conn refused') // 技术串不进正文, title 悬停
+
+    await banner.find('button[aria-label="关闭"]').trigger('click')
+    expect(w.find('[data-testid="error-banner"]').exists()).toBe(false)
+
+    // 首载成功前每个失败 tick 都换新 listError 对象 — 屏蔽须跨 tick 保持, 否则 5s 后横幅还魂
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+    expect(w.find('[data-testid="error-banner"]').exists()).toBe(false)
+
+    // 下次成功 tick 自愈: listError → null 复位屏蔽, 列表照常渲染
+    listFail = false
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+    expect(w.find('[data-testid="error-banner"]').exists()).toBe(false)
+    expect(w.findAll('[data-testid="job-row"]')).toHaveLength(3)
+  })
+
+  it('操作错误(取消 500): 正文中文 lead + technical 透传, ✕ 关闭即清', async () => {
+    const base = fetchMock.getMockImplementation()! as (i: unknown, init?: { method?: string }) => unknown
+    fetchMock.mockImplementation((input: unknown, init?: { method?: string }) => {
+      const url = String(input)
+      if (/\/api\/jobs\/[^/?]+\/cancel$/.test(url)) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({}),
+          text: () => Promise.resolve('boom'),
+        })
+      }
+      return base(input, init)
+    })
+    const w = mountJobs()
+    await flushPromises()
+
+    await w.findAll('[data-testid="job-cancel-confirm"]')[0].trigger('click')
+    await flushPromises()
+
+    const banner = w.find('[data-testid="error-banner"]')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('服务内部错误')
+    expect(banner.attributes('title')).toContain('500')
+    expect(banner.attributes('title')).toContain('boom')
+
+    await banner.find('button[aria-label="关闭"]').trigger('click')
+    expect(w.find('[data-testid="error-banner"]').exists()).toBe(false)
+  })
+})
+
+describe('Jobs 列表陈旧指示(R7: 复用 StaleIndicator)', () => {
+  it('成功显「数据更新于」, 断连超 2×interval 转警示且不打横幅, 恢复自愈', async () => {
+    let listFail = false
+    const base = fetchMock.getMockImplementation()! as (i: unknown, init?: { method?: string }) => unknown
+    fetchMock.mockImplementation((input: unknown, init?: { method?: string }) => {
+      const url = String(input)
+      if (url.startsWith('/api/jobs?limit=')) {
+        if (listFail) return Promise.reject(new Error('net down'))
+        return jsonResp({ jobs: listJobs, active: true })
+      }
+      return base(input, init)
+    })
+    const w = mountJobs()
+    await flushPromises()
+    expect(w.find('[data-testid="live-conn-ok"]').exists()).toBe(true)
+    expect(w.find('[data-testid="live-conn-ok"]').text()).toContain('数据更新于')
+
+    // 断连: 5s/10s/15s 三个失败 tick, 15s 时距上次成功 > 2×5000 → 陈旧警示
+    listFail = true
+    await vi.advanceTimersByTimeAsync(15000)
+    await flushPromises()
+    expect(w.find('[data-testid="live-conn-stale"]').exists()).toBe(true)
+    expect(w.find('[data-testid="live-conn-stale"]').text()).toContain('连接中断')
+    // 首载已成功 → 后续失败 tick 不置 listError, 不打横幅(陈旧由指示行表达)
+    expect(w.find('[data-testid="error-banner"]').exists()).toBe(false)
+
+    // 恢复: 下个成功 tick 回「数据更新于」
+    listFail = false
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+    expect(w.find('[data-testid="live-conn-ok"]').exists()).toBe(true)
+    expect(w.find('[data-testid="live-conn-stale"]').exists()).toBe(false)
   })
 })

@@ -8,6 +8,7 @@ import ErrorBanner from '@/components/ErrorBanner.vue'
 import GlossaryTip from '@/components/GlossaryTip.vue'
 import JobCard from '@/components/JobCard.vue'
 
+import { requireBacktestDates } from './form-dates'
 import {
   type EditableParam,
   editableParams,
@@ -203,14 +204,21 @@ async function submitBacktest(): Promise<void> {
     error.value = '至少选择一个策略'
     return
   }
+  /* R7(R6 遗留): 日期有默认但 clearable, 清空提交空串必撞后端 pattern 422 —
+   * 必填校验前置(判定在 form-dates.ts), 不发注定失败的请求 */
+  const dates = requireBacktestDates(startDate.value, endDate.value)
+  if (!dates.ok) {
+    error.value = dates.error
+    return
+  }
   if (capital.value !== null && !(capital.value > 0)) {
     error.value = '初始资金须为正数'
     return
   }
   const payload: Record<string, unknown> = {
     strategies,
-    start_date: startDate.value ?? '',
-    end_date: endDate.value ?? '',
+    start_date: dates.start,
+    end_date: dates.end,
   }
   // 残留在输入框的文本先转 chips, 再取 chips 集合(截面禁用时不传)
   if (!hasCross.value && chips.input.value.trim()) {

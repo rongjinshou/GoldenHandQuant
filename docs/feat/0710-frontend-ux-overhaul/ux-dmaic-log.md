@@ -145,7 +145,25 @@ Define：静态可见缺陷已归零（R5）；剩余暗区=**时间维度上的
 ### Control
 探针 **E 8/8 PASS**（断连指示/恢复自愈/前端拦截零副作用）· **G 归零** · **C axe 双主题归零**；`verify_all --frontend` 六项全绿。E4 断言随新契约更新（空日期改由前端拦截，422 路径退役）。
 
-### R6 遗留（R7 候选）
-- BacktestForm/ML 表单同型空日期 422 隐患（日期有默认但 clearable 清空可触发）——同款 build*Request 收口。
-- Jobs 顶部聚合横幅未接 dismissible/technical；stale 指示器可复用到 Jobs 列表轮询。
-- GlossaryTip aria-label 用 term 键而非中文（R5 顺延）。
+### R6 遗留 → R7 全部清零
+
+---
+
+## R7（已完成 2026-07-12）— 遗留清扫
+
+| 项 | 落地 |
+|---|---|
+| 同型空日期 422 收口 | BacktestForm（form-dates.ts 必填守卫）+ ML 训练/评估（ml-forms.ts 载荷纯函数化，"通过校验的载荷永不携带空串"）；**顺带堵两处同型**：symbols 清空→省键走后端默认、n_trials 清空→省键（旧实现 `Number(null)=0` 撞 `ge=1` 必 422） |
+| Jobs 横幅+陈旧指示 | dismissible+technical 透传（listError 屏蔽标志跨失败 tick 保持、成功 tick 复位）；StaleIndicator 复用到任务列表标题旁 |
+| GlossaryTip 读屏名 | 删 aria-label(term 键)，可及名回落中文插槽内容（满足 Label-in-Name；词条首句方案会覆盖可见名，弃） |
+
+Control：`verify_all --frontend` 全绿 · axe 双主题归零 · **715 vitest**。
+
+### 受控稳态（当前）
+七轮 DMAIC 完成。遗留区清零。防线：verify_all 六项门禁 + 715 契约测试 + 数据哨兵 + 常设探针（A-G 七节）。
+**监控模式**：新摩擦随用随记于下方候选区，攒批或高价值即开新轮。
+
+## R8 候选区（随用随记）
+- （低）StaleIndicator 在 Jobs 页 testid 仍为 live-conn-* 前缀（可参数化）
+- （低）GlossaryTip popover 正文无 aria-describedby 关联（NPopover teleport 限制）
+- （低）n_trials 手输 0 依赖 naive min=1 钳制+后端兜底，前端未重复数值域校验

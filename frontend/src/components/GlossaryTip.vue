@@ -8,6 +8,10 @@ import { GLOSSARY } from '@/glossary'
  * 字典缺词降级为纯文本(对等旧 vendor 缺失降级); 正文来自字典。
  * 焦点可达(WCAG 1.4.13): 触发元素 tabindex=0 role=button, NPopover 改 manual,
  * 由 focus/blur/hover/Esc 控制显隐 —— 键盘用户 Tab 到即可读到术语解释。
+ * 可及名(R7, R5 遗留收口): 不设 aria-label — role=button 的名字取自插槽内容
+ * (全站消费点均为中文可见文本), 读屏播中文而非 term 键(return_20d 之类);
+ * 可见文本=可及名也满足 WCAG 2.5.3(Label in Name, 语音控制可按所见即所说命中)。
+ * GLOSSARY 词条为纯正文字符串无标题字段, 若取首句作 aria-label 会覆盖可见名, 故弃。
  * API(term prop + 默认插槽)保持不变(118 处消费点)。 */
 /* plain: 插槽内容自带交互形态(色块徽章/按钮)时关掉虚线下划线 — 双重悬浮提示会显得多余,
  * 保留 cursor:help 即可, 元素本身的色彩/形状已是"可交互"的视觉线索。 */
@@ -31,7 +35,6 @@ function close(): void {
         :class="{ plain }"
         tabindex="0"
         role="button"
-        :aria-label="term"
         @focus="open"
         @blur="close"
         @mouseenter="open"

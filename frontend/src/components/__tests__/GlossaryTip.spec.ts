@@ -11,13 +11,15 @@ describe('GlossaryTip 焦点可达(WCAG 1.4.13)', () => {
     document.body.innerHTML = ''
   })
 
-  it('触发元素带 tabindex/role/aria-label', () => {
+  it('触发元素带 tabindex/role, 可及名来自插槽中文内容(不再用 term 键当 aria-label)', () => {
     const w = mount(GlossaryTip, { props: { term: 'sharpe' }, slots: { default: '夏普' } })
     const g = w.find('.gloss')
     expect(g.exists()).toBe(true)
     expect(g.attributes('tabindex')).toBe('0')
     expect(g.attributes('role')).toBe('button')
-    expect(g.attributes('aria-label')).toBe('sharpe')
+    // R7(R5 遗留): 无 aria-label → role=button 可及名回落到内容 = 可见中文文本,
+    // 读屏不再播英文 term 键; 可见文本=可及名(WCAG 2.5.3 Label in Name)
+    expect(g.attributes('aria-label')).toBeUndefined()
     expect(g.text()).toBe('夏普')
   })
 

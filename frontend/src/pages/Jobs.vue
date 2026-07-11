@@ -14,8 +14,10 @@ import { usePolling } from '@/composables/usePolling'
 import { useJobsStore } from '@/stores/jobs'
 
 import { STATUS_LABEL, TERMINAL_STATUS, durationOf, jobTypeLabel, paramsSummary } from './jobs/format'
+import { buildEvalRequest, buildTrainRequest } from './jobs/ml-forms'
 import { resultRoute } from './jobs/result-route'
 import { filterLogLines, isNearBottom, jobBadgeKind } from './jobs/ui'
+import StaleIndicator from './live/StaleIndicator.vue'
 
 /* 任务中心 — 旧 jobs.js loadJobsPage/showJobLog/initMlForms 对等 + 批二硬化:
  * 列表 5s 轮询 + 活跃数写回 store; ID 单元格真 button 承载日志钻取(键盘可达 + aria-expanded);
@@ -29,10 +31,19 @@ interface JobsListResponse {
 
 const jobsStore = useJobsStore()
 const error = ref('')
+// 技术详情(R6-02 同 Overview 样板): 与 error 同生同灭, 经 ErrorBanner :technical title 悬停呈现
+const errorTech = ref('')
+
+function setOpError(e: unknown): void {
+  error.value = (e as Error).message
+  errorTech.value = (e as ApiError).technical ?? ''
+}
 
 const {
   data: listData,
   error: listError,
+  isStale: listStale,
+  lastSuccessAt: listLastSuccessAt,
   refresh,
 } = usePolling<JobsListResponse>(
   async () => {
@@ -47,7 +58,28 @@ const {
 )
 
 const jobs = computed(() => listData.value?.jobs ?? [])
-const bannerMsg = computed(() => error.value || listError.value?.message || '')
+
+/* 顶部聚合横幅(R7): error=操作错误(取消/ML 提交/前端校验), listError=列表轮询首载错误。
+ * ✕ 关闭必清操作错误; listError 在首载成功前每个失败 tick 都会换新对象、常驻不散 —
+ * 若只清 error, ✕ 对 listError 是死按钮 → 关闭时同置本地屏蔽标志(简单为先的取舍:
+ * 屏蔽跨失败 tick 保持, 下次成功 tick listError 自愈(→null)即复位, 之后新错误照常可见)。 */
+const listErrorDismissed = ref(false)
+watch(listError, (e) => {
+  if (e === null) listErrorDismissed.value = false
+})
+const bannerMsg = computed(
+  () => error.value || (listErrorDismissed.value ? '' : (listError.value?.message ?? '')),
+)
+// technical 与 msg 同优先级取源: 正文显示哪个错误, title 就透传哪个的技术串
+const bannerTech = computed(() =>
+  error.value ? errorTech.value || undefined : (listError.value as ApiError | null)?.technical,
+)
+
+function closeBanner(): void {
+  error.value = ''
+  errorTech.value = ''
+  if (listError.value) listErrorDismissed.value = true
+}
 
 // 取消: 套 NPopconfirm 二次确认 + 行内乐观「取消中…」并禁钮; 仅静默 404/409, 其余走 ErrorBanner
 const cancelingIds = ref(new Set<string>())
@@ -59,7 +91,7 @@ async function cancelJob(id: string): Promise<void> {
   } catch (e) {
     const status = (e as ApiError).status
     if (status !== 404 && status !== 409) {
-      error.value = (e as Error).message // 已结束(404/409)静默, 其余暴露到横幅
+      setOpError(e) // 已结束(404/409)静默, 其余暴露到横幅
     }
   } finally {
     await refresh()
@@ -178,20 +210,28 @@ const mlJobIds = ref<string[]>([])
 const trainSubmitting = ref(false)
 const evalSubmitting = ref(false)
 
+/* R7(R6 遗留): 日期 clearable 清空/模型名清空 → 后端 pattern 422 —
+ * 必填校验前置(判定+载荷构建在 ml-forms.ts 纯函数), 不发注定失败的请求 */
 async function submitTrain(): Promise<void> {
   error.value = ''
+  errorTech.value = ''
+  const req = buildTrainRequest({
+    start: mlStart.value,
+    end: mlEnd.value,
+    symbols: mlSymbols.value,
+    model: mlModel.value,
+    trials: mlTrials.value,
+  })
+  if (!req.ok) {
+    error.value = req.error
+    return
+  }
   trainSubmitting.value = true
   try {
-    const job = await postJSON<Job>('/api/jobs/ml-train', {
-      start_date: mlStart.value ?? '',
-      end_date: mlEnd.value ?? '',
-      symbols: mlSymbols.value.trim(),
-      model_name: mlModel.value.trim(),
-      n_trials: Number(mlTrials.value),
-    })
+    const job = await postJSON<Job>('/api/jobs/ml-train', req.payload)
     mlJobIds.value.unshift(job.job_id)
   } catch (e) {
-    error.value = (e as Error).message
+    setOpError(e)
   } finally {
     trainSubmitting.value = false
   }
@@ -199,16 +239,18 @@ async function submitTrain(): Promise<void> {
 
 async function submitEval(): Promise<void> {
   error.value = ''
+  errorTech.value = ''
+  const req = buildEvalRequest(mlModel.value, mleStart.value, mleEnd.value)
+  if (!req.ok) {
+    error.value = req.error
+    return
+  }
   evalSubmitting.value = true
   try {
-    const job = await postJSON<Job>('/api/jobs/ml-evaluate', {
-      model_name: mlModel.value.trim(),
-      eval_start: mleStart.value ?? '',
-      eval_end: mleEnd.value ?? '',
-    })
+    const job = await postJSON<Job>('/api/jobs/ml-evaluate', req.payload)
     mlJobIds.value.unshift(job.job_id)
   } catch (e) {
-    error.value = (e as Error).message
+    setOpError(e)
   } finally {
     evalSubmitting.value = false
   }
@@ -228,7 +270,13 @@ function onMlDone(): void {
       >属高级功能，耗时可达数十分钟。
     </PageHeader>
 
-    <ErrorBanner v-if="bannerMsg" :msg="bannerMsg" />
+    <ErrorBanner
+      v-if="bannerMsg"
+      :msg="bannerMsg"
+      :technical="bannerTech"
+      dismissible
+      @close="closeBanner"
+    />
 
     <details class="card form-card">
       <summary>ML 模型训练 / 评估（高级）</summary>
@@ -255,7 +303,12 @@ function onMlDone(): void {
       <JobCard v-for="id in mlJobIds" :key="id" :job-id="id" @done="onMlDone" />
     </div>
 
-    <h3 class="section-title">任务列表</h3>
+    <div class="list-head-row">
+      <h3 class="section-title">任务列表</h3>
+      <!-- 列表轮询陈旧指示(R7): 复用实盘 StaleIndicator(props 通用, 无 Live 耦合) —
+           常态「数据更新于 HH:mm:ss」, 断连转警示; 首载失败(从未成功)不渲染, 由横幅表达 -->
+      <StaleIndicator :is-stale="listStale" :last-success-at="listLastSuccessAt" />
+    </div>
     <div class="table-wrap card">
       <table data-testid="jobs-table">
         <thead>
@@ -439,6 +492,24 @@ function onMlDone(): void {
   content: '';
   height: 13px;
   width: 3px;
+}
+
+/* 任务列表标题行(R7): 陈旧指示贴标题右侧同基线;
+ * 指示器自带负上距为实盘页头场景设计, 此处 :deep 归零, 行距由本行统一承担 */
+.list-head-row {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: var(--gap-lg) 0 10px;
+}
+
+.list-head-row > .section-title {
+  margin: 0;
+}
+
+.list-head-row :deep(.conn-line) {
+  margin: 0;
 }
 
 .table-wrap {
