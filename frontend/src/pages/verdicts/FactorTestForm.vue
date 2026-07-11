@@ -197,12 +197,15 @@ async function submitFactorTest(): Promise<void> {
         @click="toggleGroupChecked(g)"
       >{{ g.group }}</button>
       <div class="fchips">
+        <!-- aria-pressed(F-07): chip 是开关钮, 读屏报"已按下/未按下"(对照上方过滤钮既有写法) -->
         <button
           v-for="c in g.chips"
           :key="c.factor.factor_id"
           type="button"
           class="fchip"
           :class="{ checked: checked.has(c.factor.factor_id), disabled: c.disabled }"
+          :disabled="c.disabled"
+          :aria-pressed="checked.has(c.factor.factor_id)"
           :title="(c.factor.expression ?? '') + (c.disabled ? '（数据管道缺字段，禁用）' : '')"
           data-testid="ft-factor-chip"
           @click="toggleChip(c.factor.factor_id, c.disabled)"
@@ -269,7 +272,7 @@ async function submitFactorTest(): Promise<void> {
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* 文字级 accent(F-04): light #d97757 压卡片底仅 2.74:1 → #a8462e 5.14:1 */
   cursor: pointer;
   font-family: var(--font-display);
   font-size: 12.5px;
@@ -310,7 +313,7 @@ async function submitFactorTest(): Promise<void> {
 .fchip.checked {
   background: var(--accent);
   border-color: var(--accent);
-  color: #faf9f5;
+  color: var(--text-on-accent); /* F-02: 原 #faf9f5 压实底 accent 仅 2.96:1 → 墨黑 5.90:1(同主按钮口径) */
 }
 
 .fchip.disabled {

@@ -56,4 +56,13 @@ describe('tokens 对比度守卫 (WCAG 2.2 AA)', () => {
     expect(ratio(themeVars('dark')['--border-input'], BG.bg2Dark), 'dark border-input').toBeGreaterThanOrEqual(3)
     expect(ratio(themeVars('light')['--border-input'], BG.bg2Light), 'light border-input').toBeGreaterThanOrEqual(3)
   })
+
+  it('暗色文字级 accent --accent-strong 压 bg-2/bg/悬停合成底 ≥4.5:1（R5 F-01）', () => {
+    const v = themeVars('dark')['--accent-strong']
+    expect(v, 'dark --accent-strong 必须存在(base.css a 与激活页签靠它)').toBeTruthy()
+    expect(ratio(v, BG.bg2Dark), 'dark accent-strong on bg-2').toBeGreaterThanOrEqual(4.5)
+    expect(ratio(v, BG.dark), 'dark accent-strong on bg').toBeGreaterThanOrEqual(4.5)
+    // #392a24 = accent-soft(14% #d97757) 压 bg-2 的合成底 — 顶栏激活页签被悬停时的最亮暗底
+    expect(ratio(v, '#392a24'), 'dark accent-strong on accent-soft 悬停合成底').toBeGreaterThanOrEqual(4.5)
+  })
 })

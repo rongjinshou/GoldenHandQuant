@@ -503,7 +503,7 @@ onMounted(() => {
   align-items: center;
   background: var(--accent-soft);
   border-radius: 14px;
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* F-04: light #d97757 压淡底 #f6e9e2 仅 2.63:1 → #a8462e 4.95:1 */
   display: inline-flex;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -521,7 +521,7 @@ onMounted(() => {
 .chip-x {
   background: transparent;
   border: none;
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* 同 chip 文字(F-04) */
   cursor: pointer;
   font-size: 14px;
   line-height: 1;

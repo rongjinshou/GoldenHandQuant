@@ -86,6 +86,7 @@ const firstFailReason = computed(() => {
 .factor-card {
   animation: card-in var(--dur-base) var(--ease-out) backwards;
   appearance: none;
+  color: inherit; /* button UA 默认 buttontext(黑), 不继承 — 缺这行时暗色下中性指标值隐形(R5 像素实证) */
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -163,7 +164,7 @@ const firstFailReason = computed(() => {
 
 .grade-a {
   background: color-mix(in srgb, var(--c-pass) 18%, transparent);
-  color: var(--c-pass);
+  color: var(--c-pass-strong, var(--c-pass));
 }
 
 .grade-b {
@@ -173,12 +174,12 @@ const firstFailReason = computed(() => {
 
 .grade-c {
   background: color-mix(in srgb, var(--c-warn) 18%, transparent);
-  color: var(--c-warn);
+  color: var(--c-warn-strong, var(--c-warn));
 }
 
 .grade-d {
   background: color-mix(in srgb, var(--c-fail) 18%, transparent);
-  color: var(--c-fail);
+  color: var(--c-fail-strong, var(--c-fail));
 }
 
 .fc-metrics {
@@ -241,12 +242,12 @@ const firstFailReason = computed(() => {
 
 .badge.pass {
   background: color-mix(in srgb, var(--c-pass) 16%, transparent);
-  color: var(--c-pass);
+  color: var(--c-pass-strong, var(--c-pass));
 }
 
 .badge.fail {
   background: color-mix(in srgb, var(--c-fail) 16%, transparent);
-  color: var(--c-fail);
+  color: var(--c-fail-strong, var(--c-fail));
 }
 
 .fc-fail-reason {

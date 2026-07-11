@@ -48,6 +48,7 @@
   --border: #3a3833;
   --accent: #d97757;
   --accent-soft: rgba(217, 119, 87, 0.14);
+  --accent-strong: #e08a6d;        /* 新增(F-01) 文字级 accent: 6.37 on bg-2 / 7.04 on bg / 5.22 压 accent-soft 悬停合成底 #392a24; --accent 保留给填充/边框 */
   --accent-blue: #6a9bcc;
   --accent-green: #788c5d;
   --neutral: #b0aea5;
@@ -64,6 +65,8 @@
   --text-on-accent: #141413;   /* 5.90:1 on accent */
   --border-input: #726f68;     /* 3.32:1 on bg-2, 表单控件边框 */
   --c-info: #6a9bcc;
+  /* soft 淡底上的文字强化色(R5 axe: 语义色压 16-18% 混合底不足 4.5) */
+  --c-pass-strong: #8ba36b;  --c-warn-strong: #d9a957;  --c-fail-strong: #ef8069; /* fail 4.33→4.98 */
   --c-pass-soft: rgba(139, 163, 107, 0.16); --c-pass-border: rgba(139, 163, 107, 0.42);
   --c-fail-soft: rgba(229, 115, 90, 0.16);  --c-fail-border: rgba(229, 115, 90, 0.42);
   --c-warn-soft: rgba(217, 169, 87, 0.16);  --c-warn-border: rgba(217, 169, 87, 0.42);
@@ -105,6 +108,8 @@
   --text-on-accent: #141413;       /* 5.90:1 on accent */
   --border-input: #827f78;         /* 3.50:1 on bg-2 */
   --c-info: #46708f;
+  /* soft 淡底上的文字强化色(R5 axe 实测达标值) */
+  --c-pass-strong: #4c5b34;  --c-warn-strong: #6d501c;  --c-fail-strong: #933a28; /* 4.15/3.66/4.08 → 5.26/5.21/5.14 */
   --c-pass-soft: rgba(90, 107, 64, 0.12);  --c-pass-border: rgba(90, 107, 64, 0.38);
   --c-fail-soft: rgba(171, 69, 48, 0.12);  --c-fail-border: rgba(171, 69, 48, 0.38);
   --c-warn-soft: rgba(138, 102, 38, 0.12); --c-warn-border: rgba(138, 102, 38, 0.38);

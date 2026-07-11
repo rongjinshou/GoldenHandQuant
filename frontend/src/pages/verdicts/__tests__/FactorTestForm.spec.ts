@@ -97,14 +97,17 @@ describe('FactorTestForm', () => {
     expect(disabledChip.classes()).not.toContain('checked')
   })
 
-  it('点击可用 chip 切换勾选', async () => {
+  it('点击可用 chip 切换勾选, aria-pressed 随选中态翻转(R5 F-07)', async () => {
     const w = mountForm()
     await flushPromises()
     const chip = w.findAll('[data-testid="ft-factor-chip"]')[2]!
+    expect(chip.attributes('aria-pressed')).toBe('false')
     await chip.trigger('click')
     expect(chip.classes()).toContain('checked')
+    expect(chip.attributes('aria-pressed')).toBe('true')
     await chip.trigger('click')
     expect(chip.classes()).not.toContain('checked')
+    expect(chip.attributes('aria-pressed')).toBe('false')
   })
 
   it('取消全部勾选后提交报错, 不发请求', async () => {

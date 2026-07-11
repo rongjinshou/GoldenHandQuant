@@ -171,6 +171,7 @@ function onNodeClick(node: Node): void {
 
 .pmap-node {
   border-radius: var(--radius);
+  color: inherit; /* button UA 不继承 color(R5 教训) */
   cursor: pointer;
   display: flex;
   flex: 1 1 150px;
@@ -191,7 +192,7 @@ function onNodeClick(node: Node): void {
 }
 
 .pmap-index {
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* 文字级 accent(F-04 同款): light 压 bg-2 2.74 → 5.14:1 */
   font-family: var(--font-display);
   font-size: 12px;
   font-weight: 700;

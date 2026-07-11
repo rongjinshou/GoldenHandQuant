@@ -406,7 +406,7 @@ button.del-run-btn:not(.n-button--disabled):focus-visible {
 .filter-seg button.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #faf9f5;
+  color: var(--text-on-accent); /* 白字压橙仅2.96:1 → 墨黑5.90(批一S2同款, R5补漏) */
 }
 
 .meta-strip {
@@ -433,7 +433,7 @@ button.del-run-btn:not(.n-button--disabled):focus-visible {
 .link-btn {
   background: none;
   border: none;
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* 文字级 accent(F-04 同款): light 压卡片底 2.74 → 5.14:1 */
   cursor: pointer;
   font-size: inherit;
   padding: 0;

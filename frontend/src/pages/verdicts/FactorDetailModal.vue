@@ -373,10 +373,10 @@ watch(
   padding: 2px 7px;
 }
 
-.grade-a { background: color-mix(in srgb, var(--c-pass) 18%, transparent); color: var(--c-pass); }
+.grade-a { background: color-mix(in srgb, var(--c-pass) 18%, transparent); color: var(--c-pass-strong, var(--c-pass)); }
 .grade-b { background: var(--bg-3); color: var(--text-2); }
-.grade-c { background: color-mix(in srgb, var(--c-warn) 18%, transparent); color: var(--c-warn); }
-.grade-d { background: color-mix(in srgb, var(--c-fail) 18%, transparent); color: var(--c-fail); }
+.grade-c { background: color-mix(in srgb, var(--c-warn) 18%, transparent); color: var(--c-warn-strong, var(--c-warn)); }
+.grade-d { background: color-mix(in srgb, var(--c-fail) 18%, transparent); color: var(--c-fail-strong, var(--c-fail)); }
 
 .badge {
   border-radius: 12px;
@@ -386,8 +386,8 @@ watch(
   padding: 2px 10px;
 }
 
-.badge.pass { background: color-mix(in srgb, var(--c-pass) 16%, transparent); color: var(--c-pass); }
-.badge.fail { background: color-mix(in srgb, var(--c-fail) 16%, transparent); color: var(--c-fail); }
+.badge.pass { background: color-mix(in srgb, var(--c-pass) 16%, transparent); color: var(--c-pass-strong, var(--c-pass)); }
+.badge.fail { background: color-mix(in srgb, var(--c-fail) 16%, transparent); color: var(--c-fail-strong, var(--c-fail)); }
 </style>
 
 <style>

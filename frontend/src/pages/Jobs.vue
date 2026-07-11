@@ -478,6 +478,7 @@ td code {
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
+  color: inherit; /* button UA 不继承 color(R5 教训) */
   cursor: pointer;
   font: inherit;
   padding: 0;
@@ -544,6 +545,13 @@ td code {
 .empty {
   font-size: 13px;
   padding: 12px 6px;
+}
+
+/* F-06: 空态段内链接与正文几乎同亮度(实算 1.04~1.06:1), 色彩不足以当区分手段 —
+   补常显下划线(WCAG 1.4.1 非色彩区分最稳解) */
+.empty a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* 日志面板: 终端质感 + 轮询呼吸灯 */

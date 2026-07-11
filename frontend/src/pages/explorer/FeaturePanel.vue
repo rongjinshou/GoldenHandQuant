@@ -105,15 +105,17 @@ function toggleFeature(name: string, checked: boolean): void {
           :aria-label="`${g.label}类特征`"
         >
           <span class="group-label" aria-hidden="true">{{ g.label }}</span>
-          <NCheckbox
-            v-for="fm in g.items"
-            :key="fm.name"
-            :checked="modelValue.includes(fm.name)"
-            size="small"
-            @update:checked="(v: boolean) => toggleFeature(fm.name, v)"
-          >
-            <GlossaryTip :term="fm.name"><span class="feature-name">{{ fm.label }}</span></GlossaryTip>
-          </NCheckbox>
+          <!-- F-05(WCAG 4.1.2 嵌套交互): GlossaryTip 触发器(tabindex=0 role=button)不得嵌进
+               NCheckbox 的 label — label 只留纯文本, 释义触发器改为紧随其后的兄弟 ⓘ(plain 免
+               双下划线); 悬停/Tab 到 ⓘ 仍可读释义, 点击 label 勾选行为不变 -->
+          <span v-for="fm in g.items" :key="fm.name" class="feature-item">
+            <NCheckbox
+              :checked="modelValue.includes(fm.name)"
+              size="small"
+              @update:checked="(v: boolean) => toggleFeature(fm.name, v)"
+            ><span class="feature-name">{{ fm.label }}</span></NCheckbox>
+            <GlossaryTip :term="fm.name" plain><span class="feature-tip">ⓘ</span></GlossaryTip>
+          </span>
         </div>
       </div>
       <span
@@ -205,6 +207,19 @@ function toggleFeature(name: string, checked: boolean): void {
 
 .feature-name {
   font-size: 12px;
+}
+
+/* 复选框 + ⓘ 成组(F-05): 组内 3px 紧贴, 与 .feature-group 的 12px 组内距区分归属 */
+.feature-item {
+  align-items: center;
+  display: inline-flex;
+  gap: 3px;
+}
+
+.feature-tip {
+  color: var(--text-3); /* 5.98(暗)/5.36(亮) on 卡片底 */
+  font-size: 11px;
+  line-height: 1;
 }
 
 /* 删除本呈现框: 小 ✕ 次级按钮, 常态即可见(不依赖行 hover) — 视觉调性参照 Backtests.vue .run-delete,

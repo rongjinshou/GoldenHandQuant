@@ -138,8 +138,10 @@ onMounted(() => jobsStore.startGlobalPolling())
   width: calc(100% - 24px);
 }
 
+/* 文字级 accent(F-01): 暗色 #d97757 压悬停合成底仅 4.37:1, 换 --accent-strong(暗 5.22+/亮 4.60+);
+   下划线 ::after 仍用 --accent(图形标记, 非文字) */
 .nav-link.router-link-active {
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent));
 }
 
 .nav-link.router-link-active::after {

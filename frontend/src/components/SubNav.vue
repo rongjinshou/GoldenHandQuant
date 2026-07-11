@@ -51,9 +51,11 @@ const emit = defineEmits<{ 'update:modelValue': [key: string] }>()
   color: var(--text);
 }
 
+/* 激活项文字用文字级 accent(F-01/F-04): light #d97757 压 bg 仅 2.96:1 → #a8462e 5.57:1;
+   底边条仍 --accent(图形标记 3:1 门槛不同) */
 .subnav-item.active {
   border-bottom-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent));
 }
 
 .subnav-badge {
@@ -67,6 +69,6 @@ const emit = defineEmits<{ 'update:modelValue': [key: string] }>()
 
 .subnav-item.active .subnav-badge {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* accent-soft 合成底上的 11px 小字, 同 F-01 换文字级 accent */
 }
 </style>

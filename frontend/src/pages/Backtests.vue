@@ -709,11 +709,21 @@ function onFormDone(): void {
   white-space: nowrap;
 }
 
+/* F-03: 原 opacity 0.75 把 run-id 拉到 3.97(暗)/3.22(亮), 去透明度回 text-3 实色(5.98/5.36);
+   层级弱于主标题靠字号(10.5px vs 13px)与 text-3 维持 */
 .run-id {
   color: var(--text-3);
   flex: none;
   font-size: 10.5px;
-  opacity: 0.75;
+}
+
+/* 激活/悬停行换 accent-soft 合成底(暗 #392a24 / 亮 #efe1d7), text-3 只剩 4.90/4.80 边缘、
+   带透明度的 run-id 曾低至 3.43 — 小字整体抬 text-2: 暗 9.19 / 亮 7.07(F-03) */
+.run-row:hover .run-subtitle,
+.run-row:hover .run-id,
+.run-row.active .run-subtitle,
+.run-row.active .run-id {
+  color: var(--text-2);
 }
 
 .empty {

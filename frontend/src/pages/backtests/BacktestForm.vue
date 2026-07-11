@@ -589,7 +589,7 @@ async function submitBacktest(): Promise<void> {
   align-items: center;
   background: var(--accent-soft);
   border-radius: 14px;
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* 同 Explorer 标的 chip(F-04 同款): light 淡底上 2.63 → 4.95:1 */
   display: inline-flex;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -600,7 +600,7 @@ async function submitBacktest(): Promise<void> {
 .chip-x {
   background: transparent;
   border: none;
-  color: var(--accent);
+  color: var(--accent-strong, var(--accent)); /* 同 chip 文字(F-04 同款) */
   cursor: pointer;
   font-size: 14px;
   line-height: 1;

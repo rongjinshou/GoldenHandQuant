@@ -96,5 +96,28 @@ Control：`verify_all --frontend` 六项全绿（vitest **659**）· 冒烟 PASS
 
 **后续模式**：新摩擦随用随记入本日志 R5 候选区，攒足一批或出现高价值项再开一轮 DMAIC；不为迭代而迭代。
 
-## R5 候选区（随用随记）
-（空）
+## R5（已完成 2026-07-11）— 新测量仪器专项
+
+Define：前四轮改进仅经"单测+静态暗色截图"验证；本轮用**新仪器**测此前不可见的缺陷面。
+仪器（常设入库 `scripts/ui_deep_probe.py`，支持 `--only 节` 重跑）：① 真交互驱动 ② 亮色全页扫描 ③ axe-core 双主题 ④ 重负载计时。
+
+### Measure 结果
+- **功能层零缺陷**：七类真交互（快捷键/参数面板/深链前进后退/组合chips/双图slider联动/视角记忆/排序/日志过滤）全 PASS，全程 0 console error；R1-R4 改进端到端全部成立。
+- **性能非问题**：7397 笔交易 run 渲染 0.04s；bundle JS 1.37MiB。
+- **axe 初扫 serious 133 节点**（color-contrast 101 / nested-interactive 26 / link-in-text 6）。
+
+### Analyze → Improve（三层递进，含两个隐藏真缺陷）
+1. 常规修复 7 项+同病灶 3 处：fchip 选中态 2.96→5.90、暗色 `--accent-strong: #e08a6d`（激活页签 4.39→5.22，全站暗色链接受益）、回测左轨小字、light 三处、特征区 GlossaryTip 移出 checkbox（嵌套交互清零）、空态链接下划线、fchip aria-pressed。
+2. **测量系统教训（Gage R&R）**：axe 曾把入场动画中途的 α 混合色当前景（报 #000000）——仪器补 `reduced_motion="reduce"` 仿真。
+3. **真缺陷两枚（仪器扫出、人眼从未发现）**：
+   - `.fchip.disabled` 只有 class 无 `disabled` 属性 → 读屏当可用按钮播报（补属性后 axe 豁免+语义正确）；
+   - **`<button>` 化容器不继承 color**：FactorCard 换 button 后中性指标值以 `#000000` 画在暗底上（1.26:1 近乎隐形，像素采样实证）——补 `color: inherit`，并全仓扫出 Jobs id-btn / PipelineMap 节点同病灶一并修；
+   - FactorCard/Modal 徽章 18% 混合底文字不足 → 新增 `--c-{pass,warn,fail}-strong` 令牌（各值实算 4.71-5.9）。
+
+### Control
+**axe 双主题×六页归零（serious 0）**；`verify_all --frontend` 六项全绿；探针为常设仪器可随时复扫。
+教训入册：① button 化必须带 `color: inherit`（已修三处+扫描口径留档）② UI 测量必须 reduced-motion ③ "截图看着正常"不能替代计算值/像素采样。
+
+### R5 遗留（低优先）
+- light 主题若干 hover 瞬时态 accent 小字 <4.5（axe 静态扫不到）——下轮批量套 accent-strong。
+- GlossaryTip 触发器 aria-label 用 term 键而非中文。
