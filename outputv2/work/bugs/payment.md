@@ -1,13 +1,17 @@
 # B06+B07 · payment — 支付核心与发票结算
 
-本文件覆盖 `findings.md`「payment 模块（§6.3）」全部 14 项中的 12 项（#9 事件载荷字段、#14 状态枚举命名
-对齐附录C 两项不在本文件——理由见文末「跳过条目」）、「第二轮深审（§7）」7 项（#3/#5/#6/#7/#9/#10/#13）、
+本文件覆盖 `findings.md`「payment 模块（§6.3）」全部 14 项中的 13 项（#9 事件载荷字段不在本文件——
+理由见文末「跳过条目」；#14 状态枚举命名对齐附录C 曾被跳过，round-15 复审翻案后由 PAY-B6/PAY-B7
+收录，见「跳过条目」第 2 条的翻案说明）、「第二轮深审（§7）」7 项（#3/#5/#6/#7/#9/#10/#13）、
 「第三轮深审·模块内」3 项（#8/#9/#10）、「第三轮深审·跨领域」2 项（#7/#8），并入本模块的
-`app §6.12 #3`（支付回调签名校验），以及第四轮设计-实现对比新发现 1 项（PAY-B3，发票抬头长度
-上限）。按执行批次拆成两节：
+`app §6.12 #3`（支付回调签名校验），第四轮设计-实现对比新发现 1 项（PAY-B3，发票抬头长度
+上限），第五轮复核（wave1-C，在 round-12 终态上后补实施）新增 2 项（PAY-B4 仓库验收
+`accepted` 标志、PAY-B5 CLOSED 支付单回调守卫 + taxRate 列精度），以及第 15 轮 payment 簇复审
+（round-15，写在 round-14 终态 ff44d3d 上）新增 2 项（PAY-B6 退款状态枚举对齐附录C、
+PAY-B7 结算窗口与空批次修复 + 支付侧时钟成套 + InvoiceStatus VOIDED）。按执行批次拆成两节：
 
 - **§A pay-core（批次 B06）**：支付发起 / 支付回调 / 退款申请-审核-仓库验收-完成。
-- **§B pay-ext（批次 B07）**：发票开具 / 结算批次 / 支付侧通知渠道收尾。
+- **§B pay-ext（批次 B07）**：发票开具 / 结算批次 / 支付侧通知渠道收尾 / round-15 的状态词表与时钟收口。
 
 **不做**（连带排查后明确排除，不在本文件任何卡片里）：
 
@@ -25,9 +29,14 @@
   `order.md` 范围，本文件 PAY-A3 只在其**之后**插入金额校验，不碰状态校验那几行。
 
 **依赖顺序**：§A 六张卡（PAY-A1..PAY-A6）之间除 PAY-A1 与 PAY-A2/PAY-A5 有共享文件外无强制顺序，建议按
-编号顺序执行，每 2~3 卡编译自检一次。§B 三张卡（PAY-B1/PAY-B2/PAY-B3）中 PAY-B1 与 PAY-B2 互相独立，
-PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验区内），按编号顺序执行即可。§A 必须整体
-先于 §B（批次号 B06 < B07），但这只是执行顺序约定，两节内容互不依赖。
+编号顺序执行，每 2~3 卡编译自检一次。§B 七张卡（PAY-B1..PAY-B7）中 PAY-B1 与 PAY-B2 互相独立，
+PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验区内），按编号顺序执行即可；
+PAY-B4/PAY-B5 是第五轮复核（wave1-C）后补卡，写在 round-12 终态基础上（其「现状」描述的是
+PAY-A1..PAY-B3 全部落地后的代码形态），与 PAY-B1..PAY-B3 无共享代码行，落地顺序不影响其他卡；
+PAY-B6/PAY-B7 是 round-15 复审卡，写在 round-14 终态（ff44d3d）基础上，**PAY-B6（枚举改名）须先于
+PAY-B7 落地**（PAY-B7 的退款过滤条件引用 REFUNDED 现名）。本文件既有卡片（PAY-A5/PAY-B2/PAY-B4/PAY-B5）
+内嵌目标代码与验收文本中的退款状态字样已按 PAY-B6 现名同步重写，历史轮次落地当时使用的是旧名。
+§A 必须整体先于 §B（批次号 B06 < B07），但这只是执行顺序约定，两节内容互不依赖。
 
 ---
 
@@ -465,22 +474,25 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
      变量已在同方法前面通过 `paymentNo` 查出，直接复用），并在构建 `refund` 实体那几行补一行
      `refund.setRefundRequestNo(request.getRefundRequestNo());`。
   5. `reviewRefund()` 第 106 行前插入新分支，`REFUND_STATUS_INVALID` 顺带改用 `ConflictException`
-     （与相邻分支保持一致的 409 语义，同时也是 `RefundStatus` 状态冲突场景，符合 03§2）：
+     （与相邻分支保持一致的 409 语义，同时也是 `RefundStatus` 状态冲突场景，符合 03§2；
+     下方代码中的枚举名为 PAY-B6 对齐附录C 后的现名，本卡当年落地时写作
+     WAITING_WAREHOUSE_ACCEPT/PENDING_REVIEW）：
      ```java
-     if (refund.getStatus() == RefundStatus.WAITING_WAREHOUSE_ACCEPT) {
+     if (refund.getStatus() == RefundStatus.REVIEWED) {
          throw new ConflictException("REFUND_WAITING_WAREHOUSE_ACCEPT",
                  "Refund " + refundId + " is already waiting on warehouse acceptance");
      }
-     if (refund.getStatus() != RefundStatus.PENDING_REVIEW) {
+     if (refund.getStatus() != RefundStatus.APPLIED) {
          throw new ConflictException("REFUND_STATUS_INVALID",
-                 "Refund is not in PENDING_REVIEW status: " + refund.getStatus());
+                 "Refund is not in APPLIED status: " + refund.getStatus());
      }
      ```
      补 `import com.ecommerce.common.exception.ConflictException;`（双参构造函数 S1-2 已提供；
      若编译报 `ConflictException` 无双参构造（说明 B01 被跳过），先照 `S1-quick-wins.md` S1-2
      补上该构造函数再继续本卡）。
   6. `approveRefund()` 第 131 行 `refund.setStatus(RefundStatus.APPROVED);` →
-     `refund.setStatus(RefundStatus.WAITING_WAREHOUSE_ACCEPT);`，**删除**第 136 行
+     `refund.setStatus(RefundStatus.REVIEWED);`（PAY-B6 现名；本卡当年写作
+     WAITING_WAREHOUSE_ACCEPT，APPROVED 死值此后由 PAY-B6 从枚举中删除），**删除**第 136 行
      `processRefund(refund);` 这一调用——`approveRefund` 到此为止，不再触发退款完成。`warehouseAccept()`
      本身不用改：它已经在验收成功后调用 `processRefund(refund)`（第 160 行），现在变成 `processRefund`
      唯一的调用入口。
@@ -492,10 +504,10 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
   - 两次带相同 `refundRequestNo` 的 `POST /api/v1/refunds/apply` 只创建一条退款记录，第二次返回与
     第一次相同的 `refundId`。
   - 退款单 `orderId` 恒等于 `paymentNo` 对应支付记录的 `orderId`，即使请求体里塞了别的 `orderId`。
-  - 审核通过（`approved=true`）后 `GET /api/v1/refunds/{refundId}` 状态为 `WAITING_WAREHOUSE_ACCEPT`，
-    不是 `COMPLETED`；对处于该状态的退款单再次调用 `/review` → 409 `REFUND_WAITING_WAREHOUSE_ACCEPT`。
-  - 只有调用 `POST /api/v1/admin/refunds/{refundId}/warehouse-accept` 之后状态才变为 `COMPLETED`，
-    且此时才发出 `IN_APP` 渠道的 `REFUND_COMPLETED` 通知。
+  - 审核通过（`approved=true`）后 `GET /api/v1/refunds/{refundId}` 状态为 `REVIEWED`（PAY-B6 现名），
+    不是 `REFUNDED`；对处于该状态的退款单再次调用 `/review` → 409 `REFUND_WAITING_WAREHOUSE_ACCEPT`。
+  - 只有调用 `POST /api/v1/admin/refunds/{refundId}/warehouse-accept` 之后状态才变为 `REFUNDED`，
+    且此时才发出 `IN_APP` 渠道的 `REFUND_COMPLETED` 通知（通知 bizType 是业务字符串，不随枚举改名）。
 - **勿犯**:
   1. **不要漏删 `approveRefund()` 里 `processRefund(refund);` 那一行**——只改状态值不删这行调用，
      退款依旧会在审核通过时立刻完成，是本卡最容易犯的"改了一半"错误。
@@ -506,7 +518,7 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
      `RefundService` 构造函数仍是 5 参数
      `(refundRecordRepository, paymentRecordRepository, refundCalculator, eventPublisher,
      notificationService)`——本卡不新增任何构造参数，与 AUD-5 的假设一致，不需要额外处理。
-  4. `RefundServiceTest.java` 里若有断言"审核通过即完成退款/状态变 COMPLETED"或断言 `orderId` 取自
+  4. `RefundServiceTest.java` 里若有断言"审核通过即完成退款/状态变 REFUNDED（旧名 COMPLETED）"或断言 `orderId` 取自
      request 的用例，会随本卡改变而失败（非编译错误，构造函数参数个数不变），属预期回归，可同步改写
      断言或删除；`applyRefund` 若有测试用 mock 校验 `refund.getOrderId()` 等于 `request.getOrderId()`
      的断言，需要反过来断言等于 `payment.getOrderId()`。
@@ -758,10 +770,11 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
      补 `import com.ecommerce.payment.entity.RefundRecord;`、
      `import com.ecommerce.payment.entity.RefundStatus;`、
      `import com.ecommerce.payment.repository.RefundRecordRepository;`。
-  3. 在计算 `totalInvoiceAmount` 之后、构造批次实体之前，插入：
+  3. 在计算 `totalInvoiceAmount` 之后、构造批次实体之前，插入（`RefundStatus.REFUNDED` 为 PAY-B6
+     对齐附录C 后的现名，本卡当年落地时写作 `RefundStatus.COMPLETED`）：
      ```java
      BigDecimal totalRefundAmount = refundRecordRepository
-             .findByStatusAndCompletedAtBetween(RefundStatus.COMPLETED, startOfDay, endOfDay)
+             .findByStatusAndCompletedAtBetween(RefundStatus.REFUNDED, startOfDay, endOfDay)
              .stream()
              .map(RefundRecord::getRefundAmount)
              .filter(a -> a != null)
@@ -772,7 +785,7 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
      → `createBatchEntity(batchDate, totalPaymentAmount, totalRefundAmount, totalInvoiceAmount, orderCount)`。
   4. 同步更新 `SettlementBatchServiceTest.java`：`new SettlementBatchService(...)` 的 4 参数调用改成
      5 参数（补 `refundRecordRepository` mock，加在最后一位），否则 test-compile 失败。
-- **验收**: 当日有一笔已 `COMPLETED` 的退款（金额 50.00）与若干笔支付，
+- **验收**: 当日有一笔已 `REFUNDED`（旧名 `COMPLETED`）的退款（金额 50.00）与若干笔支付，
   `POST /api/v1/admin/settlements/batches?batchDate=当日` 返回的 `totalRefundAmount=50.00`，不再
   恒为 `0`（或 `0.00`）。
 - **勿犯**:
@@ -782,6 +795,8 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
      额外协调，但**参数一定要加在最后**，不要插到中间，否则会打乱 AUD-7 对"最后一位"的假设。
   2. 空批次分支（`payments.isEmpty()` 时）不受本卡影响，继续用 `BigDecimal.ZERO` 走
      `createBatchEntity(...)`（本卡改动只发生在有支付记录的正常分支）。
+     **（round-15 注：该空批次短路分支已被 PAY-B7 整段删除**——本卡落地退款汇总后，短路会吞掉
+     "仅退款日"的退款/发票总额，而通用路径对零支付天然正确；本条勿犯仅保留为历史语境。）
 
 ---
 
@@ -790,24 +805,26 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
 - 风险: low · 置信度: likely（设计依据是附录B §1/§2 的 `invoice.max-title-length: 100`——配置
   声明了上限即要求实现生效；14 文档与附录A 未另行规定超限行为，错误语义按工程通用参数校验惯例取）
 - **文件**: `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/InvoiceService.java`
-- **现状**: 申请发票入口（`generateInvoice`，PAY-B1 同批已先行改造）对 `request.getTitle()`
+- **现状**: 申请发票入口（`generateInvoice`，PAY-B1 同批已先行改造）对 `request.getInvoiceTitle()`
+  （`InvoiceRequest` 的抬头字段是 `invoiceTitle`，getter 为 `getInvoiceTitle()`——**不是** `getTitle()`）
   没有任何长度校验——传 300 字符的抬头照样开票入库。附录B 声明的
   `invoice.max-title-length`（默认 100）在全工程零读取。
 - **期望**: 抬头长度超过运行期配置 `invoice.max-title-length`（默认 100）时拒绝开票，抛
   `ValidationException` → HTTP 400（`GlobalExceptionHandler` 已有该异常的 400 映射）；
   100 字符以内正常开票；通过 `PUT /api/v1/admin/system/configs/invoice.max-title-length`
   覆盖后新上限即时生效。
-- **改法**: 在 `generateInvoice` 现有参数校验区（title/金额空值校验旁）追加：
+- **改法**: 在 `generateInvoice` 现有参数校验区（`invoiceAmount` 空值/正数校验之后、支付记录查询之前）追加：
   ```java
   int maxTitleLength = RuntimeConfigRegistry.getInt("invoice.max-title-length", 100);
-  if (request.getTitle() != null && request.getTitle().length() > maxTitleLength) {
-      throw new ValidationException("title",
-              "Invoice title length " + request.getTitle().length()
+  if (request.getInvoiceTitle() != null && request.getInvoiceTitle().length() > maxTitleLength) {
+      throw new ValidationException("invoiceTitle",
+              "Invoice title length " + request.getInvoiceTitle().length()
                       + " exceeds the limit of " + maxTitleLength);
   }
   ```
   `ValidationException` 用本工程已有的 `(String field, String reason)` 双参构造（第一参是字段名，
-  这是全工程惯例，如 `new ValidationException("amount", ...)`）；`RuntimeConfigRegistry` 与
+  这是全工程惯例，如 `new ValidationException("invoiceAmount", ...)`，故此处传 DTO 实际字段名
+  `invoiceTitle`）；`RuntimeConfigRegistry` 与
   `ValidationException` 的 import 若因 PAY-B1 已存在则不重复添加，缺哪个补哪个。
 - **验收**: 101 字符抬头 `POST /api/v1/invoices` → HTTP 400；100 字符 → 正常开票；
   管理接口把 `invoice.max-title-length` 覆盖为 10 后，11 字符抬头 → 400（运行期可配生效）。
@@ -816,6 +833,284 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
      发票的路径不要经过新校验（幂等语义优先，不因新校验改变）。
   2. 只校验 title 长度——不要顺手校验 taxNo/其他字段，文档只声明了 title 上限。
   3. 不要用 `IllegalArgumentException` 或 `BusinessException` 替代 `ValidationException`。
+
+---
+
+### PAY-B4 | warehouse-accept 无视请求体 `accepted` 标志：验收不通过照样完成财务退款（第五轮复核 wave1-C #1）
+
+- 风险: high · 置信度: definite（冻结 fixture 铁证 + 09§4 流程语义）
+- **文件**:
+  1. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/controller/AdminRefundController.java`
+  2. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/RefundService.java`
+  3. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/dto/WarehouseAcceptRequest.java`【新增】
+- **现状**（round-12 终态，PAY-A5 已落地后）: 冻结黑盒 harness
+  `test-cases/src/test/java/com/ecommerce/blackbox/common/fixture/RefundFixture.java` 的
+  `warehouseAccept(ctx, adminToken, refundId, accepted)` **恒定**向
+  `POST /api/v1/admin/refunds/{refundId}/warehouse-accept` 发送 JSON 体 `{"accepted": true|false}`，
+  javadoc 明确 `@param accepted true if goods accepted, false otherwise`（fixture 铁证：该文件第
+  84-103 行，`body.put("accepted", accepted)`）。而 `AdminRefundController.warehouseAccept`
+  只有 `@PathVariable Long refundId` 一个参数、**没有任何 `@RequestBody`**——请求体被整体丢弃，
+  `accepted=false`（验收不通过）与 `accepted=true` 走完全相同的
+  `refundService.warehouseAccept(...)` → `processRefund(...)` 路径：退款单照样 `REFUNDED`（本卡
+  落地当时旧名 `COMPLETED`，下同——退款状态字样均已按 PAY-B6 现名重写）、支付单
+  照样置 `CLOSED`、`RefundCompletedEvent` 照样发布（订单被驱动成 `REFUNDED`）、`IN_APP` 退款完成
+  通知照样发送。公开 24 例没有用例直接调用该 fixture 方法（全仓 grep 仅 fixture 自身定义），但
+  非公开集按 fixture 契约完全可以驱动 `accepted=false` 场景。
+- **期望**: design-docs/09 §4 退款流程为"…买家寄回商品 → **仓库验收，确认商品完好** → 财务退款…"——
+  商品完好的仓库验收是财务退款的**前置条件**，验收不通过时不得执行财务退款（不得完成退款、不得关闭
+  支付单、不得发布 `RefundCompletedEvent`、不得发退款完成通知）。依据: 09§4；RefundFixture（冻结
+  用例侧契约）。
+- **改法**:
+  1. 新增 DTO `WarehouseAcceptRequest`（`com.ecommerce.payment.dto`）：单字段
+     `Boolean accepted` + 无参/单参构造 + getter/setter。
+  2. `AdminRefundController.warehouseAccept` 签名加第二参数
+     `@RequestBody(required = false) WarehouseAcceptRequest request`（body 可缺省，完全向后兼容）：
+     ```java
+     boolean rejected = request != null && Boolean.FALSE.equals(request.getAccepted());
+     RefundResponse response = rejected
+             ? refundService.warehouseReject(refundId, acceptorId)
+             : refundService.warehouseAccept(refundId, acceptorId);
+     ```
+     即 body 缺失 / `accepted` 缺失 / `accepted=true` 一律走既有 `warehouseAccept`（现有行为不变）；
+     仅显式 `accepted=false` 走新分支。
+  3. `RefundService` 新增 `@Transactional public RefundResponse warehouseReject(Long refundId,
+     Long acceptorId)`：状态守卫与 `warehouseAccept` 相同（非 `REVIEWED` →
+     `ConflictException("REFUND_STATUS_INVALID", ...)`/409）；通过则退款单置 `RefundStatus.REJECTED`
+     （枚举已有该值）+ `setWarehouseAcceptorId(acceptorId)` + 保存 + 审计
+     `auditLogService.record(acceptorId, "REFUND_WAREHOUSE_ACCEPT", refundNo,
+     "REVIEWED", "REJECTED", "rejected: returned goods failed warehouse inspection")`
+     （与 AUD-5 同款 actionType，前后态如实取 `RefundStatus.X.name()`，故随 PAY-B6 改名后审计
+     字符串为 REVIEWED）；**不**调 `processRefund`、不发事件、不发通知、不动
+     支付单；返回既有 `RefundResponse` 形态（`status=REJECTED`）。
+  4. 同步单测：`AdminRefundControllerTest` 补 `{"accepted": true}` / `{"accepted": false}` 两分支
+     （false 分支验证走 `warehouseReject` 且 `warehouseAccept` 从未被调）；`RefundServiceTest` 补
+     `warehouseReject` 拒绝路径（REJECTED、`completedAt` 为 null、`paymentRecordRepository`/
+     `eventPublisher`/`notificationService` 零交互、审计前后态断言）与非法状态 409 路径。
+- **验收**: 对 `REVIEWED`（旧名 `WAITING_WAREHOUSE_ACCEPT`）的退款单 POST warehouse-accept 且 body
+  `{"accepted": false}` → 200，响应 `status=REJECTED`；`GET /api/v1/refunds/{refundId}` 为
+  `REJECTED`；对应支付单 `GET /api/v1/payment/{paymentNo}` 仍为 `SUCCESS`（未被 CLOSED）；订单不变
+  `REFUNDED`；无 `REFUND_COMPLETED` 通知新增。body `{"accepted": true}` 或无 body → 原有完成流程
+  不回归（PUB 24 例全绿）。
+- **勿犯**:
+  1. **不要把 `accepted=false` 实现成抛 4xx**——fixture 侧对该调用不检查响应码，但拒收是正常业务
+     结局（200 + `REJECTED`），不是错误；抛错会让"验收不通过"场景无法落库审计轨迹。
+  2. **不要在 reject 分支里"顺手"把支付单置 `FAILED`/`CLOSED` 或发布任何事件**——支付单保持
+     `SUCCESS`，钱未退，订单状态不变。
+  3. `@RequestBody` 必须 `required = false`——公开用例/既有调用方（无 body POST）不能因此变 400。
+
+---
+
+### PAY-B5 | CLOSED 支付单回调无守卫（SUCCESS 可复活 / FAILED 可倒灌）+ `InvoiceRecord.taxRate` 列精度不符附录C（第五轮复核 wave1-C #2）
+
+- 风险: medium · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/PaymentCallbackService.java`
+  2. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/entity/InvoiceRecord.java`
+  3. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/controller/AdminSettlementController.java`
+     （仅第 3 子项，纯注释）
+- **现状**（round-12 终态，PAY-A1/PAY-A4 已落地后）:
+  1. `PaymentStatus.CLOSED` 是退款完成后的终态（PAY-A1 对齐附录C 引入；`RefundService.processRefund`
+     置位）。但 `PaymentCallbackService` 两个分支对 `CLOSED` 均无守卫：`processSuccessCallback` 对
+     CLOSED 支付单会**重新走完整成功路径**（置回 `SUCCESS`、重写 `paidAmount`/`paidAt`、
+     `markAsPaid` 重扣库存、`confirmPayment` 重发 `PaymentSucceededEvent`——已退款的支付单被回调
+     复活）；`processFailedCallback` 对 CLOSED 支付单（换一个 `callbackSequence` 即绕过通用幂等）会
+     把 `CLOSED` 改写成 `FAILED` 并 `markPaymentFailed` 倒灌订单。
+  2. `InvoiceRecord.taxRate` 列注解 `@Column(precision = 12, scale = 2)`，附录C
+     `invoice_records.tax_rate` 为 **DECIMAL(6,4)**。默认税率 0.06 恰好 2 位小数掩盖了问题；一旦
+     运行期把 `invoice.tax-rate` 覆盖成 4 位精度值（如 0.065），落库被舍成 0.07——POST 响应
+     （实体未过库）与 GET 重读（过库后）的 `taxRate` 不一致，税额与税率自相矛盾。
+  3. 顺带（纯注释，不改行为）：`AdminSettlementController.generateBatch` 的 javadoc 写着
+     "The generated batch includes non-PAID orders"，与实现（`SettlementBatchService` 仅汇总
+     `PaymentStatus.SUCCESS` 支付）和 design-docs/14 §5 相反，误导后续维护。
+- **期望**:
+  1. design-docs/03 §2（状态冲突 → `ConflictException`/409）；03 §3（重复回调"返回第一次处理结果，
+     不得重复扣款"）；09 §3 回调状态机——`CLOSED` 为终态：SUCCESS 回调 → 409
+     `PAYMENT_STATUS_CONFLICT`（与既有"已 SUCCESS 收 FAILED"同款语义）；FAILED 回调 → 幂等
+     短路 no-op（绝不把 CLOSED 改成 FAILED）。
+  2. `design-docs/附录C-数据模型.md` `invoice_records.tax_rate DECIMAL(6,4)`。
+  3. javadoc 与实现、14 §5 一致。
+- **改法**:
+  1. `processSuccessCallback` 在"已 SUCCESS 幂等短路"之后、金额比对之前插入：
+     ```java
+     if (payment.getStatus() == PaymentStatus.CLOSED) {
+         throw new ConflictException("PAYMENT_STATUS_CONFLICT",
+                 "Cannot mark as SUCCESS when payment is already CLOSED");
+     }
+     ```
+     `processFailedCallback` 在"已 FAILED 幂等短路"之后、"已 SUCCESS 抛 409"之前插入：
+     ```java
+     if (payment.getStatus() == PaymentStatus.CLOSED) {
+         log.info("Payment already CLOSED, ignoring FAILED callback: paymentNo={}",
+                 request.getPaymentNo());
+         return;
+     }
+     ```
+     `ConflictException` 本文件已 import（PAY-A4 引入），无新增依赖。
+  2. `InvoiceRecord.taxRate`：`@Column(nullable = false, precision = 12, scale = 2)` →
+     `@Column(nullable = false, precision = 6, scale = 4)`（仅该字段；金额字段保持 12,2 不动）。
+  3. `AdminSettlementController.generateBatch` javadoc 改为与实现一致（当时实现为仅汇总 SUCCESS
+     支付 + 当日退款/发票，引 14 §5）。**（round-15 注：PAY-B7 已将结算窗口改为按 paidAt 取
+     SUCCESS+CLOSED，该 javadoc 亦随 PAY-B7 再次同步，以文件现状为准。）**
+  4. 同步单测：`PaymentCallbackServiceTest` 补两用例——CLOSED 收 SUCCESS 回调 → 409
+     `PAYMENT_STATUS_CONFLICT` 且零副作用；CLOSED 收 FAILED 回调（新 `callbackSequence`）→ no-op
+     且状态仍 CLOSED。
+- **验收**: 走完"支付成功 → 退款完成（支付单 CLOSED）"后：重放 SUCCESS 回调（新
+  `callbackSequence`、金额正确、签名正确）→ 409 `PAYMENT_STATUS_CONFLICT`，支付单仍 `CLOSED`、
+  库存/订单零变化；重放 FAILED 回调 → 200 no-op，支付单仍 `CLOSED`、订单不被置支付失败。运行期
+  `PUT /api/v1/admin/system/configs/invoice.tax-rate` 覆盖为 `0.065` 后开票，POST 响应与
+  `GET /api/v1/invoices/order/{orderId}` 读到的 `taxRate` 一致为 0.065（不再是 0.07）、
+  `taxAmount = invoiceAmount × 0.065`（HALF_UP 到分）。PUB 24 例全绿（默认 0.06 行为不变）。
+- **勿犯**:
+  1. **CLOSED 收 FAILED 绝不能抛错也绝不能改状态**——它是"迟到/重推的失败通知打在已退款单上"，
+     语义上等同重复回调，只能 no-op（03 §3）；只有 SUCCESS 试图复活 CLOSED 才是 409 冲突。
+  2. CLOSED 守卫必须放在金额比对**之前**——已退款单不该因回调金额恰好匹配而被复活，也不该因
+     金额不匹配而返回 400（掩盖真正的状态冲突语义）。
+  3. taxRate 精度只改 `taxRate` 一个字段——不要顺手把 `invoiceAmount`/`taxAmount`/
+     `remainingInvoiceableAmount`（附录C 均为 DECIMAL(12,2)）一起改了。
+
+---
+
+### PAY-B6 | RefundStatus 六值枚举与附录C refunds.status 五值词表整体不符（round-15 复审翻案，推翻「跳过条目」第 2 条）
+
+- 风险: medium · 置信度: definite（附录C:146 逐字词表铁证；官方 24 例对退款 `status` 零断言已核实，
+  公开集甚至从未调用 `RefundFixture`——词表对齐零回归面）
+- **文件**:
+  1. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/entity/RefundStatus.java`
+  2. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/RefundService.java`（全部状态读写点）
+  3. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/SettlementBatchService.java`（退款汇总过滤条件 1 处）
+  4. 4 个单测文件（必须同步）：`service/RefundServiceTest.java`、`service/SettlementBatchServiceTest.java`、
+     `controller/AdminRefundControllerTest.java`、`controller/RefundControllerTest.java`
+- **现状**（round-14 终态 ff44d3d）: `RefundStatus` 为 6 值：
+  ```java
+  public enum RefundStatus {
+      PENDING_REVIEW,
+      APPROVED,
+      WAITING_WAREHOUSE_ACCEPT,
+      WAREHOUSE_ACCEPTED,
+      COMPLETED,
+      REJECTED
+  }
+  ```
+  其中 `APPROVED` 自 PAY-A5 重写 `approveRefund` 后全仓零赋值零比较（死值，改前 `grep -rn
+  "RefundStatus.APPROVED" code/` 确认为零命中）。`RefundRecord.status` 是
+  `@Enumerated(EnumType.STRING)`——枚举常量名即落库字符串、即 `RefundResponse.status` 的 API 序列化值。
+- **期望**: `design-docs/附录C-数据模型.md:146`（refunds 表）逐字：
+  ```
+  | status | VARCHAR | APPLIED/REVIEWED/ACCEPTED/REFUNDED/REJECTED |
+  ```
+  五值词表；`PENDING_REVIEW`/`APPROVED`/`WAITING_WAREHOUSE_ACCEPT`/`WAREHOUSE_ACCEPTED`/`COMPLETED`
+  均不在词表内。
+- **改法**: 全仓改名映射（每个旧值逐一 `grep -rn` 清零；语义、状态机迁移顺序、守卫与 409 语义全部不变）：
+  | 旧值 | 新值 |
+  |---|---|
+  | `PENDING_REVIEW` | `APPLIED` |
+  | `WAITING_WAREHOUSE_ACCEPT` | `REVIEWED` |
+  | `WAREHOUSE_ACCEPTED` | `ACCEPTED` |
+  | `COMPLETED` | `REFUNDED` |
+  | `REJECTED` | `REJECTED`（不变） |
+  | `APPROVED` | **删除**（死值） |
+
+  触点清单（全量）：
+  1. `RefundStatus.java` 枚举体按上表重写（附 javadoc 注明词表出处与冻结错误码无关声明）。
+  2. `RefundService`：`applyRefund` 置 `APPLIED`；`reviewRefund` 守卫链
+     `== REVIEWED` → 抛冻结码 `REFUND_WAITING_WAREHOUSE_ACCEPT`/409、`!= APPLIED` →
+     `REFUND_STATUS_INVALID`/409（异常消息里的状态词一并换新名，错误**码**不动）；
+     `approveRefund` 置 `REVIEWED`；`warehouseAccept` 守卫 `REVIEWED`、置 `ACCEPTED`、审计前后态
+     `REVIEWED`→`ACCEPTED`；`warehouseReject` 守卫 `REVIEWED`、审计 `REVIEWED`→`REJECTED`；
+     `processRefund` 置 `REFUNDED`。
+  3. `SettlementBatchService` 退款汇总过滤 `RefundStatus.COMPLETED`→`RefundStatus.REFUNDED`。
+  4. 4 个单测文件：全部 `RefundStatus.X` 引用、`jsonPath("$.status").value("X")` 字符串断言、
+     审计字符串断言（`eq("WAITING_WAREHOUSE_ACCEPT")`→`eq("REVIEWED")`）、类注释里的状态机描述。
+  5. 本文件（payment.md）既有卡片 PAY-A5/PAY-B2/PAY-B4/PAY-B5 内嵌目标代码与验收文本同步重写
+     （已完成，见各卡「PAY-B6 现名」注记）。
+- **验收**: `grep -rn "PENDING_REVIEW\|WAITING_WAREHOUSE_ACCEPT\|WAREHOUSE_ACCEPTED\|RefundStatus.COMPLETED\|RefundStatus.APPROVED" code/ecommerce-payment/`
+  仅剩 `REFUND_WAITING_WAREHOUSE_ACCEPT` 冻结错误码字面量所在行（RefundStatus.java javadoc 声明、
+  RefundService 注释与 throw 各一处）；退款全流程 `status` 依次
+  `APPLIED`→`REVIEWED`→（`ACCEPTED`→）`REFUNDED`，拒绝路径终态 `REJECTED`；
+  `mvn -f code/pom.xml install -DskipTests` 编译过；payment 模块单测全绿；黑盒 24/24。
+- **勿犯**:
+  1. **README §7.2 的 `REFUND_WAITING_WAREHOUSE_ACCEPT` 是冻结错误码字符串，与状态枚举无关，绝不要动**
+     ——`reviewRefund` 里 `== RefundStatus.REVIEWED` 分支抛出的 `ConflictException` 第一参必须原样
+     保留该字符串，不要"顺手"改成 `REFUND_REVIEWED` 之类的新码。
+  2. **4 个 payment 单测文件必须同步**——`install -DskipTests` 仍编译测试源码，不同步 = test-compile
+     直接失败，黑盒完全跑不起来。
+  3. review 模块的 `ReviewStatus.PENDING_REVIEW`/`APPROVED` 是另一个枚举（13 文档词表），全仓 grep
+     时不要误伤。
+  4. 只改名不改语义：PAY-A5 建立的「审核通过≠完成」两段式与 PAY-B4 建立的拒收分支原样保留；
+     `@Enumerated(EnumType.STRING)` + 黑盒每用例全新 H2，无存量数据迁移问题。
+
+---
+
+### PAY-B7 | 结算批次窗口收窄回归（SUCCESS-only 丢 CLOSED）+ 空批次短路吞仅退款日 + 支付侧时钟成套 + InvoiceStatus VOIDED（round-15 复审三点合一）
+
+- 风险: medium · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/repository/PaymentRecordRepository.java`
+  2. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/SettlementBatchService.java`
+  3. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/controller/AdminSettlementController.java`
+  4. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/PaymentCallbackService.java`
+  5. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/RefundService.java`
+  6. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/InvoiceService.java`
+  7. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/entity/InvoiceStatus.java`
+  8. 单测：`service/SettlementBatchServiceTest.java`（查询 mock 换新方法 + 新增仅退款日用例）
+- **现状**（round-14 终态）:
+  1. `generateBatch` 用 `findByStatusAndPaidAtBetween(PaymentStatus.SUCCESS, startOfDay, endOfDay)`
+     只取 SUCCESS。**诚实说明：原始基线（评委参考基线可查证）此处是完全不过滤的
+     `findByPaidAtBetween(...)`（PENDING/FAILED 也进批次）；我们在 B07（PAY-B2 时代）修复时把它
+     收窄成 SUCCESS-only——排除 PENDING/FAILED 是对的，但把 CLOSED（当日支付成功、随后退款完成，
+     PAY-A1/PAY-A5 语义下支付单被置 CLOSED）也一并排除，属于我们自己引入的过度收窄回归**：
+     「先支付后退款」的支付单从当日账本凭空消失，totalPaymentAmount/orderCount 双错。
+  2. 查询之后紧跟原始基线遗留的 `payments.isEmpty()` 空批次短路（约 11 行）：直接落一个全零批次
+     返回——PAY-B2 接入退款汇总后，该短路会把「仅退款日」（当日零支付、有退款完成/开票）的
+     totalRefundAmount/totalInvoiceAmount 一并吞成 0。
+  3. 5 处业务时间戳裸用系统时钟（另有 PaymentCallbackService 两处 callbackData 诊断字符串时间）：
+     `AdminSettlementController:45` 默认批次日 `LocalDate.now()`、`SettlementBatchService:175`
+     generatedAt、`PaymentCallbackService:123` paidAt、`RefundService:245` completedAt、
+     `InvoiceService:144` issuedAt——管理端拨钟（`SystemClockService`，user/order/promotion/loyalty/
+     logistics 各模块业务时间戳已接入）对 payment 整体失效，拨钟场景下 paidAt 与结算窗口对不上。
+  4. `InvoiceStatus` 为 `ISSUED/CANCELLED`；附录C:159 逐字 `| status | VARCHAR | ISSUED/VOIDED |`。
+     `InvoiceStatus.CANCELLED` 全仓零赋值零比较（作废流未实现，纯词表不符；改前 grep 确认）。
+- **期望**: design-docs/14 §5 逐字：「结算批次按自然日生成，包含支付成功且未结算的订单、退款和发票
+  数据。」「结算批次生成后不可修改，只能作废后重建。」——「按自然日」锚定 paidAt 窗口；「支付成功」
+  包含当日支付成功、之后退款关闭（CLOSED）的支付单；「退款和发票数据」要求零支付日照常汇总。
+  时钟：与全仓已接入 `com.ecommerce.common.test.SystemClockService` 的各模块对齐，补齐 payment
+  这个缺口（不拨钟时 `SystemClockService.now()` 与真实时钟恒等，零风险）。词表：附录C:159。
+- **改法**:
+  1. `PaymentRecordRepository` 新增
+     `List<PaymentRecord> findByStatusInAndPaidAtBetween(Collection<PaymentStatus> statuses,
+     LocalDateTime start, LocalDateTime end);`（补 `java.util.Collection` import）。
+  2. `generateBatch` 查询改
+     `findByStatusInAndPaidAtBetween(List.of(PaymentStatus.SUCCESS, PaymentStatus.CLOSED), startOfDay, endOfDay)`；
+     **整段删除 `payments.isEmpty()` 空批次短路**（含其中的 createBatchEntity/审计/return 共约 11 行）
+     ——通用路径对零支付天然正确：空流 reduce→ZERO、orderCount=0、退款/发票统计照算、末尾
+     SETTLEMENT_BATCH_GENERATE 审计仍记录。退款过滤条件用 `RefundStatus.REFUNDED`（PAY-B6 现名，
+     故本卡依赖 PAY-B6 先落地）。
+  3. 时钟 5+2 处：上列 5 个业务时间戳全部 `LocalDateTime.now()`→`SystemClockService.now()`
+     （控制器默认批次日为 `SystemClockService.now().toLocalDate()`）；PaymentCallbackService 两处
+     callbackData 字符串时间一并换齐，使 payment 主源码 `grep "LocalDateTime.now()\|LocalDate.now()"`
+     归零（真正成套）。随手同步 AdminSettlementController/SettlementBatchService 的 javadoc 与注释
+     （SUCCESS+CLOSED、无空批次短路、时钟语义）。
+  4. `InvoiceStatus.CANCELLED`→`VOIDED`（含词表出处 javadoc）。
+  5. 单测：`SettlementBatchServiceTest` 三处查询 mock 改
+     `findByStatusInAndPaidAtBetween(eq(List.of(PaymentStatus.SUCCESS, PaymentStatus.CLOSED)), any(), any())`
+     并让用例数据含一笔 CLOSED 支付；新增
+     `generateBatch_refundOnlyDay_noPayments_stillAggregatesRefunds`（零支付 + 一笔 REFUNDED 退款
+     → orderCount=0、totalPayment=0、totalRefund 如实、审计仍记录）。
+- **验收**: 当日支付 100 成功后当日退款完成（支付单 CLOSED）：批次 totalPaymentAmount=100.00、
+  totalRefundAmount=退款额、orderCount=1（SUCCESS-only 会错成全零批次）；零支付仅退款日：
+  totalRefundAmount 如实、orderCount=0、仍有 SETTLEMENT_BATCH_GENERATE 审计；
+  `grep -rn "LocalDateTime.now()\|LocalDate.now()" code/ecommerce-payment/src/main/` 零命中；
+  `grep -rn "CANCELLED" code/ecommerce-payment/` 仅剩 `SettlementStatus.CANCELLED`（另一枚举）；
+  payment 单测全绿；黑盒 24/24。
+- **勿犯**:
+  1. 状态集合是 **SUCCESS+CLOSED**，不是全状态——PENDING/FAILED（从未支付成功，paidAt 为 null）
+     绝不能回到批次里（那是原始基线的 bug）；也不要改用 createdAt 窗口。
+  2. 删空批次短路时**不要顺带删掉方法末尾的审计记录**——零支付日也必须留下
+     SETTLEMENT_BATCH_GENERATE 审计（AUD-7 语义延续）。
+  3. 时钟替换只动业务时间戳：**不要**动 `System.currentTimeMillis()` 的单号生成熵，也不要动
+     BaseEntity 的 createdAt/updatedAt 审计列。
+  4. `SettlementStatus.CANCELLED`（结算批次作废态，14 §5「作废后重建」的载体）与
+     `InvoiceStatus.CANCELLED` 是两个枚举——本卡只改后者为 `VOIDED`。
 
 ---
 
@@ -828,11 +1123,14 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
   该事件，这是类型迁移的必然副产品，不可能脱离 B13 单独完成。本文件所有涉及 `PaymentSucceededEvent`
   构造调用的地方（PAY-A2）都明确交代"不改动该行"。跳过，未生成独立卡片。
 - **findings §6.3 #14**（`RefundStatus`/`InvoiceStatus` 命名与附录C 出入较大，6 vs 5 个值，
-  `CANCELLED` vs `VOIDED`）：`suspicious` 置信度；核对参考实现的改动清单发现
-  `RefundStatus.java`/`InvoiceStatus.java` 均未被改动（参考实现只收录"最终确实被改过"的
-  文件），说明参照解在权衡"附录C 只是文字表格、无黑盒断言依赖具体字符串"之后判定不改，风险高于收益
-  （六个枚举值被引用于全模块状态机分支，贸然对齐会牵扯大量分支重写且无可验证收益）。跳过，未生成
-  独立卡片，与参照解保持一致。
+  `CANCELLED` vs `VOIDED`）：原判为跳过——`suspicious` 置信度；当时核对参考实现的改动清单发现
+  `RefundStatus.java`/`InvoiceStatus.java` 均未被改动，遂判定"风险高于收益"。
+  **round-15 翻案：该原判已被推翻，本条目现由 PAY-B6（RefundStatus 五值词表）与 PAY-B7 第 4 子项
+  （InvoiceStatus VOIDED）正式收录实施。** 翻案理由：①附录C:146/159 是逐字词表，属设计-实现一致性
+  检查的直接靶标，"文字表格无断言"不构成放任不一致的理由；②官方 24 例对退款/发票 `status` 零断言
+  已重新核实（公开集甚至从未调用 `RefundFixture`），实体均为 `@Enumerated(EnumType.STRING)` 且黑盒
+  每用例全新 H2，改名回归面为零；③"大量分支重写"的顾虑经全仓 grep 证伪——触点收敛在 payment 一个
+  模块 + 4 个单测文件内。非公开集若按附录C 词表断言 `status` 字符串，不改反而必失分。
 
 ---
 
@@ -865,3 +1163,5 @@ PAY-B3 依赖 PAY-B1 先落地（其改法锚点在 PAY-B1 建立的参数校验
    `REFUND_STATUS_INVALID` 是同一段状态校验里紧邻的两个分支）。参考实现真值确认两者都是
    `ConflictException`。风险评估为低（`REFUND_STATUS_INVALID` 不是 README 冻结错误码，只是 HTTP
    状态码从 400 变 409，属于典型的"状态冲突=409"归类修正）。
+   **（round-15 裁决留档：`REFUND_STATUS_INVALID` 定为 409 —— README §7 未冻结该码，按
+   design-docs/03 §2 状态冲突语义归 `ConflictException`/409；本存疑点正式关闭，无需人工干预。）**

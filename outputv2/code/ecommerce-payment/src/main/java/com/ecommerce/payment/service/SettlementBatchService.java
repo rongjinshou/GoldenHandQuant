@@ -3,6 +3,7 @@ package com.ecommerce.payment.service;
 import com.ecommerce.common.audit.AuditLogService;
 import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.money.MonetaryUtil;
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.payment.dto.SettlementBatchResponse;
 import com.ecommerce.payment.entity.InvoiceRecord;
 import com.ecommerce.payment.entity.InvoiceStatus;
@@ -75,22 +76,18 @@ public class SettlementBatchService {
         LocalDateTime startOfDay = batchDate.atStartOfDay();
         LocalDateTime endOfDay = batchDate.atTime(LocalTime.MAX);
 
-        // design-docs/14 §5: a settlement batch includes orders that were
-        // successfully paid — not merely attempted (PENDING/FAILED).
-        List<PaymentRecord> payments = paymentRecordRepository.findByStatusAndPaidAtBetween(
-                PaymentStatus.SUCCESS, startOfDay, endOfDay);
-
-        if (payments.isEmpty()) {
-            log.info("No payments found for date: {}", batchDate);
-
-            // Create empty batch
-            SettlementBatch batch = createBatchEntity(batchDate, BigDecimal.ZERO,
-                    BigDecimal.ZERO, BigDecimal.ZERO, 0);
-            batch = settlementBatchRepository.save(batch);
-            auditLogService.record(operatorId, "SETTLEMENT_BATCH_GENERATE",
-                    batch.getBatchNo(), null, SettlementStatus.GENERATED.name(), "orderCount=0");
-            return toBatchResponse(batch);
-        }
+        // design-docs/14 §5: 「结算批次按自然日生成，包含支付成功且未结算的订单、
+        // 退款和发票数据。」 Payments are selected by the day they were actually
+        // paid (paidAt window) with status IN (SUCCESS, CLOSED): CLOSED means
+        // "succeeded, then refunded" — that payment still happened on this day,
+        // so narrowing to SUCCESS-only would silently drop later-refunded
+        // payments from the day's books. PENDING/FAILED attempts (never paid)
+        // stay out. There is deliberately no empty-day short-circuit: the
+        // generic path below is naturally correct for zero payments (streams
+        // reduce to ZERO, orderCount=0) and still aggregates that day's
+        // refund/invoice totals — e.g. a refund-only day.
+        List<PaymentRecord> payments = paymentRecordRepository.findByStatusInAndPaidAtBetween(
+                List.of(PaymentStatus.SUCCESS, PaymentStatus.CLOSED), startOfDay, endOfDay);
 
         // Calculate totals from payment records found in the settlement window.
         BigDecimal totalPaymentAmount = payments.stream()
@@ -114,7 +111,7 @@ public class SettlementBatchService {
         // Sum real refunds completed on this date (design-docs/14 §5 — the
         // batch must reflect actual refund totals, not a hardcoded zero).
         BigDecimal totalRefundAmount = refundRecordRepository
-                .findByStatusAndCompletedAtBetween(RefundStatus.COMPLETED, startOfDay, endOfDay)
+                .findByStatusAndCompletedAtBetween(RefundStatus.REFUNDED, startOfDay, endOfDay)
                 .stream()
                 .map(RefundRecord::getRefundAmount)
                 .filter(a -> a != null)
@@ -172,7 +169,8 @@ public class SettlementBatchService {
         batch.setTotalInvoiceAmount(totalInvoice);
         batch.setOrderCount(orderCount);
         batch.setStatus(SettlementStatus.GENERATED);
-        batch.setGeneratedAt(LocalDateTime.now());
+        // Test-support system clock: equals the real system time unless shifted.
+        batch.setGeneratedAt(SystemClockService.now());
         return batch;
     }
 

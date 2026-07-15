@@ -19,7 +19,8 @@
 
 - [ ] 秒杀接入下单/购物车流程（下单前查有效秒杀活动并 `validateSeckill` + `recordPurchase`）。
 - [ ] `validateSeckill` 对非秒杀 SKU 的 `ResourceNotFoundException` 不得毒化 order 的共享事务（`noRollbackFor`），见 order 清单。
-- [ ] 满减活动校验自身起止时间窗口。`[suspicious]`
+- [x] 满减活动校验自身起止时间窗口。`[suspicious]`
+  ✔ 已核实（W15-C 回勾）：`FullReductionService.java:74`（`SystemClockService.now()` 取当前时刻）→ `:78` 逐活动过滤 → `:98-101` `isWithinWindow`（`startTime`/`endTime` 双端判定，null 端不限制）。
 
 ## 金额（见 common）
 

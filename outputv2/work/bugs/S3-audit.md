@@ -320,25 +320,25 @@
              refund.getRefundNo(), beforeStatus.name(), refund.getStatus().name(),
              request.isApproved() ? "approved" : "rejected: " + request.getNote());
      ```
-     这里分支执行完之后再读的 `refund.getStatus()` 会自动反映批准/驳回后的最新状态——不用关心 `approveRefund(...)` 内部具体把状态置成什么（不同实现可能落到 `APPROVED`，也可能落到 `WAITING_WAREHOUSE_ACCEPT`，取决于是否还有另一张状态机卡片改过它，本卡不关心）：`approveRefund` 内部按同一个 `refundId` 重新 `findById` 拿到的是同一事务里同一个 JPA 托管实例，跟 `reviewRefund` 里的 `refund` 变量是同一个对象，写操作互相可见。**不要**自己重新查一次库，也不要硬编码目标状态字符串。
+     这里分支执行完之后再读的 `refund.getStatus()` 会自动反映批准/驳回后的最新状态——不用关心 `approveRefund(...)` 内部具体把状态置成什么（按 PAY-B6 词表对齐后的现名是 `REVIEWED`；历史实现里也出现过 `APPROVED`/`WAITING_WAREHOUSE_ACCEPT` 等旧名——本卡不关心具体值）：`approveRefund` 内部按同一个 `refundId` 重新 `findById` 拿到的是同一事务里同一个 JPA 托管实例，跟 `reviewRefund` 里的 `refund` 变量是同一个对象，写操作互相可见。**不要**自己重新查一次库，也不要硬编码目标状态字符串。
   3. `warehouseAccept(...)`：在 `refund = refundRecordRepository.save(refund);` 之后、`processRefund(refund);` **之前**插入：
      ```java
      auditLogService.record(String.valueOf(acceptorId), "REFUND_WAREHOUSE_ACCEPT",
-             refund.getRefundNo(), RefundStatus.WAITING_WAREHOUSE_ACCEPT.name(),
-             RefundStatus.WAREHOUSE_ACCEPTED.name(), null);
+             refund.getRefundNo(), RefundStatus.REVIEWED.name(),
+             RefundStatus.ACCEPTED.name(), null);
      ```
-     这里前后状态可以直接写常量，因为方法开头的守卫已经保证进入这里时状态就是 `WAITING_WAREHOUSE_ACCEPT`，这两行执行完就是 `WAREHOUSE_ACCEPTED`。**审计调用必须在 `processRefund(refund)` 之前**——`processRefund` 会把状态继续推进到 `COMPLETED`，顺序放反不会报错，但审计记录的 `afterState` 会变成错误的中间态描述。
+     这里前后状态可以直接写常量，因为方法开头的守卫已经保证进入这里时状态就是 `REVIEWED`，这两行执行完就是 `ACCEPTED`（PAY-B6 对齐附录C 后的词表；若你手上的枚举还是旧名 WAITING_WAREHOUSE_ACCEPT/WAREHOUSE_ACCEPTED，说明 B07 的 PAY-B6 未先落地，先回去补 B07）。**审计调用必须在 `processRefund(refund)` 之前**——`processRefund` 会把状态继续推进到 `REFUNDED`，顺序放反不会报错，但审计记录的 `afterState` 会变成错误的中间态描述。
   4. **同步改 `RefundServiceTest`**（该类是显式 `new RefundService(...)` 构造，不是 `@InjectMocks`，**必须**同步改构造调用，否则编译不过）：
      - 加字段 `@Mock private AuditLogService auditLogService;`。
      - `refundService = new RefundService(refundRecordRepository, paymentRecordRepository, refundCalculator, eventPublisher, notificationService);` 在最后追加一个实参，变成 `new RefundService(refundRecordRepository, paymentRecordRepository, refundCalculator, eventPublisher, notificationService, auditLogService);`。
      - `reviewRefund(...)`/`warehouseAccept(...)` 的调用点/方法签名本身不变，不需要改动测试里已有的调用参数个数。
 - **验收**:
   - 管理员审核退款（通过或驳回）后新增一条 `actionType=REFUND_REVIEW` 的审计记录，`businessId` 为退款单号，`beforeState`/`afterState` 反映审核前后状态。
-  - 仓库验收后新增一条 `actionType=REFUND_WAREHOUSE_ACCEPT` 的审计记录，`beforeState=WAITING_WAREHOUSE_ACCEPT`，`afterState=WAREHOUSE_ACCEPTED`。
+  - 仓库验收后新增一条 `actionType=REFUND_WAREHOUSE_ACCEPT` 的审计记录，`beforeState=REVIEWED`，`afterState=ACCEPTED`。
   - `mvn -s maven-settings.xml -f code/pom.xml -pl ecommerce-payment -am test-compile` 编译通过。
 - **勿犯**:
   - `applyRefund(...)`（用户发起退款申请）**不在**本卡范围——03 §6 第 5 类写的是"审核和仓库验收"，不含"申请"。
-  - 不要因为要拿 `beforeStatus` 就顺手把状态判断逻辑（`PENDING_REVIEW`/`WAITING_WAREHOUSE_ACCEPT` 冲突码那部分）也重写——那是另一张卡（状态冲突改 409）的范围，本卡只在**已有**判断通过之后插入审计调用，不改判断逻辑本身、不改抛出的异常类型。
+  - 不要因为要拿 `beforeStatus` 就顺手把状态判断逻辑（`APPLIED`/`REVIEWED` 状态守卫与冲突码那部分）也重写——那是另一张卡（状态冲突改 409）的范围，本卡只在**已有**判断通过之后插入审计调用，不改判断逻辑本身、不改抛出的异常类型。
   - `AdminRefundController`/`RefundController`/`AdminRefundControllerTest` **不需要改动**——`reviewerId`/`acceptorId` 早已从 `SecurityContextHolder` 解析好，`reviewRefund`/`warehouseAccept` 对外方法签名不变。
   - 不要给审计调用加 try-catch/独立事务（理由同 AUD-2）。
   - `RefundServiceTest` 的 `new RefundService(...)` 是显式构造调用，跟 AUD-2/AUD-3/AUD-4 的 `@InjectMocks` 反射注入不是一回事——漏加最后一个实参就是编译错误，不是运行时错误。

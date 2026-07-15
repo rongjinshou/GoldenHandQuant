@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,9 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, Lo
     boolean existsByOrderIdAndStatus(Long orderId, PaymentStatus status);
 
     List<PaymentRecord> findByStatusAndPaidAtBetween(PaymentStatus status, LocalDateTime start, LocalDateTime end);
+
+    List<PaymentRecord> findByStatusInAndPaidAtBetween(
+            Collection<PaymentStatus> statuses, LocalDateTime start, LocalDateTime end);
 
     List<PaymentRecord> findByPaidAtBetween(LocalDateTime start, LocalDateTime end);
 }

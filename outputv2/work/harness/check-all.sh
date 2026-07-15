@@ -1,39 +1,28 @@
 #!/usr/bin/env bash
 grep -q "$(printf '\r')" "$0" 2>/dev/null && { _t="${TMPDIR:-/tmp}/lf$$-$(basename "$0")"; tr -d '\r' <"$0" >"$_t" && exec bash "$_t" "$@"; } # CRLF 自愈：被错误打包成 CRLF 时转成 LF 副本重新执行
 #
-# check-all.sh — 修复效果自检：编译 + 公开黑盒 24 例回归。
+# check-all.sh — 修复效果自检：编译 + 黑盒用例回归（用例总数以本环境实际运行数为准，可能不是 24）。
 #
 # 纯 AI 修复版：不依赖任何"参考答案"，只客观检验 agent 改完的工程能否编译、
-# 公开用例通过多少。用法：
-#   bash check-all.sh [TARGET_ROOT]    # TARGET_ROOT 省略 = 当前工作目录；需 JDK17 + Maven
+# 用例通过多少。用法：
+#   bash check-all.sh [TARGET_ROOT]   # TARGET_ROOT 省略 = 当前工作目录；需 PATH 有 JDK17+（含 javac）与 Maven
 set -uo pipefail
 TARGET_ROOT="${1:-$PWD}"
 
 echo "=================================================================="
 echo " ShopHub 修复效果自检  ·  target = $TARGET_ROOT"
 echo "=================================================================="
-# agent 的每次 shell 调用不共享 export——环境探测按版本驱动（与 ratchet.sh 同法）：java 缺失
-# 或主版本 <17（兼容 "1.8.0_x" 老格式）时，从 $HOME/tools 挑最新的 jdk-17*（sort -V 升序遍历、
-# 烟测可执行，最新的最后接管）强制 export JAVA_HOME/PATH，防止评测机自带的旧 JDK 抢占；
-# mvn 仅在 PATH 缺失时接入（多个 apache-maven-* 同样 sort -V 取最新）。
-java_major() { # 解析 java 主版本："17.0.10"→17，老格式 "1.8.0_392"→8；解析不出则输出空
+# 环境守卫（快速失败，不探测不自救）：评测机预装完整 JDK 21 + Maven，release 17 交叉编译，
+# java ≥17 且 javac 在即满足；缺什么明确报错并停，agent 把报错记进 result/output.md。
+java_major() { # 解析 java 主版本："17.0.10"→17、"21.0.10"→21，老格式 "1.8.0_392"→8
     local v; v="$("$1" -version 2>&1 | awk -F'"' '/version/{split($2,a,"."); print (a[1]==1)?a[2]:a[1]; exit}')"
     printf '%s\n' "${v%%[!0-9]*}"
 }
-JMAJ=""; command -v java >/dev/null 2>&1 && JMAJ="$(java_major java)"
-if [ "${JMAJ:-0}" -lt 17 ]; then
-    while IFS= read -r j; do
-        [ -x "$j/bin/java" ] && "$j/bin/java" -version >/dev/null 2>&1 && export JAVA_HOME="$j" PATH="$j/bin:$PATH"
-    done < <(ls -d "$HOME"/tools/jdk-17* 2>/dev/null | sort -V)
-fi
-if ! command -v mvn >/dev/null 2>&1; then
-    m="$(ls -d "$HOME"/tools/apache-maven-* 2>/dev/null | sort -V | tail -1)"
-    [ -n "$m" ] && [ -d "$m/bin" ] && export PATH="$m/bin:$PATH"
-fi
-command -v mvn >/dev/null 2>&1 || { echo "需要 mvn（JDK17 + Maven）来编译并运行公开用例。"; exit 2; }
-command -v java >/dev/null 2>&1 || { echo "mvn 在但 java 不可用（检查 JAVA_HOME/PATH，需 JDK17）。"; exit 2; }
+command -v java  >/dev/null 2>&1 || { echo "环境缺陷：PATH 中没有 java（评测机不应出现）。如实记录后停止。"; exit 2; }
+command -v javac >/dev/null 2>&1 || { echo "环境缺陷：有 java 但没有 javac——是 JRE 不是 JDK，无法编译。如实记录后停止。"; exit 2; }
+command -v mvn   >/dev/null 2>&1 || { echo "环境缺陷：PATH 中没有 mvn（评测机不应出现）。如实记录后停止。"; exit 2; }
 JMAJ="$(java_major java)"
-[ "${JMAJ:-0}" -ge 17 ] || { echo "java 主版本为 ${JMAJ:-未知}，需要 JDK17（当前 JAVA_HOME=${JAVA_HOME:-未设置}）。"; exit 2; }
+[ "${JMAJ:-0}" -ge 17 ] || { echo "环境缺陷：java 主版本为 ${JMAJ:-未知}，需要 ≥17（17~21 均可）。如实记录后停止。"; exit 2; }
 [ -f "$TARGET_ROOT/code/pom.xml" ] || { echo "当前目录下没有 code/pom.xml（先按第①步复制源码）。"; exit 2; }
 
 # 单实例锁：与 ratchet.sh 共用同一把（.ratchet/lock）——自检同样要起 mvn，与正在进行的
@@ -62,7 +51,7 @@ else
     echo; echo " 结论：编译未通过，还有 BUG 未修好或引入了编译错误。修正后重跑。"; exit 1
 fi
 
-echo; echo "② 公开黑盒 24 例（test-cases，只运行不修改）"
+echo; echo "② 黑盒用例回归（test-cases，只运行不修改；总数以实际运行为准）"
 if [ ! -f "$TARGET_ROOT/test-cases/pom.xml" ]; then
     echo "   未找到 test-cases，跳过回归门。"; echo; echo " 结论：编译通过（未跑公开用例）。"; exit 0
 fi

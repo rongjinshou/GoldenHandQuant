@@ -27,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
@@ -204,7 +203,7 @@ public class ShipmentService {
         label.setLabelNo(labelNo);
         label.setCarrier(carrier);
         label.setTrackingNo(trackingNo);
-        label.setPrintedAt(LocalDateTime.now());
+        label.setPrintedAt(SystemClockService.now());
         labelRecordRepository.save(label);
 
         shipment.setLabelNo(labelNo);
@@ -320,7 +319,7 @@ public class ShipmentService {
         tracking.setStatus(status);
         tracking.setLocation(location);
         tracking.setDescription(description);
-        tracking.setEventTime(LocalDateTime.now());
+        tracking.setEventTime(SystemClockService.now());
         tracking.setOperator(operator != null ? operator : "SYSTEM");
         trackingRepository.save(tracking);
     }

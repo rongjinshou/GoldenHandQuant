@@ -16,5 +16,6 @@
 
 - [ ] 库存摘要有 30 秒缓存。
 - [ ] 库存人工调整的审计日志**含操作者字段**（从 `Authentication` 提取）。
-- [ ] `reserve()` 有并发控制（乐观锁 `@Version` 或悲观锁），避免超卖。`[suspicious]`
+- [x] `reserve()` 有并发控制（乐观锁 `@Version` 或悲观锁），避免超卖。`[suspicious]`
+  ✔ 已核实（W15-C 回勾）：`InventoryStock.java:46` `@Version` + `InventoryReservationServiceImpl.java:69` 调 `reserveWithOptimisticRetry`（`:104-123`，`OptimisticLockingFailureException` 捕获后重读重试）。
 - [ ] 库存预警阈值直接挂在 `inventory_stock.warning_threshold`（附录 C 已定义该列），不依赖未登记的额外配置接口。`[suspicious]`

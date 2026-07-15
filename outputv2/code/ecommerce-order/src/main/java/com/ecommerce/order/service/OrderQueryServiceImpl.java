@@ -4,6 +4,7 @@ import com.ecommerce.common.event.DomainEventPublisher;
 import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.order.dto.VerifyPurchaseResponse;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
@@ -24,7 +25,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -160,7 +160,7 @@ public class OrderQueryServiceImpl implements OrderQueryService, OrderPaymentSta
 
         order.setStatus(OrderStatus.PAID);
         order.setPaymentNo(paymentNo);
-        order.setPaidAt(LocalDateTime.now());
+        order.setPaidAt(SystemClockService.now());
         order.setPaidAmount(order.getPayableAmount());
         orderRepository.save(order);
 

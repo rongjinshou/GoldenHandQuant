@@ -56,11 +56,15 @@ public class UserAuthService {
     }
 
     /**
-     * Authenticates a user by email and password.
+     * Authenticates a user by email (or nickname) and password.
+     * design-docs/04 §4: login validates "用户名或邮箱存在" — the request's email
+     * field doubles as a username/nickname (see {@link LoginRequest}), so an
+     * email miss falls back to a nickname lookup before reporting not-found.
      */
     @Transactional
     public LoginResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
+                .or(() -> userRepository.findFirstByNicknameOrderByIdAsc(request.getEmail()))
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.getEmail()));
 
         if (user.getStatus() != UserStatus.ACTIVE) {

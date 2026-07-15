@@ -4,6 +4,7 @@ import com.ecommerce.common.exception.AuthorizationException;
 import com.ecommerce.common.exception.BusinessException;
 import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.order.dto.VerifyPurchaseResponse;
 import com.ecommerce.order.query.OrderQueryService;
 import com.ecommerce.review.dto.ReviewAppendRequest;
@@ -23,7 +24,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -101,7 +101,7 @@ public class ReviewService {
 
         if (sensitiveHit) {
             review.setStatus(ReviewStatus.REJECTED);
-            review.setReviewedAt(LocalDateTime.now());
+            review.setReviewedAt(SystemClockService.now());
             review.setReviewerResponse("Automatically rejected: content contains prohibited words");
         } else {
             review.setStatus(ReviewStatus.PENDING_REVIEW);
@@ -148,7 +148,7 @@ public class ReviewService {
         append.setReviewId(reviewId);
         append.setContent(filteredContent);
         append.setImages(imagesToJson(request.getImages()));
-        append.setAppendCreatedAt(LocalDateTime.now());
+        append.setAppendCreatedAt(SystemClockService.now());
         reviewAppendRepository.save(append);
 
         review.setAppended(true);

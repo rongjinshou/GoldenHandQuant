@@ -30,10 +30,10 @@ public class InventoryStock extends BaseEntity {
 
     /**
      * Low-stock warning threshold for this SKU/warehouse row (design-docs/附录C
-     * inventory_stock.warning_threshold). Compared directly against onHandStock
-     * by {@link com.ecommerce.inventory.service.StockWarningService#getWarnings()}
-     * so that GET /api/v1/admin/inventory/warnings is reachable without first
-     * calling the non-contracted POST .../warnings/rule endpoint.
+     * inventory_stock.warning_threshold). Compared against onHandStock by
+     * {@link com.ecommerce.inventory.service.StockWarningService#getWarnings()}
+     * when positive. No frozen endpoint writes this column and inbound leaves it
+     * at the schema default 0, so it only takes effect when data sets it directly.
      */
     @Column(name = "warning_threshold")
     private int warningThreshold;

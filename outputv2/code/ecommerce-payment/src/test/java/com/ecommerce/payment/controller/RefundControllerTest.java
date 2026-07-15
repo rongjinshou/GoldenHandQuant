@@ -55,7 +55,7 @@ class RefundControllerTest {
         response.setUserId(100L);
         response.setRefundAmount(new BigDecimal("97.00"));
         response.setReason("Changed mind");
-        response.setStatus(RefundStatus.PENDING_REVIEW);
+        response.setStatus(RefundStatus.APPLIED);
 
         when(refundService.applyRefund(anyLong(), any(RefundApplyRequest.class)))
                 .thenReturn(response);
@@ -66,7 +66,7 @@ class RefundControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.refundNo").value("RF001"))
-                .andExpect(jsonPath("$.status").value("PENDING_REVIEW"));
+                .andExpect(jsonPath("$.status").value("APPLIED"));
 
         verify(refundService).applyRefund(anyLong(), any(RefundApplyRequest.class));
     }
@@ -86,7 +86,7 @@ class RefundControllerTest {
         response.setOrderId(1L);
         response.setUserId(100L);
         response.setRefundAmount(new BigDecimal("97.00"));
-        response.setStatus(RefundStatus.COMPLETED);
+        response.setStatus(RefundStatus.REFUNDED);
         response.setCompletedAt(java.time.LocalDateTime.now());
 
         when(refundService.getRefund(refundId)).thenReturn(response);
@@ -95,7 +95,7 @@ class RefundControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.refundNo").value("RF001"))
-                .andExpect(jsonPath("$.status").value("COMPLETED"));
+                .andExpect(jsonPath("$.status").value("REFUNDED"));
 
         verify(refundService).getRefund(refundId);
     }

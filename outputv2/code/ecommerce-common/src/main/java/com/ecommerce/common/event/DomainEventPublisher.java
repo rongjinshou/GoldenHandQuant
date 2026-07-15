@@ -1,5 +1,6 @@
 package com.ecommerce.common.event;
 
+import com.ecommerce.common.test.SystemClockService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -8,8 +9,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
 
 /**
  * Central publisher for domain events.
@@ -80,7 +79,7 @@ public class DomainEventPublisher {
             record.setEventPayload(payload);
             record.setErrorMessage("[" + source + "] "
                     + (ex != null ? ex.getMessage() : "unknown error"));
-            record.setOccurredAt(LocalDateTime.now());
+            record.setOccurredAt(SystemClockService.now());
             record.setRetried(false);
             record.setRetryCount(0);
             failedEventRecordRepository.save(record);
@@ -96,7 +95,7 @@ public class DomainEventPublisher {
             record.setEventType(event.getClass().getSimpleName());
             record.setEventPayload(serializeEvent(event));
             record.setErrorMessage(exception.getMessage());
-            record.setOccurredAt(LocalDateTime.now());
+            record.setOccurredAt(SystemClockService.now());
             record.setRetried(false);
             record.setRetryCount(0);
             failedEventRecordRepository.save(record);

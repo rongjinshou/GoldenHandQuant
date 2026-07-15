@@ -1,5 +1,7 @@
 package com.ecommerce.common.notification;
 
+import com.ecommerce.common.test.SystemClockService;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,12 +13,12 @@ public final class NotificationRecordService {
 
     public static void record(String bizType, String bizId, String receiver,
                               NotificationChannel channel, String templateCode, String idempotencyKey) {
-        records.add(new NotificationRecordItem(bizType, bizId, receiver, channel, templateCode, idempotencyKey, LocalDateTime.now(), null));
+        records.add(new NotificationRecordItem(bizType, bizId, receiver, channel, templateCode, idempotencyKey, SystemClockService.now(), null));
     }
 
     public static void recordFailure(String bizType, String bizId, String receiver,
-                                      NotificationChannel channel, String templateCode, String failureReason) {
-        records.add(new NotificationRecordItem(bizType, bizId, receiver, channel, templateCode, null, LocalDateTime.now(), failureReason));
+                                      NotificationChannel channel, String templateCode, String idempotencyKey, String failureReason) {
+        records.add(new NotificationRecordItem(bizType, bizId, receiver, channel, templateCode, idempotencyKey, SystemClockService.now(), failureReason));
     }
 
     public static List<NotificationRecordItem> getAll() { return new ArrayList<>(records); }

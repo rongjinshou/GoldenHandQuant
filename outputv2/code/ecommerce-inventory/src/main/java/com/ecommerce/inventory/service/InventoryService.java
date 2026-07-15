@@ -14,7 +14,6 @@ import com.ecommerce.inventory.repository.InboundOrderRepository;
 import com.ecommerce.inventory.repository.InventoryStockRepository;
 import com.ecommerce.inventory.repository.OutboundOrderRepository;
 import com.ecommerce.inventory.repository.WarehouseRepository;
-import com.ecommerce.common.test.RuntimeConfigRegistry;
 import com.ecommerce.product.query.ProductQueryService;
 import com.ecommerce.product.query.SkuDto;
 import com.ecommerce.product.query.StockSummaryDto;
@@ -52,14 +51,6 @@ public class InventoryService implements InventoryQueryService,
      * so every stock-mutating method evicts the same cache region.
      */
     public static final String INVENTORY_SUMMARY_CACHE = "inventory:summary";
-
-    /**
-     * Runtime-configurable key for the default low-stock warning threshold applied
-     * to newly inbound-ed stock rows (design-docs/附录C inventory_stock.warning_threshold).
-     * Overridable in tests via PUT /api/v1/admin/system/configs/{key}.
-     */
-    private static final String WARNING_THRESHOLD_CONFIG_KEY = "inventory.warning-threshold-default";
-    private static final int DEFAULT_WARNING_THRESHOLD = 10;
 
     private final InventoryStockRepository inventoryStockRepository;
     private final InboundOrderRepository inboundOrderRepository;
@@ -174,11 +165,10 @@ public class InventoryService implements InventoryQueryService,
                     newStock.setOnHandStock(0);
                     newStock.setReservedStock(0);
                     newStock.setSafetyStock(0);
-                    // design-docs/附录C inventory_stock.warning_threshold: default applied
-                    // at creation time so GET .../warnings is reachable without first
-                    // calling the non-contracted POST .../warnings/rule endpoint.
-                    newStock.setWarningThreshold(RuntimeConfigRegistry.getInt(
-                            WARNING_THRESHOLD_CONFIG_KEY, DEFAULT_WARNING_THRESHOLD));
+                    // warningThreshold intentionally left at the schema default (0):
+                    // 附录B lists no default-threshold config key and no frozen endpoint
+                    // writes this column, so inventing one here made GET .../warnings
+                    // report rows nobody configured. No rule, no warning.
                     return newStock;
                 });
 

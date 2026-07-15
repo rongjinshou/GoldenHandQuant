@@ -5,6 +5,7 @@ import com.ecommerce.common.exception.BusinessException;
 import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import com.ecommerce.common.money.MonetaryUtil;
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.order.query.OrderPaymentStatusUpdater;
 import com.ecommerce.payment.dto.PaymentCallbackRequest;
 import com.ecommerce.payment.entity.PaymentRecord;
@@ -16,7 +17,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 /**
  * Handles payment gateway callback processing.
@@ -120,9 +120,12 @@ public class PaymentCallbackService {
 
         payment.setStatus(PaymentStatus.SUCCESS);
         payment.setPaidAmount(callbackAmount);
-        payment.setPaidAt(LocalDateTime.now());
+        // Business timestamps use the test-support system clock so admin
+        // clock-shift scenarios observe consistent payment times (equal to the
+        // real system time whenever the clock is not shifted).
+        payment.setPaidAt(SystemClockService.now());
         payment.setCallbackSequence(request.getCallbackSequence());
-        payment.setCallbackData("Callback processed at " + LocalDateTime.now());
+        payment.setCallbackData("Callback processed at " + SystemClockService.now());
         paymentRecordRepository.save(payment);
 
         // Update order payment status (also triggers, in the same transaction,
@@ -162,7 +165,7 @@ public class PaymentCallbackService {
 
         payment.setStatus(PaymentStatus.FAILED);
         payment.setCallbackSequence(request.getCallbackSequence());
-        payment.setCallbackData("Failed callback at " + LocalDateTime.now());
+        payment.setCallbackData("Failed callback at " + SystemClockService.now());
         paymentRecordRepository.save(payment);
 
         // Update order payment status

@@ -1,7 +1,9 @@
 package com.ecommerce.cart.cache;
 
+import com.ecommerce.common.test.SystemClockService;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,11 @@ class CartCacheManagerTest {
                 .maximumSize(100)
                 .build();
         cartCacheManager = new CartCacheManager(cache);
+    }
+
+    @AfterEach
+    void resetClock() {
+        SystemClockService.reset();
     }
 
     @Test
@@ -77,6 +84,36 @@ class CartCacheManagerTest {
         // After TTL expiry, the entry should be evicted
         CartData expiredResult = shortTtlManager.getCart(USER_ID);
         assertThat(expiredResult).isNull();
+    }
+
+    @Test
+    @DisplayName("app-layer TTL: shifting SystemClockService past cart.ttl-days (default 7) expires the entry and invalidates the key")
+    void testAppLayerTtl_clockShiftedPastTtl_returnsNullAndInvalidates() {
+        CartData cartData = new CartData(USER_ID);
+        cartData.getItems().add(new CartItemData(100L, "SKU", BigDecimal.TEN, 1));
+        cartCacheManager.saveCart(cartData);
+
+        // 7 days + 1 minute beyond the save-time clock
+        SystemClockService.setOffset(7 * 24 * 60 + 1);
+
+        assertThat(cartCacheManager.getCart(USER_ID)).isNull();
+        // the expired entry is also physically dropped from the underlying cache
+        assertThat(cache.getIfPresent(USER_ID)).isNull();
+    }
+
+    @Test
+    @DisplayName("app-layer TTL: a clock shift within cart.ttl-days keeps the entry a hit")
+    void testAppLayerTtl_clockShiftWithinTtl_stillHit() {
+        CartData cartData = new CartData(USER_ID);
+        cartData.getItems().add(new CartItemData(100L, "SKU", BigDecimal.TEN, 1));
+        cartCacheManager.saveCart(cartData);
+
+        // 6 days 23 hours later — still inside the 7-day TTL
+        SystemClockService.setOffset(7 * 24 * 60 - 60);
+
+        CartData retrieved = cartCacheManager.getCart(USER_ID);
+        assertThat(retrieved).isNotNull();
+        assertThat(retrieved.getItems()).hasSize(1);
     }
 
     @Test

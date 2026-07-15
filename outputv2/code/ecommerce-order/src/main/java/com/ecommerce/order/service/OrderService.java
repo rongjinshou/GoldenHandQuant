@@ -47,7 +47,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -252,9 +252,14 @@ public class OrderService {
             redeemedPoints = Math.min(request.getRedeemPoints(), redeemable);
 
             if (redeemedPoints > 0) {
-                // 100 points = 1 yuan
-                pointsDeductionAmount = MonetaryUtil.multiply(
-                        BigDecimal.valueOf(redeemedPoints), new BigDecimal("0.01"));
+                // 抵扣金额 = 实际可用积分 / 兑换比例 (design-docs/12 §3), rate from
+                // loyalty.redeem-rate (附录B §1, default 100 — 100 points = 1 yuan),
+                // 2-digit HALF_UP — exactly the formula LoyaltyPointService.pointsToAmount
+                // uses, so the order-side deduction always matches the loyalty-side
+                // conversion even when the rate is overridden at runtime.
+                int redeemRate = RuntimeConfigRegistry.getInt("loyalty.redeem-rate", 100);
+                pointsDeductionAmount = BigDecimal.valueOf(redeemedPoints)
+                        .divide(BigDecimal.valueOf(redeemRate), 2, RoundingMode.HALF_UP);
             }
         }
 
@@ -466,7 +471,10 @@ public class OrderService {
      * In production this would use a database sequence or distributed ID generator.
      */
     private String generateOrderNo() {
-        String datePart = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        // Date segment follows the test-support clock (SystemClockService), not the
+        // wall clock, so an admin-shifted system time is reflected in new orderNos.
+        String datePart = SystemClockService.now().toLocalDate()
+                .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         // Monotonic sequence rather than currentTimeMillis()%10000: two orders created
         // in the same millisecond (a batch) would otherwise produce the same orderNo and
         // violate its unique constraint. All order creation — single and batch — flows

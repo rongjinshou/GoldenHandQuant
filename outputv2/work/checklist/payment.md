@@ -10,7 +10,7 @@
 
 ## 退款（含仓库验收，14）
 
-- [ ] 退款审核通过后只置 `WAITING_WAREHOUSE_ACCEPT`；`processRefund` 只能由**仓库验收**触发，不得跳过验收直接完成退款。
+- [ ] 退款审核通过后只置 `REVIEWED`（附录 C `refund_record.status` 词表 `APPLIED/REVIEWED/ACCEPTED/REFUNDED/REJECTED`；W15-A 已把旧 `WAITING_WAREHOUSE_ACCEPT` 枚举改为 `REVIEWED`）；`processRefund` 只能由**仓库验收**触发，不得跳过验收直接完成退款。
 - [ ] 退款金额公式**不额外扣固定 1.00**（设计原话「不得额外扣除固定费用」）。
 - [ ] 退款申请有 `refundRequestNo` 幂等键并查重。
 
@@ -23,10 +23,12 @@
 
 ## 回调 / 事件（附录 D）
 
-- [ ] 支付回调校验 `X-Payment-Signature` 头；按 `paymentNo + callbackSequence` 幂等；重复 FAILED 回调也幂等（已 FAILED 直接返回）。`[FAILED 分支为 suspicious]`
+- [x] 支付回调校验 `X-Payment-Signature` 头；按 `paymentNo + callbackSequence` 幂等；重复 FAILED 回调也幂等（已 FAILED 直接返回）。`[FAILED 分支为 suspicious]`
+  ✔ 已核实（W15-C 回勾，FAILED 分支）：`PaymentCallbackService.java:144-148`——已 FAILED 的重复 FAILED 回调记日志直接 `return`；`:150-154` 已 CLOSED（终态）时同样短路不翻转。
 - [ ] `PaymentSucceededEvent` 含 `paidAt` 字段，去掉恒为 null 的 `userId`（按附录 D 校正）。
 
 ## 枚举命名（改前先确认无黑盒断言具体字符串）
 
-- [ ] `PaymentStatus.REFUNDED` 应为附录 C 的 `CLOSED`。`[suspicious]`
+- [x] `PaymentStatus.REFUNDED` 应为附录 C 的 `CLOSED`。`[suspicious]`
+  ✔ 已核实（W15-C 回勾）：`PaymentStatus.java` 枚举现为 `CREATED/SUCCESS/FAILED/CLOSED`——`REFUNDED` 已不存在，与附录 C 词表一致。
 - [ ] `RefundStatus`/`InvoiceStatus` 值集合与附录 C 对齐（如 `CANCELLED`→`VOIDED`）。`[suspicious，改动面大]`

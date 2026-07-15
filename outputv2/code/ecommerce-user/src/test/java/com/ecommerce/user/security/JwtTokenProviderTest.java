@@ -1,17 +1,22 @@
 package com.ecommerce.user.security;
 
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.user.service.JwtTokenProvider;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jws;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 @DisplayName("JwtTokenProvider")
 class JwtTokenProviderTest {
@@ -26,6 +31,11 @@ class JwtTokenProviderTest {
     @BeforeEach
     void setUp() {
         jwtTokenProvider = new JwtTokenProvider(SECRET, ISSUER, EXPIRE_MINUTES);
+    }
+
+    @AfterEach
+    void resetClock() {
+        SystemClockService.reset();
     }
 
     @Test
@@ -120,5 +130,32 @@ class JwtTokenProviderTest {
 
         assertThatThrownBy(() -> shortLivedProvider.validateToken(token))
                 .isInstanceOf(ExpiredJwtException.class);
+    }
+
+    // --- SystemClockService coherence (issue side + parse side) ---
+
+    @Test
+    @DisplayName("parser expiry follows SystemClockService: shifting the clock past exp expires a fresh token")
+    void testValidate_clockShiftedPastExpiry_throwsExpired() {
+        String token = jwtTokenProvider.generateToken(42L, List.of("USER"));
+
+        SystemClockService.setOffset(EXPIRE_MINUTES + 5);
+
+        assertThatThrownBy(() -> jwtTokenProvider.validateToken(token))
+                .isInstanceOf(ExpiredJwtException.class);
+    }
+
+    @Test
+    @DisplayName("issuance follows SystemClockService: token minted under a shifted clock carries the shifted iat and still validates")
+    void testGenerate_underShiftedClock_iatFollowsClock() {
+        SystemClockService.setOffset(60 * 24); // +1 day
+
+        String token = jwtTokenProvider.generateToken(7L, List.of("USER"));
+        Jws<Claims> jws = jwtTokenProvider.validateToken(token);
+
+        Date expectedNow = Date.from(
+                SystemClockService.now().atZone(ZoneId.systemDefault()).toInstant());
+        assertThat(jws.getPayload().getIssuedAt().getTime())
+                .isCloseTo(expectedNow.getTime(), within(5_000L));
     }
 }

@@ -1,14 +1,19 @@
-# B14 · logistics — 拣货-面单-出库链 / 回调 / 运费模板
+# B14 · logistics — 拣货-面单-出库链 / 回调 / 运费模板 / 订单物流状态推进
 
 来源：`work/bugs/findings.md`「logistics 模块（§6.8，共 7 项）」——本文件覆盖其中 **6 项**（LOGI-1..
 LOGI-3、LOGI-5..LOGI-7）；第 4 项（发货单靠监听 `OrderPaidEvent` 自动创建）本质是"新增事件监听器 +
 跨模块 bean 命名/事务语义"，按裁决路由给 `S2-events.md`，不在本文件重复，见文末《本批未覆盖的
-§6.8 条目》。另外补 3 张卡：LOGI-4（Task 13 集成缺陷 `BUG-INT-4`，pick 空指针）、LOGI-8（第三轮深审
-·跨领域 #9，出库无发货提醒短信）、LOGI-9（第四轮设计-实现对比 #1，面单承运商硬编码占位符）。
+§6.8 条目》。另外补 5 张卡：LOGI-4（Task 13 集成缺陷 `BUG-INT-4`，pick 空指针）、LOGI-8（第三轮深审
+·跨领域 #9，出库无发货提醒短信）、LOGI-9（第四轮设计-实现对比 #1，面单承运商硬编码占位符）、
+LOGI-10（findings「已识别但未实施」·物流回调冗余轨迹去重）、LOGI-11（Wave-3 实验实证后的弃项反转：
+`OrderLogisticsStatusUpdater` 生产实现，@Primary 方案；LOGI-10/LOGI-11 在文件真末尾、《本批未覆盖》
+一节之后）。
 
-**9 张卡全部只改 `ecommerce-logistics` 模块自身文件**，不改 `ecommerce-order`/`ecommerce-loyalty`——
-运费模板接线进下单流程、`ShipmentDeliveredEvent` 在 order/loyalty 侧的监听器，都是明确排除在外的
-别批范围（各相关卡的「勿犯」有单独提醒）。
+**LOGI-1..LOGI-10 共 10 张卡全部只改 `ecommerce-logistics` 模块自身文件**，不改 `ecommerce-order`/
+`ecommerce-loyalty`——运费模板接线进下单流程、`ShipmentDeliveredEvent` 在 order/loyalty 侧的监听器，
+都是明确排除在外的别批范围（各相关卡的「勿犯」有单独提醒）。**唯一例外是 LOGI-11**（高危卡）：它给
+logistics 的跨模块端口补生产实现，按设计只能落在 order（推进服务+单测）与 app（@Primary 适配器）
+两个模块——3 个文件全部是【新增】，不触碰任何既有文件，跨模块落地先例见 B05/PROMO-16。
 
 **执行前提**：`work/bugs/README.md` 的批次表把本文件排在 `B13 · S2-events.md §A`（事件权威定义迁移
 common + 影子类删除）**之后**执行——LOGI-6 依赖 B13 已经建好的 `com.ecommerce.common.event.
@@ -844,7 +849,9 @@ ShipmentDeliveredEvent.java`），否则 LOGI-6 无法编译，按 LOGI-6 卡内
 ### LOGI-9 | 打印面单把承运商硬编码为占位符 "DEFAULT"，违背附录B 默认承运商 LOCAL_EXPRESS（第四轮设计-实现对比 #1）
 
 - 风险: low · 置信度: definite
-- **文件**: `code/ecommerce-logistics/src/main/java/com/ecommerce/logistics/controller/AdminLogisticsController.java`
+- **文件**:
+  1. `code/ecommerce-logistics/src/main/java/com/ecommerce/logistics/controller/AdminLogisticsController.java`
+  2. （同步单测）`code/ecommerce-logistics/src/test/java/com/ecommerce/logistics/controller/AdminLogisticsControllerTest.java`
 - **现状**: `printLabel` 端点（约第 55~59 行）：
   ```java
   @PostMapping("/shipments/{id}/print-label")
@@ -861,18 +868,34 @@ ShipmentDeliveredEvent.java`），否则 LOGI-6 无法编译，按 LOGI-6 卡内
   `logistics.default-carrier`，默认值 `LOCAL_EXPRESS`（附录B §1 示例配置）。打面单后
   `Shipment.carrier` 与物流查询响应中的 carrier = `LOCAL_EXPRESS`（或被
   `PUT /api/v1/admin/system/configs/logistics.default-carrier` 覆盖后的运行期值）。
-- **改法**: 只改 controller 这一处调用（`ShipmentService.printLabel` 本身不动——它接受 carrier
-  形参的设计没有问题）：
-  1. import 块新增：`import com.ecommerce.common.test.RuntimeConfigRegistry;`
+- **改法**: 生产侧只改 controller 这一处调用（`ShipmentService.printLabel` 本身不动——它接受 carrier
+  形参的设计没有问题），另同步 1 处控制器单测的 mock 期望：
+  1. import 块新增（放在 `import com.ecommerce.logistics.dto.FreightTemplateRequest;` 之前，
+     保持字母序）：`import com.ecommerce.common.test.RuntimeConfigRegistry;`
   2. 调用行改为：
   ```java
   shipmentService.printLabel(id,
           RuntimeConfigRegistry.getString("logistics.default-carrier", "LOCAL_EXPRESS"));
   ```
+  3. 同步 `AdminLogisticsControllerTest.testPrintLabel_authenticated_returnsOk`（约第 92-100 行）——
+     该用例原来 mock/verify 的是旧占位符实参 `printLabel(1L, "DEFAULT")`，不改会在
+     `mvn -f code/pom.xml test` 模块自检时失败（黑盒门禁不受影响，但不许留一个明知会挂的单测）。
+     两处 `eq("DEFAULT")` / `"DEFAULT"` 实参改为 `"LOCAL_EXPRESS"`：
+  ```java
+  doNothing().when(shipmentService).printLabel(eq(1L), eq("LOCAL_EXPRESS"));
+  ...
+  // LOGI-9: with no runtime override set, the controller must resolve the
+  // carrier from logistics.default-carrier (附录B §1 default LOCAL_EXPRESS),
+  // not the old hard-coded "DEFAULT" placeholder.
+  verify(shipmentService).printLabel(1L, "LOCAL_EXPRESS");
+  ```
 - **验收**: 走完整链路（支付成功 → 发货单 → pick → print-label）后
   `GET /api/v1/logistics/order/{orderId}` 响应中承运商字段 = `LOCAL_EXPRESS`；
   `grep -n '"DEFAULT"' code/ecommerce-logistics/src/main/java/com/ecommerce/logistics/controller/AdminLogisticsController.java`
-  不再命中。
+  不再命中；`grep -n 'eq("DEFAULT")\|printLabel(1L, "DEFAULT")' code/ecommerce-logistics/src/test/java/com/ecommerce/logistics/controller/AdminLogisticsControllerTest.java`
+  不再命中（改法第 3 步的解释性注释里允许出现 DEFAULT 字样，不算残留——只要 mock/verify 实参不再是它）；
+  `mvn -s maven-settings.xml -f code/pom.xml test -pl ecommerce-logistics`
+  中 `AdminLogisticsControllerTest` 全绿。
 - **勿犯**:
   1. `RuntimeConfigRegistry` 在 `com.ecommerce.common.test` 包（黑盒支撑注册表），**不是**
      `com.ecommerce.common.config`——import 写错编译不过。
@@ -906,3 +929,643 @@ ShipmentDeliveredEvent.java`），否则 LOGI-6 无法编译，按 LOGI-6 卡内
 `S2-events.md`（对应 `work/bugs/README.md` 批次表 B13/B16）统一处理。`work/checklist/
 logistics.md`（在线复核清单）仍然列了这条要求，验证阶段会按该清单核对，不会因为本文件跳过而
 漏检。
+
+---
+
+### LOGI-10 | 物流回调一次事件写两条轨迹，其中一条 trackingNo=null 的冗余行（findings「已识别但未实施」落地）
+
+- 风险: low · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-logistics/src/main/java/com/ecommerce/logistics/service/ShipmentService.java`
+  2. （同步测试）`code/ecommerce-logistics/src/test/java/com/ecommerce/logistics/service/ShipmentServiceTest.java`
+- **现状**: 基线 `ShipmentService.updateStatus(...)`（基线第 247-281 行）内部有一行
+  ```java
+  recordTracking(shipmentId, newStatus.name(), location, description, "CARRIER");
+  ```
+  （基线第 263 行）。私有 `recordTracking(...)`（基线第 283 行起）落的 `ShipmentTracking` **不带
+  `trackingNo`**（方法根本没有这个参数），`eventTime` 用的是服务器当前时间而非承运商事件时间。
+  基线里 `updateStatus` 零调用方（死代码）；LOGI-5 落地后，回调路径
+  `LogisticsCallbackService.processCallback` 先调 `updateStatus(...)`（内部写这条 trackingNo=null
+  的行），随后又手工 `save` 一条带 `trackingNo` + 承运商 `eventTime` 的完整行——**一次回调事件
+  写两条轨迹**，`GET /api/v1/logistics/order/{orderId}` 的 `trackingRecords` 里每个承运商事件都
+  出现两遍（一条完整、一条 trackingNo=null 且时间是服务器时间，按 `eventTime` 排序时两条还可能
+  被其它事件行隔开）。LOGI-5「勿犯」第 1 条当时明确禁止顺手精简这个重复（当时评估以为要改
+  `updateStatus` 签名、判"中风险，本轮不做"）——**本卡就是那个暂缓项的正式落地**，且用的是
+  不改签名的更小改法；LOGI-5 的那条临时禁令自本卡起解除，两卡不冲突：先按 LOGI-5 原样实现回调，
+  再按本卡去重。
+- **期望**: 一个承运商回调事件只落**一条**轨迹，且是带幂等键三要素的那条完整行。依据:
+  design-docs/03 §3（幂等规范表：物流回调幂等键 = `trackingNo` + `eventTime` + `status`——
+  trackingNo=null 的影子行永远无法参与判重，是纯冗余数据）、design-docs/11 §1（物流轨迹为物流
+  服务职责，"事件 → 轨迹"语义一对一）。来源：`findings.md` 第三轮深审「已识别但未实施」条目
+  "物流回调每次多写一条 `trackingNo=null` 冗余轨迹（`updateStatus`→`recordTracking` 与
+  `LogisticsCallbackService` 手工插入重复）：中价值、中风险（改 `updateStatus` 签名）"。
+- **改法**（不改任何方法签名）:
+  1. **`ShipmentService.updateStatus(...)`** 里删掉那一行
+     `recordTracking(shipmentId, newStatus.name(), location, description, "CARRIER");`，原位留注释
+     说明单一写入点（其余全不动：状态落库、`pickupTime`/`deliveredAt` 打点、
+     `orderLogisticsStatusUpdater` 推送、DELIVERED 事件发布、方法签名与可见性都保持原样）：
+     ```java
+     shipmentRepository.save(shipment);
+
+     // Deliberately no recordTracking(...) here: updateStatus's only caller
+     // is the carrier-callback path (LogisticsCallbackService.processCallback),
+     // which persists the single complete ShipmentTracking for the event —
+     // carrying the carrier's trackingNo and eventTime that form the callback
+     // idempotency key (design-docs/03 §3: trackingNo+eventTime+status).
+     // Writing a second, trackingNo-less row here (with server time instead
+     // of the carrier event time) would duplicate every callback event's trace.
+
+     try {
+         orderLogisticsStatusUpdater.updateLogisticsStatus(
+     ```
+     依据：全仓库 `updateStatus` 的调用方只有 `LogisticsCallbackService.processCallback` 一处
+     （基线零调用方，LOGI-5 之后恰好一处），而回调路径已由 LOGI-5 落那条完整行，删除后每个事件
+     恰好一条轨迹。`recordTracking` 私有方法**保留**——`pick()`/`printLabel()`/`outbound()`
+     三处操作轨迹仍在用它。
+  2. **`ShipmentServiceTest.java`** 同步三个 `updateStatus` 用例（`testUpdateStatus_toCollected_
+     setsPickupTime` / `testUpdateStatus_toDelivered_setsDeliveredAt` / `updateStatus_toDelivered_
+     publishesShipmentDeliveredEvent`）：各删掉
+     `when(trackingRepository.save(any(ShipmentTracking.class))).thenReturn(new ShipmentTracking());`
+     那行桩（MockitoExtension 严格桩模式下，留着会 `UnnecessaryStubbingException` 报红）；并在
+     COLLECTED 用例末尾加锁死断言：
+     ```java
+     // The single ShipmentTracking row for a carrier event is written by
+     // LogisticsCallbackService.processCallback (with the carrier's
+     // trackingNo/eventTime) — updateStatus itself must not write a second,
+     // trackingNo-less duplicate.
+     verify(trackingRepository, never()).save(any(ShipmentTracking.class));
+     ```
+     `pick`/`printLabel`/`outbound` 用例的 `trackingRepository.save` 桩**不要动**（那些路径仍写
+     操作轨迹）。`LogisticsCallbackServiceTest` 无需改动——它 mock 了 `ShipmentService`，其
+     `verify(trackingRepository).save(...)`（恰好一次、带 trackingNo）在删除后依然成立。
+- **验收**:
+  - 完整链路 pay → pick → print-label → outbound → callback(`COLLECTED`) → callback(`DELIVERED`)
+    后查 `GET /api/v1/logistics/order/{orderId}`：`trackingRecords` 里 COLLECTED / DELIVERED 各
+    **恰好一条**，且 `eventTime` 等于回调请求里传的值（不再混入服务器时间的影子行）；PICKING /
+    LABEL_PRINTED / OUTBOUND 的操作轨迹不受影响、各一条。
+  - 同一 `(trackingNo, eventTime, status)` 重发回调仍幂等 no-op（判重行为完全不变，判重靠的本来
+    就是 LOGI-5 手工落的完整行）。
+  - `ShipmentServiceTest`/`LogisticsCallbackServiceTest` 全绿；公开 24 例回归全绿（PUB-014/107/108
+    走的物流链路只断言状态推进与轨迹存在性，删的是冗余行）。
+- **勿犯**: **不要反向去重**（删 `processCallback` 的手工完整行、留 `updateStatus` 的内部行）——
+  那样轨迹行会丢失 `trackingNo` 和承运商 `eventTime`，幂等判重
+  `existsByTrackingNoAndEventTimeAndStatus(...)` 从此永远查不到已处理事件，回调幂等被打穿（同一
+  事件重发一次就多推一次状态）。不要动 `updateStatus` 的方法签名（LOGI-5 当年暂缓就是怕动签名，
+  本改法证明根本不需要）。不要删 `recordTracking` 私有方法本身，也不要动 `pick`/`printLabel`/
+  `outbound` 里对它的三处调用。
+
+---
+
+### LOGI-11 | `OrderLogisticsStatusUpdater` 全仓无生产实现——物流状态永远推不动订单（11 §3 强制项的整条缺失）
+
+- 风险: high · 置信度: definite
+- **文件**（全部【新增】，不改任何既有文件；跨模块落地先例：B05/PROMO-16 经指针卡改 order 文件）：
+  1. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderLogisticsStatusService.java`【新增】
+  2. `code/ecommerce-order/src/test/java/com/ecommerce/order/service/OrderLogisticsStatusServiceTest.java`【新增】
+  3. `code/ecommerce-app/src/main/java/com/ecommerce/app/integration/OrderLogisticsStatusUpdaterImpl.java`【新增】
+- **现状**：logistics 的跨模块端口 `com.ecommerce.logistics.query.OrderLogisticsStatusUpdater`
+  （`ShipmentService` 构造器强依赖，pick/printLabel/outbound/回调四处各调一次）在整个 `code/`
+  里**没有任何生产实现**。两个后果：
+  1. 黑盒链路里订单状态在支付后永远停在 `PAID`——`pick` 后不进 `PICKING`、`outbound` 后不进
+     `SHIPPED`（黑盒能跑只因冻结的 `test-cases/.../BlackboxHarnessConfig` 注册了一个无限定符的
+     no-op `@Bean`）；隐藏用例若在出库后断言订单为 `SHIPPED` 必挂。
+  2. 独立启动 `ShopHubApplication`（生产入口，无 harness 配置）直接
+     `NoSuchBeanDefinitionException`，上下文起不来。
+  findings.md 曾把"补生产实现"列为**尽调后明确放弃**项，理由是与 harness no-op bean 类型冲突会
+  `NoUniqueBeanDefinitionException` 24 例全灭——该结论**只对无消歧的第二个候选成立**，已被本卡的
+  `@Primary` 方案实证推翻（作者侧按本卡全量落地后完整公开套件 24/24 全绿，且生产入口可独立启动，
+  Started in ~3.6s）。
+- **期望**：`design-docs/11-物流服务设计.md` §3 原文：「**物流状态变更后，必须通过
+  `OrderLogisticsStatusUpdater` 更新对应订单的物流状态**」。映射到订单状态机（08 §2）：物流侧
+  `PICKING` → 订单 `PICKING`（拣货中）；物流侧 `OUTBOUND`/`COLLECTED`/`IN_TRANSIT` → 订单
+  `SHIPPED`（已发货）；`CREATED`/`LABEL_PRINTED`/`EXCEPTION` 不推进订单；`DELIVERED` **不在本卡
+  处理**——签收推进由 `ShipmentDeliveredEvent` + order 侧监听器负责（附录D §4，B16/EVT-B2 卡），
+  本卡绝不与它抢 DELIVERED 的写权。
+- **@Primary 与 harness no-op 共存机理（本卡成立的根基，落笔前必须理解）**：冻结的
+  `BlackboxHarnessConfig`（不可改）以 `@Bean` 注册了一个**无限定符、非 @Primary** 的 no-op
+  实现（bean 名 `orderLogisticsStatusUpdater`）。本卡的生产实现用 `@Component`（bean 名
+  `orderLogisticsStatusUpdaterImpl`，与前者不同名，故不触发同名覆盖）+ **`@Primary`**：黑盒
+  上下文里该类型有两个候选，Spring 规范保证 @Primary 者确定性胜出注入 `ShipmentService`，
+  harness bean 保持注册但不被注入——无 `NoUniqueBeanDefinitionException`、无需动 harness。
+  每个黑盒用例都以 harness 配置启动完整上下文，因此本批 ratchet 全绿即共存被逐例实证。
+- **容错语义（第二根基）**：推进服务**绝不抛出**。四个调用点都在物流事务内，订单不存在、或当前
+  状态不允许该迁移（如用户已发起取消审核 `CANCEL_REVIEWING`、已退款 `REFUNDING`，而仓库仍在
+  作业）属于正常竞态，log warn + 静默跳过——物流端点不能因订单状态竞态而 500（与 EVT-B2 送达
+  监听器的容忍范式一致）。合法性校验全部用 `OrderStateMachine.canTransition(...)`（布尔），
+  **绝不用会抛异常的 `validateTransition`**。已是目标态/已越过目标态 → 幂等跳过。推进沿
+  `PAID→PICKING→SHIPPED` 链逐跳校验（与 EVT-B2 链式校验同范式），跳跃到达（如 `PAID` 时直接
+  收到 `OUTBOUND`）也要每跳合法才落最终态。
+- **执行顺序**：三个新文件**无任何前置批次依赖**（不用 B13 的 common 事件类；依赖的
+  `OrderStateMachine`、`OrderService.recordEvent(6参)`、`OrderRepository`、logistics 端口接口、
+  app 模块对 order+logistics 的 pom 依赖全部基线已有，`com.ecommerce.app.integration` 是全新
+  包）。B14 时点 order（B03/B04）与 app（B12）批均已固化，单批原子落地即可。送达监听器
+  （EVT-B2，B16）的目标代码已内建"订单可能已被本卡推进到 PICKING/SHIPPED"的起点分支，两卡
+  按批次表顺序执行即自洽；B14→B16 之间的中间态公开链路已验证安全（评价创建在 B17 之前不校验
+  订单状态，PUB-107 只断言发货单状态非空）。
+- **改法**：三个新文件全文如下，逐字落地。
+
+  1. 新增 `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderLogisticsStatusService.java`
+  （order 模块内聚服务，只依赖本模块类，对 logistics 零感知）：
+
+  ```java
+  package com.ecommerce.order.service;
+
+  import com.ecommerce.order.entity.Order;
+  import com.ecommerce.order.entity.OrderStatus;
+  import com.ecommerce.order.repository.OrderRepository;
+  import org.slf4j.Logger;
+  import org.slf4j.LoggerFactory;
+  import org.springframework.stereotype.Service;
+  import org.springframework.transaction.annotation.Transactional;
+
+  import java.util.List;
+
+  /**
+   * Advances an order's fulfilment status when the logistics module reports a
+   * shipment status change (design-docs/11 §3: "物流状态变更后，必须通过
+   * OrderLogisticsStatusUpdater 更新对应订单的物流状态").
+   *
+   * <p>This service is the order-module half of that contract: it maps the
+   * logistics-side {@code ShipmentStatus} string onto the order lifecycle
+   * (design-docs/08 §2) and applies the transition through the
+   * {@link OrderStateMachine}:
+   *
+   * <ul>
+   *   <li>{@code PICKING} → order {@code PICKING} (拣货中)</li>
+   *   <li>{@code OUTBOUND} / {@code COLLECTED} / {@code IN_TRANSIT} → order
+   *       {@code SHIPPED} (已发货 — the parcel has left the warehouse)</li>
+   *   <li>{@code CREATED} / {@code LABEL_PRINTED} / {@code EXCEPTION} — no
+   *       order-side progression (label printing keeps the order 拣货中;
+   *       a carrier exception does not move the order lifecycle)</li>
+   *   <li>{@code DELIVERED} — intentionally NOT handled here. Delivery is
+   *       propagated by the shared {@code ShipmentDeliveredEvent} and applied by
+   *       {@code ShipmentDeliveredEventListener} (design-docs/附录D §4), which
+   *       stays the single authoritative DELIVERED writer.</li>
+   * </ul>
+   *
+   * <p><b>Tolerance semantics — this method never throws.</b> It is invoked
+   * inside the logistics transaction (pick / print-label / outbound / carrier
+   * callback); a missing order or a status race (e.g. the order moved to
+   * CANCEL_REVIEWING or REFUNDING while the warehouse kept working) must not
+   * 500 the logistics endpoint. Such cases are logged at WARN and skipped —
+   * the same tolerance paradigm as {@code ShipmentDeliveredEventListener}.
+   * Hops are checked with {@link OrderStateMachine#canTransition} (boolean),
+   * never the throwing validator. An order already at or past the target
+   * status is an idempotent no-op.
+   *
+   * <p>Runs in the caller's transaction (default REQUIRED) so the order-status
+   * write commits atomically with the shipment-status write that triggered it.
+   */
+  @Service
+  public class OrderLogisticsStatusService {
+
+      private static final Logger log = LoggerFactory.getLogger(OrderLogisticsStatusService.class);
+
+      /**
+       * The forward fulfilment chain a paid order walks (design-docs/08 §2).
+       * A logistics update may only advance the order along this chain; every
+       * hop is still validated against the {@link OrderStateMachine}.
+       */
+      private static final List<OrderStatus> FULFILMENT_CHAIN =
+              List.of(OrderStatus.PAID, OrderStatus.PICKING, OrderStatus.SHIPPED);
+
+      private final OrderRepository orderRepository;
+      private final OrderStateMachine stateMachine;
+      private final OrderService orderService;
+
+      public OrderLogisticsStatusService(OrderRepository orderRepository,
+                                         OrderStateMachine stateMachine,
+                                         OrderService orderService) {
+          this.orderRepository = orderRepository;
+          this.stateMachine = stateMachine;
+          this.orderService = orderService;
+      }
+
+      /**
+       * Apply a logistics-side shipment status to the owning order.
+       *
+       * @param orderId        the order the shipment belongs to
+       * @param shipmentStatus the logistics status name as reported by the
+       *                       logistics module (a {@code ShipmentStatus} name)
+       */
+      @Transactional
+      public void applyShipmentStatus(Long orderId, String shipmentStatus) {
+          try {
+              OrderStatus target = mapToOrderStatus(shipmentStatus);
+              if (target == null) {
+                  log.debug("Logistics status {} has no order-side progression, orderId={}",
+                          shipmentStatus, orderId);
+                  return;
+              }
+              if (orderId == null) {
+                  log.warn("Logistics status {} reported without an orderId, skipping", shipmentStatus);
+                  return;
+              }
+
+              Order order = orderRepository.findById(orderId).orElse(null);
+              if (order == null) {
+                  log.warn("Logistics status {} for unknown orderId={}, skipping", shipmentStatus, orderId);
+                  return;
+              }
+
+              OrderStatus from = order.getStatus();
+              if (from == target) {
+                  return; // idempotent — already at the target status
+              }
+
+              int fromIdx = FULFILMENT_CHAIN.indexOf(from);
+              int targetIdx = FULFILMENT_CHAIN.indexOf(target);
+              if (fromIdx < 0) {
+                  if (from == OrderStatus.DELIVERED || from == OrderStatus.COMPLETED
+                          || from == OrderStatus.REFUNDING || from == OrderStatus.REFUNDED) {
+                      // Late/replayed logistics event after delivery — idempotent no-op.
+                      log.debug("Order {} already past fulfilment (status={}), ignoring logistics status {}",
+                              orderId, from, shipmentStatus);
+                  } else {
+                      // e.g. CANCEL_REVIEWING / CANCELLED / CLOSED race with the warehouse.
+                      log.warn("Order {} in status {} is not eligible for logistics progression to {}, skipping",
+                              orderId, from, target);
+                  }
+                  return;
+              }
+              if (fromIdx > targetIdx) {
+                  return; // idempotent — already past the target status
+              }
+
+              // Validate every hop of the chain (e.g. PAID→PICKING→SHIPPED) instead
+              // of jumping — same paradigm as ShipmentDeliveredEventListener.
+              for (int i = fromIdx; i < targetIdx; i++) {
+                  OrderStatus hopFrom = FULFILMENT_CHAIN.get(i);
+                  OrderStatus hopTo = FULFILMENT_CHAIN.get(i + 1);
+                  if (!stateMachine.canTransition(hopFrom, hopTo)) {
+                      log.warn("Order {} cannot advance {} -> {} (hop {} -> {} not allowed), skipping",
+                              orderId, from, target, hopFrom, hopTo);
+                      return;
+                  }
+              }
+
+              order.setStatus(target);
+              orderRepository.save(order);
+
+              orderService.recordEvent(orderId, from, target, target.name(), "LOGISTICS_SYSTEM",
+                      "Logistics status sync: " + shipmentStatus);
+
+              log.info("Order {} advanced {} -> {} on logistics status {}",
+                      orderId, from, target, shipmentStatus);
+          } catch (Exception e) {
+              // Never propagate: the logistics flow must not fail because the
+              // order could not be advanced (design-docs/02 §5 tolerance).
+              log.warn("Failed to apply logistics status {} to order {}: {}",
+                      shipmentStatus, orderId, e.getMessage(), e);
+          }
+      }
+
+      /**
+       * Map a logistics {@code ShipmentStatus} name to the order status it
+       * implies, or {@code null} when the order lifecycle is unaffected.
+       */
+      private OrderStatus mapToOrderStatus(String shipmentStatus) {
+          if (shipmentStatus == null) {
+              return null;
+          }
+          switch (shipmentStatus.toUpperCase()) {
+              case "PICKING":
+                  return OrderStatus.PICKING;
+              case "OUTBOUND":
+              case "COLLECTED":
+              case "IN_TRANSIT":
+                  return OrderStatus.SHIPPED;
+              default:
+                  // CREATED, LABEL_PRINTED, DELIVERED (event-driven), EXCEPTION, unknown
+                  return null;
+          }
+      }
+  }
+  ```
+
+  `OrderService.recordEvent(Long, OrderStatus, OrderStatus, String, String, String)` 6 参方法与
+  `OrderStateMachine.canTransition(...)` 基线均已存在，无需新建或改签名。
+
+  2. 新增 `code/ecommerce-app/src/main/java/com/ecommerce/app/integration/OrderLogisticsStatusUpdaterImpl.java`
+  （`integration` 是全新包，直接建目录）：
+
+  ```java
+  package com.ecommerce.app.integration;
+
+  import com.ecommerce.logistics.query.OrderLogisticsStatusUpdater;
+  import com.ecommerce.order.service.OrderLogisticsStatusService;
+  import org.springframework.context.annotation.Primary;
+  import org.springframework.stereotype.Component;
+
+  /**
+   * Production implementation of the logistics module's
+   * {@link OrderLogisticsStatusUpdater} port (design-docs/11 §3: "物流状态变更后，
+   * 必须通过 OrderLogisticsStatusUpdater 更新对应订单的物流状态"). Delegates to the
+   * order module's {@link OrderLogisticsStatusService}, which maps the shipment
+   * status onto the order lifecycle through the order state machine.
+   *
+   * <p><b>Why this lives in ecommerce-app:</b> the port interface is declared in
+   * {@code com.ecommerce.logistics.query}, but the behaviour belongs to the order
+   * module — and ecommerce-logistics already depends on ecommerce-order at the
+   * Maven level, so an implementation inside ecommerce-order would require an
+   * order→logistics dependency and create a module cycle (design-docs/02 §2 has
+   * no order→logistics edge). The app module is the composition root that sees
+   * both modules, so the adapter is wired here.
+   *
+   * <p><b>Why {@code @Primary}:</b> the frozen black-box harness
+   * ({@code BlackboxHarnessConfig} in test-cases, which must not be modified)
+   * registers an unqualified no-op {@code OrderLogisticsStatusUpdater}
+   * {@code @Bean}. With this production bean present there are two candidates of
+   * the type; {@code @Primary} makes this one deterministically win type-based
+   * injection into {@code ShipmentService} (Spring core semantics), while the
+   * harness bean stays registered but un-injected — no
+   * {@code NoUniqueBeanDefinitionException}, no harness change. Removing
+   * {@code @Primary}, or adding a second {@code @Primary} candidate of this
+   * type, would break every black-box test with an ambiguous-bean failure.
+   *
+   * <p>Never throws: the delegate swallows and logs all failures, because the
+   * logistics endpoints must not 500 on an order-status race (e.g. an order
+   * already in CANCEL_REVIEWING when the warehouse picks).
+   */
+  @Component
+  @Primary
+  public class OrderLogisticsStatusUpdaterImpl implements OrderLogisticsStatusUpdater {
+
+      private final OrderLogisticsStatusService orderLogisticsStatusService;
+
+      public OrderLogisticsStatusUpdaterImpl(OrderLogisticsStatusService orderLogisticsStatusService) {
+          this.orderLogisticsStatusService = orderLogisticsStatusService;
+      }
+
+      @Override
+      public void updateLogisticsStatus(Long orderId, String logisticsStatus) {
+          orderLogisticsStatusService.applyShipmentStatus(orderId, logisticsStatus);
+      }
+  }
+  ```
+
+  3. 新增单测 `code/ecommerce-order/src/test/java/com/ecommerce/order/service/OrderLogisticsStatusServiceTest.java`
+  （用**真实** `OrderStateMachine`（零依赖组件）+ mock 仓储，锁死三分支语义；作者侧 14 例全绿）：
+
+  ```java
+  package com.ecommerce.order.service;
+
+  import com.ecommerce.order.entity.Order;
+  import com.ecommerce.order.entity.OrderStatus;
+  import com.ecommerce.order.repository.OrderRepository;
+  import org.junit.jupiter.api.BeforeEach;
+  import org.junit.jupiter.api.DisplayName;
+  import org.junit.jupiter.api.Nested;
+  import org.junit.jupiter.api.Test;
+  import org.junit.jupiter.api.extension.ExtendWith;
+  import org.mockito.Mock;
+  import org.mockito.junit.jupiter.MockitoExtension;
+
+  import java.util.Optional;
+
+  import static org.assertj.core.api.Assertions.assertThat;
+  import static org.assertj.core.api.Assertions.assertThatCode;
+  import static org.mockito.ArgumentMatchers.any;
+  import static org.mockito.ArgumentMatchers.anyLong;
+  import static org.mockito.ArgumentMatchers.eq;
+  import static org.mockito.Mockito.never;
+  import static org.mockito.Mockito.verify;
+  import static org.mockito.Mockito.verifyNoInteractions;
+  import static org.mockito.Mockito.when;
+
+  /**
+   * Tests for {@link OrderLogisticsStatusService} — the order-module half of the
+   * design-docs/11 §3 contract ("物流状态变更后，必须通过 OrderLogisticsStatusUpdater
+   * 更新对应订单的物流状态").
+   *
+   * <p>Uses the real {@link OrderStateMachine} so the legal/illegal edges under
+   * test are the production ones.
+   */
+  @ExtendWith(MockitoExtension.class)
+  @DisplayName("OrderLogisticsStatusService")
+  class OrderLogisticsStatusServiceTest {
+
+      @Mock
+      private OrderRepository orderRepository;
+
+      @Mock
+      private OrderService orderService;
+
+      private OrderLogisticsStatusService service;
+
+      @BeforeEach
+      void setUp() {
+          service = new OrderLogisticsStatusService(
+                  orderRepository, new OrderStateMachine(), orderService);
+      }
+
+      private Order order(Long id, OrderStatus status) {
+          Order order = new Order();
+          order.setId(id);
+          order.setStatus(status);
+          return order;
+      }
+
+      @Nested
+      @DisplayName("legal progression")
+      class LegalProgression {
+
+          @Test
+          @DisplayName("PICKING shipment status advances a PAID order to PICKING")
+          void paidToPicking() {
+              Order order = order(1L, OrderStatus.PAID);
+              when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
+
+              service.applyShipmentStatus(1L, "PICKING");
+
+              assertThat(order.getStatus()).isEqualTo(OrderStatus.PICKING);
+              verify(orderRepository).save(order);
+              verify(orderService).recordEvent(eq(1L), eq(OrderStatus.PAID), eq(OrderStatus.PICKING),
+                      eq("PICKING"), eq("LOGISTICS_SYSTEM"), any());
+          }
+
+          @Test
+          @DisplayName("OUTBOUND shipment status advances a PICKING order to SHIPPED")
+          void pickingToShipped() {
+              Order order = order(2L, OrderStatus.PICKING);
+              when(orderRepository.findById(2L)).thenReturn(Optional.of(order));
+
+              service.applyShipmentStatus(2L, "OUTBOUND");
+
+              assertThat(order.getStatus()).isEqualTo(OrderStatus.SHIPPED);
+              verify(orderRepository).save(order);
+              verify(orderService).recordEvent(eq(2L), eq(OrderStatus.PICKING), eq(OrderStatus.SHIPPED),
+                      eq("SHIPPED"), eq("LOGISTICS_SYSTEM"), any());
+          }
+
+          @Test
+          @DisplayName("OUTBOUND from PAID chains the PAID→PICKING→SHIPPED hops")
+          void paidToShippedChainsHops() {
+              Order order = order(3L, OrderStatus.PAID);
+              when(orderRepository.findById(3L)).thenReturn(Optional.of(order));
+
+              service.applyShipmentStatus(3L, "OUTBOUND");
+
+              assertThat(order.getStatus()).isEqualTo(OrderStatus.SHIPPED);
+              verify(orderRepository).save(order);
+          }
+
+          @Test
+          @DisplayName("carrier COLLECTED / IN_TRANSIT map to SHIPPED")
+          void carrierStatusesMapToShipped() {
+              Order order = order(4L, OrderStatus.PICKING);
+              when(orderRepository.findById(4L)).thenReturn(Optional.of(order));
+
+              service.applyShipmentStatus(4L, "COLLECTED");
+
+              assertThat(order.getStatus()).isEqualTo(OrderStatus.SHIPPED);
+          }
+      }
+
+      @Nested
+      @DisplayName("illegal transition is skipped silently")
+      class IllegalTransition {
+
+          @Test
+          @DisplayName("order in CANCEL_REVIEWING is not advanced and nothing is thrown")
+          void cancelReviewingIsSkipped() {
+              Order order = order(10L, OrderStatus.CANCEL_REVIEWING);
+              when(orderRepository.findById(10L)).thenReturn(Optional.of(order));
+
+              assertThatCode(() -> service.applyShipmentStatus(10L, "PICKING"))
+                      .doesNotThrowAnyException();
+
+              assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCEL_REVIEWING);
+              verify(orderRepository, never()).save(any());
+              verifyNoInteractions(orderService);
+          }
+
+          @Test
+          @DisplayName("order in CANCELLED is not advanced")
+          void cancelledIsSkipped() {
+              Order order = order(11L, OrderStatus.CANCELLED);
+              when(orderRepository.findById(11L)).thenReturn(Optional.of(order));
+
+              assertThatCode(() -> service.applyShipmentStatus(11L, "OUTBOUND"))
+                      .doesNotThrowAnyException();
+
+              assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+              verify(orderRepository, never()).save(any());
+          }
+
+          @Test
+          @DisplayName("unknown order is skipped without throwing")
+          void unknownOrderIsSkipped() {
+              when(orderRepository.findById(99L)).thenReturn(Optional.empty());
+
+              assertThatCode(() -> service.applyShipmentStatus(99L, "PICKING"))
+                      .doesNotThrowAnyException();
+
+              verify(orderRepository, never()).save(any());
+          }
+
+          @Test
+          @DisplayName("repository failure is swallowed, never propagated to logistics")
+          void repositoryFailureIsSwallowed() {
+              when(orderRepository.findById(anyLong()))
+                      .thenThrow(new RuntimeException("db down"));
+
+              assertThatCode(() -> service.applyShipmentStatus(12L, "PICKING"))
+                      .doesNotThrowAnyException();
+          }
+      }
+
+      @Nested
+      @DisplayName("idempotency")
+      class Idempotency {
+
+          @Test
+          @DisplayName("order already at the target status is a no-op")
+          void alreadyAtTarget() {
+              Order order = order(20L, OrderStatus.PICKING);
+              when(orderRepository.findById(20L)).thenReturn(Optional.of(order));
+
+              service.applyShipmentStatus(20L, "PICKING");
+
+              verify(orderRepository, never()).save(any());
+              verifyNoInteractions(orderService);
+          }
+
+          @Test
+          @DisplayName("order already past the target status is a no-op (no regression)")
+          void alreadyPastTarget() {
+              Order order = order(21L, OrderStatus.SHIPPED);
+              when(orderRepository.findById(21L)).thenReturn(Optional.of(order));
+
+              service.applyShipmentStatus(21L, "PICKING");
+
+              assertThat(order.getStatus()).isEqualTo(OrderStatus.SHIPPED);
+              verify(orderRepository, never()).save(any());
+          }
+
+          @Test
+          @DisplayName("late carrier event after delivery is ignored")
+          void deliveredOrderIgnoresLateEvents() {
+              Order order = order(22L, OrderStatus.DELIVERED);
+              when(orderRepository.findById(22L)).thenReturn(Optional.of(order));
+
+              service.applyShipmentStatus(22L, "IN_TRANSIT");
+
+              assertThat(order.getStatus()).isEqualTo(OrderStatus.DELIVERED);
+              verify(orderRepository, never()).save(any());
+          }
+      }
+
+      @Nested
+      @DisplayName("statuses without order-side progression")
+      class NoProgressionStatuses {
+
+          @Test
+          @DisplayName("LABEL_PRINTED does not touch the order")
+          void labelPrintedIsNoOp() {
+              service.applyShipmentStatus(30L, "LABEL_PRINTED");
+              verifyNoInteractions(orderRepository, orderService);
+          }
+
+          @Test
+          @DisplayName("DELIVERED is left to ShipmentDeliveredEventListener")
+          void deliveredIsNoOpHere() {
+              service.applyShipmentStatus(31L, "DELIVERED");
+              verifyNoInteractions(orderRepository, orderService);
+          }
+
+          @Test
+          @DisplayName("EXCEPTION and null do not touch the order")
+          void exceptionAndNullAreNoOps() {
+              service.applyShipmentStatus(32L, "EXCEPTION");
+              service.applyShipmentStatus(32L, null);
+              verifyNoInteractions(orderRepository, orderService);
+          }
+      }
+  }
+  ```
+
+- **验收**：
+  - `mvn ... -f code/pom.xml -pl ecommerce-order -Dtest=OrderLogisticsStatusServiceTest surefire:test`
+    14/14 全绿；`-pl ecommerce-app test` 上下文照常加载（`ShopHubApplicationTest` 的 `@MockBean`
+    与 @Primary 兼容：Spring Boot 的 MockitoPostProcessor 对多候选类型按 primary 消歧后替换）。
+  - 黑盒链路 pay → pick 后 `GET /api/v1/orders/{id}` 状态为 `PICKING`；outbound 后为 `SHIPPED`；
+    DELIVERED 回调后（B16 就位时）为 `DELIVERED`。作者侧完整公开套件 24/24 全绿，日志可见
+    `Order N advanced PAID -> PICKING on logistics status PICKING`、`PICKING -> SHIPPED on
+    logistics status OUTBOUND`，且送达监听器日志 `marked DELIVERED ... (from SHIPPED)`。
+  - 独立启动生产入口成功（基线起不来，本卡附带修复）：
+    `mvn ... -pl ecommerce-app spring-boot:run` 出现 `Started ShopHubApplication`。
+- **勿犯**（每条都是已尽调的事故通道，逐条对照后再动手）：
+  - **绝不能去掉 `@Primary`**——去掉后黑盒上下文中该类型两个候选无消歧，`ShipmentService` 构造
+    注入直接 `NoUniqueBeanDefinitionException`，24 例全灭（findings 旧弃项担心的事故就是这个，
+    @Primary 正是破解点）。
+  - **绝不能给 harness 的 no-op bean "想办法"**（改名/加 @ConditionalOnMissingBean/删除）——
+    `test-cases/` 冻结不可改，任何触碰都是评测红线。
+  - **绝不能把实现类放进 `ecommerce-order`**——order 看不见 logistics 的接口（Maven 上
+    logistics→order，反向 import 无法编译；强加依赖则成环）。实现只能放 app（组合根）。
+  - **绝不能出现第二个 `@Primary` 的同类型 bean**——两个 @Primary 同样是无消歧歧义，等价于没加。
+  - **绝不能在本服务里改用 `validateTransition`（会抛）**或让任何异常逃逸——四个调用点在物流
+    事务内，逃逸的 RuntimeException 穿过 @Transactional 代理会把外层事务标记 rollback-only，
+    即便 `ShipmentService` catch 了也会在提交时 `UnexpectedRollbackException`，物流端点 500。
+  - **绝不能在本卡处理 `DELIVERED`**——那是 EVT-B2 送达监听器的单一写权；在这里同步写 DELIVERED
+    会与 AFTER_COMMIT 监听器形成双写路径。

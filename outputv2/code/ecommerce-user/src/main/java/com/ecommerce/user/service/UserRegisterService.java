@@ -88,6 +88,9 @@ public class UserRegisterService {
         variables.put("nickname", saved.getNickname());
         variables.put("activationToken", activationToken.getToken());
         notification.setVariables(variables);
+        // Idempotency key so a re-driven registration flow cannot double-send
+        // the activation email (same key convention as order_notify_<id>).
+        notification.setIdempotencyKey("register_notify_" + saved.getId());
         notificationService.send(notification);
 
         return UserResponse.from(saved);

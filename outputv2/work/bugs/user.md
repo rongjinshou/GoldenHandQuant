@@ -1,6 +1,8 @@
 # B02 · user — 注册激活 / 登录错误语义 / 地址 / 安全配置去重
 
-本批覆盖 `ecommerce-user` 模块 5 处行为缺陷 + 1 处跨模块（user + app）安全配置结构性问题：注册后跳过邮箱激活直接 `ACTIVE`、登录对未激活/冻结用户返回错误的 HTTP 语义、地址格式化方法参数顺序违反冻结签名、地址 `isDefault` 字段的 JSON key 被 Jackson 静默改名、激活令牌复用/过期返回错误的 HTTP 语义、以及 user 模块与 app 模块并存两份 `SecurityFilterChain` bean 的脆弱配置。"改法"/"验收"对照已通过 24/24 黑盒验证（17+ 次重复独立运行）的参考实现逐行核对——卡片里给出的目标代码即该参考实现的最终内容。
+本批覆盖 `ecommerce-user` 模块 6 处行为缺陷 + 1 处跨模块（user + app）安全配置结构性问题，
+另有 round-15 后补的 USER-8（三点合一：昵称登录回退 / JWT 双侧接测试时钟 / 注册通知补幂等键，
+已实施并门禁 24/0/0，见文件末尾）——合计 **8 张卡片**。原 7 张：注册后跳过邮箱激活直接 `ACTIVE`、登录对未激活/冻结用户返回错误的 HTTP 语义、地址格式化方法参数顺序违反冻结签名、地址 `isDefault` 字段的 JSON key 被 Jackson 静默改名、激活令牌复用/过期返回错误的 HTTP 语义、激活令牌的生成/过期判定读死系统时间而非测试时钟（USER-7，须在 USER-1/USER-5 之后应用）、以及 user 模块与 app 模块并存两份 `SecurityFilterChain` bean 的脆弱配置。"改法"/"验收"对照已通过 24/24 黑盒验证（17+ 次重复独立运行）的参考实现逐行核对——卡片里给出的目标代码即该参考实现的最终内容（唯二例外：USER-1/USER-5 目标代码里各有一行时间读取，会被本批末尾的 USER-7 后继修订为读 `SystemClockService`，两卡内有对应提示；按卡号顺序执行即得终态）。
 
 本文件**不包含**以下同属 user 模块、但归其他批次负责的条目——`code/ecommerce-user` 下同一批文件可能会被其他批次的卡片继续编辑，这是预期行为，本批不要抢先实现：
 
@@ -20,7 +22,8 @@
 
   注意：`UserStatus.PENDING_ACTIVATION` 这个枚举值、`EmailActivationToken` 实体（字段 `userId`/`token`/`expiresAt`/`used` 齐全）、`EmailActivationTokenRepository`（`findByToken(String)`）**在基线里都已经存在且字段完整**（分别在 `code/ecommerce-user/src/main/java/com/ecommerce/user/entity/UserStatus.java`、`entity/EmailActivationToken.java`、`repository/EmailActivationTokenRepository.java`），不需要新建/改动，只是 `UserRegisterService` 从未使用它们。
 - **期望**: 注册流程必须是「保存用户（状态 `PENDING_ACTIVATION`）→ 生成邮箱激活令牌 → 通过 `LocalNotificationService` 发送激活邮件」，用户点击激活链接后状态才变 `ACTIVE`。依据: `design-docs/04-用户服务设计.md` §3（注册流程）+ `design-docs/附录C-数据模型.md` users.status 枚举 + README.md §8.1 PUB-001（"注册→PENDING_ACTIVATION，激活→ACTIVE，登录返回 JWT"）。
-- **改法**: `UserRegisterService.java` 整个文件替换为（构造函数新增 `EmailActivationTokenRepository` 依赖；`register()` 里 `setStatus` 改 `PENDING_ACTIVATION`，`save` 之后生成并持久化 24 小时有效期的激活令牌，通知模板与变量同步更新）：
+- **改法**: `UserRegisterService.java` 整个文件替换为（构造函数新增 `EmailActivationTokenRepository` 依赖；`register()` 里 `setStatus` 改 `PENDING_ACTIVATION`，`save` 之后生成并持久化 24 小时有效期的激活令牌，通知模板与变量同步更新）。
+  （注：下面目标代码中 `activationToken.setExpiresAt(LocalDateTime.now().plusHours(24));` 一行会被本批末尾的 USER-7 后继修订为读 `SystemClockService`——按本卡原文实现即可，勿在本卡提前替换，按卡号顺序走到 USER-7 时再改）：
 
   ```java
   package com.ecommerce.user.service;
@@ -437,6 +440,7 @@
   1. `mvn -s maven-settings.xml -f test-cases/pom.xml -Dtest=PubAdditionalBehaviorTest#pub105_unactivatedUserCannotLogin test` → 绿（响应 403，`$.code`="USER_NOT_ACTIVE"）。
   2. `UserAuthServiceTest` 里两个 login 测试断言 `AuthorizationException` 通过。
   3. FROZEN 分支没有独立公开黑盒用例覆盖，靠 `UserAuthServiceTest.testLogin_userNotActive_throwsException` 单测把关；若想端到端确认，可用已冻结用户走 `/api/v1/users/login`，断言 403 + `code=USER_FROZEN`。
+  4. 产物级把关（防只改 NOT_ACTIVE 漏改 FROZEN）：`grep -c 'AuthorizationException("USER_FROZEN"' code/ecommerce-user/src/main/java/com/ecommerce/user/service/UserAuthService.java` 恰好为 1，且 `grep -c 'BusinessException("USER_FROZEN"' 同文件` 为 0。
 
 ---
 
@@ -725,7 +729,7 @@
   ```
   `import com.ecommerce.common.exception.BusinessException;` 的去留判断与 USER-2 一致：改完这 2 处后，如果 USER-2 的 2 处也已经改完，`BusinessException` 全文件无引用，删掉该行；如果 USER-2 还没应用（`login()` 里还在用），先保留。
 
-  **共享文件提示**：与 USER-2 一样，`UserAuthService.java` 也被 `S3-audit.md`（B18）编辑（`freezeUser`/`unfreezeUser`/构造函数），本卡改动区域（`activate()` 方法体）与之不重叠，不要越界。
+  **共享文件提示**：与 USER-2 一样，`UserAuthService.java` 也被 `S3-audit.md`（B18）编辑（`freezeUser`/`unfreezeUser`/构造函数），本卡改动区域（`activate()` 方法体）与之不重叠，不要越界。另注：本卡目标代码里 `isBefore(LocalDateTime.now())` 的时间读取会被本批末尾的 USER-7 后继修订为 `isBefore(SystemClockService.now())`——按本卡原文实现即可，走到 USER-7 时再改。
 
   同步修改 `UserAuthServiceTest.java` 顶部 import 加 `import com.ecommerce.common.exception.ConflictException;`，两个测试方法（约第184-224行）：
 
@@ -994,3 +998,89 @@
   3. **绝不加 `@EnableMethodSecurity`。** README.md §6 的全部端点已经被 URL 级安全规则 100% 覆盖，启用方法级安全不会修复任何当前可观察行为，只会让仓库里从未生效过的 `@PreAuthorize` 注解突然生效，属于纯风险无收益操作。
   4. 不要试图让 `TestSecurityConfig` 直接 `@Import` app 模块的 `SecurityConfig.class` 来"省事复用"——`ecommerce-user` 的 `pom.xml` 不依赖 `ecommerce-app`（依赖方向是 app→user），这样写根本编译不过，必须是本卡新建的这个独立类。
   5. 不要把 `AdminUserControllerTest.java` 里 `verify(userAuthService).freezeUser(5L)`/`unfreezeUser(5L)` 这两行也顺手"修好"（比如猜测性地加个 operator 参数）——那是 `S3-audit.md`（B18）的签名变更，两批各自照自己的卡改，不要越界替对方实现。
+
+---
+
+### USER-7 | 激活令牌的生成/过期判定读死系统时间，测试时钟拨不动它
+
+- 风险: low · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-user/src/main/java/com/ecommerce/user/service/UserRegisterService.java`
+  2. `code/ecommerce-user/src/main/java/com/ecommerce/user/service/UserAuthService.java`
+- **执行时机**: 本卡两处改动分别位于 USER-1 重写后的 `register()` 与 USER-5 改过的 `activate()` 区域——须在 USER-1/USER-5 之后应用（本批按卡号顺序执行即天然满足）。
+- **现状**: USER-1 落地后 `register()` 里
+  ```java
+  activationToken.setExpiresAt(LocalDateTime.now().plusHours(24));
+  ```
+  USER-5 落地后 `activate()` 里
+  ```java
+  if (activationToken.getExpiresAt().isBefore(LocalDateTime.now())) {
+      throw new ConflictException("Activation token has expired");
+  }
+  ```
+  两处都直接读系统时间，绕开了 `com.ecommerce.common.test.SystemClockService`。README §6.8 冻结的 `PUT/DELETE /api/v1/admin/system/clock`（设置/重置测试时钟）对激活令牌的 24 小时时效（USER-1 落地的实现值）完全不起作用：黑盒把时钟拨快 25 小时后，令牌照样"未过期"，"过期令牌激活 → 409"这条 USER-5 引入的行为在时间维度上无法被黑盒用例驱动。而代码库里其它所有时间敏感规则——订单超时 `OrderTimeoutService`/`OrderService.setExpiresAt`、优惠券时窗 `CouponValidator`、积分过期 `PointsExpireService`、发货时间戳 `ShipmentService`、会员年度消费 `OrderDataFetcher`——统一读 `SystemClockService.now()`。
+- **期望**: 激活令牌的生成（`expiresAt = now + 24h`）与过期比较读测试时钟，令牌时效可被 clock 端点驱动。依据: design-docs/01（"黑盒测试需要的可观察支撑能力……包括**测试时钟**……纳入 API 契约"）、README §6.8（`PUT/DELETE /api/v1/admin/system/clock`）、全代码库既有时钟接入范式（见上）。
+- **改法**（`SystemClockService` 是静态工具类，直接静态调用，不是注入 bean）:
+  1. `UserRegisterService.java`：import 区加 `import com.ecommerce.common.test.SystemClockService;`（紧跟 `com.ecommerce.common.notification.*` 之后）、删除不再使用的 `import java.time.LocalDateTime;`；生成行改为
+  ```java
+  activationToken.setExpiresAt(SystemClockService.now().plusHours(24));
+  ```
+  2. `UserAuthService.java`：import 区加 `import com.ecommerce.common.test.SystemClockService;`（紧跟 exception import 之后）；`activate()` 的过期比较改为
+  ```java
+  if (activationToken.getExpiresAt().isBefore(SystemClockService.now())) {
+  ```
+  `java.time.LocalDateTime` import **保留**——`login()` 的 `LoginSession` 时间戳仍在用。
+- **验收**:
+  1. `grep -qF "SystemClockService.now()" code/ecommerce-user/src/main/java/com/ecommerce/user/service/UserRegisterService.java` 命中（artifacts.tsv B02 断言）；`UserAuthService.java` 同 grep 命中。
+  2. 现有单测全绿不用改：`UserRegisterServiceTest`（6 例，断言 `expiresAt > now`）与 `UserAuthServiceTest`（15 例，用真实时间构造 +24h/-1h 令牌）——`SystemClockService` 未拨动时 `now()` 即系统时间，语义不变。
+  3. 黑盒行为：注册 → `PUT /api/v1/admin/system/clock` body `{"offsetMinutes": 1500}`（拨快 25 小时）→ 用注册时的令牌 activate → 409 CONFLICT（token 过期）；`DELETE /clock` 复位后新注册令牌恢复正常激活。
+- **勿犯**:
+  1. 不要顺手把 `login()` 里 `LoginSession` 的 `setLoginTime`/`setExpiresAt(now+120min)` 也改读测试时钟——会话记录时效不在本卡范围，没有文档依据要求它跟随测试时钟，改了反而可能让"拨快时钟"用例连带使会话记录异常。
+  2. 不要把 `SystemClockService` 当 Spring bean 注入构造函数——它是 `com.ecommerce.common.test` 下的静态工具类（私有构造器），全库范式就是静态调用；注入式改法编译不过。
+  3. 24 小时时效值本身不要动，也不要把它抽成配置——附录B §2 表里没有这个键，凭空造键属于契约外发明。
+
+---
+
+### USER-8 | round-15（已实施）三点合一：昵称登录回退 / JWT 双侧接测试时钟 / 注册通知补幂等键
+
+- 风险: low（请求/响应契约零变化） · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-user/src/main/java/com/ecommerce/user/repository/UserRepository.java`
+  2. `code/ecommerce-user/src/main/java/com/ecommerce/user/service/UserAuthService.java`
+  3. `code/ecommerce-user/src/main/java/com/ecommerce/user/service/JwtTokenProvider.java`
+  4. `code/ecommerce-user/src/main/java/com/ecommerce/user/service/UserRegisterService.java`
+  5. 同步单测：`UserAuthServiceTest.java`（新增昵称回退用例 + not-found 用例补 stub，16 例全绿）、
+     `JwtTokenProviderTest.java`（新增拨钟 2 用例 + `@AfterEach` 复位时钟，10 例全绿）
+- **A·昵称登录回退**: 原状 `login()` 只 `findByEmail`，未命中直接 404。但 design-docs/04 §4 写明登录
+  校验"**用户名或邮箱**存在"，且基线 `LoginRequest` Javadoc 自述 "The email field also accepts a
+  nickname/username"——email 字段承载昵称时应回退按昵称查。改法（已实施）：
+  1. `UserRepository` 新增 `Optional<User> findFirstByNicknameOrderByIdAsc(String nickname);`
+  2. `UserAuthService.login()` 查找改为
+     `userRepository.findByEmail(v).or(() -> userRepository.findFirstByNicknameOrderByIdAsc(v))`，
+     两路都未命中仍抛原 `ResourceNotFoundException`（404 语义、错误文案不变）。
+- **B·JWT 双侧接测试时钟**: 原状 `generateToken()` 用 `new Date()` 签发 iat/exp，解析器用默认墙钟校验
+  exp——拨钟对 JWT 生命周期完全无感。改法（已实施）：新增私有静态
+  `clockNow() = Date.from(SystemClockService.now().atZone(ZoneId.systemDefault()).toInstant())`；
+  签发侧 `Date now = clockNow()`；解析侧 jjwt **0.12.5** 的 `JwtParserBuilder` 实测支持
+  `clock(io.jsonwebtoken.Clock)`（已用 javap 对 jjwt-api-0.12.5.jar 核实；`Clock` 是 `Date now()`
+  单方法接口，方法引用 `JwtTokenProvider::clockNow` 直接适配），已注入同源时钟——签发与过期校验
+  一体跟随测试时钟。
+- **C·注册通知补幂等键**: 原状 `UserRegisterService.register()` 构建的激活邮件
+  `NotificationRequest` 不带幂等键，重放注册流程可能重复发信。改法（已实施）：发送前补
+  `notification.setIdempotencyKey("register_notify_" + saved.getId());`（与 order 侧
+  `order_notify_<orderId>` 同一命名约定）。
+- **勿犯**:
+  1. **A 点必须用 `findFirst…OrderByIdAsc` 变体，绝不能用普通 `findByNickname`**——官方 fixture 把所有
+     注册用户的昵称都设成 "Tester"，昵称在库里**不唯一**，普通派生查询命中多行会抛
+     `NonUniqueResultException` 把登录端点打成 500。`OrderByIdAsc` 兜底给出确定性选取（最小 id）。
+  2. A 点不改 `LoginRequest` 的字段名/校验注解，不新增请求字段——契约零变化，回退纯属服务端行为。
+  3. B 点解析侧若换 jjwt 版本需重验 `clock(...)` API 是否仍在；另外**已知取舍**：旧 token 在时钟前拨
+     超过 `security.jwt.expire-minutes`（默认 120 分钟）后会按拨后时间判定过期（401）——这正是"同源
+     时钟"的语义本身，拨钟后需要新令牌就重新登录取（公开 24 例全程无此形态，round-15 门禁 24/0/0）。
+  4. C 点幂等键格式如需变更，须与 `LocalNotificationService` 的去重键读取逻辑同步核对，不要单侧改。
+- **验收**: ①email 未命中、昵称命中时登录成功返回 JWT（`UserAuthServiceTest`
+  `testLogin_nicknameInsteadOfEmail_fallsBackToNicknameLookup`）；两路皆未命中仍 404。②签发后
+  `SystemClockService.setOffset(125)` 再 `validateToken` 抛 `ExpiredJwtException`；拨钟 +1 天后签发的
+  token 其 iat 为拨后时间且可正常校验（`JwtTokenProviderTest` 新增 2 例）。③注册通知记录带
+  `register_notify_<userId>` 幂等键。artifacts.tsv 锚点：B02 `UserRepository`↦
+  `findFirstByNicknameOrderByIdAsc`（已双向验证：终态命中、基线 1b1e88f 不命中）。

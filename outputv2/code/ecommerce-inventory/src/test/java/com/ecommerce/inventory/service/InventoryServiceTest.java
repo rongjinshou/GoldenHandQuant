@@ -252,10 +252,10 @@ class InventoryServiceTest {
     }
 
     @Test
-    @DisplayName("inbound applies a sane default warningThreshold to newly created stock "
-            + "(附录C inventory_stock.warning_threshold), so GET .../warnings is reachable "
-            + "without first calling the non-contracted POST .../warnings/rule endpoint")
-    void testInbound_appliesDefaultWarningThresholdToNewStock() {
+    @DisplayName("inbound leaves warningThreshold at the schema default 0 on newly created stock "
+            + "(附录B lists no default-threshold key and no frozen endpoint writes the column; "
+            + "no rule configured → GET .../warnings stays empty)")
+    void testInbound_leavesWarningThresholdAtSchemaDefaultZero() {
         InboundRequest request = new InboundRequest();
         request.setWarehouseId(3L);
         request.setSkuId(300L);
@@ -267,7 +267,7 @@ class InventoryServiceTest {
 
         InventoryStock result = inventoryService.inbound(request);
 
-        assertThat(result.getWarningThreshold()).isEqualTo(10);
+        assertThat(result.getWarningThreshold()).isZero();
     }
 
     @Test

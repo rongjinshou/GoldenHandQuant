@@ -1,5 +1,6 @@
 package com.ecommerce.common.event;
 
+import com.ecommerce.common.test.SystemClockService;
 import org.springframework.context.ApplicationEvent;
 
 import java.time.LocalDateTime;
@@ -23,7 +24,7 @@ public abstract class AbstractDomainEvent extends ApplicationEvent {
     protected AbstractDomainEvent(Object source, String aggregateId, String traceId) {
         super(source);
         this.eventId = UUID.randomUUID().toString();
-        this.occurredAt = LocalDateTime.now();
+        this.occurredAt = SystemClockService.now();
         this.aggregateId = aggregateId;
         this.traceId = traceId;
     }

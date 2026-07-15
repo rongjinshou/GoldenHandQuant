@@ -16,10 +16,14 @@ B01	grep	ecommerce-product/src/main/java/com/ecommerce/product/service/ProductQu
 B02	grep	ecommerce-user/src/main/java/com/ecommerce/user/service/UserRegisterService.java	PENDING_ACTIVATION
 B02	exists	ecommerce-user/src/test/java/com/ecommerce/user/config/TestSecurityConfig.java
 #
-# B03 order §A：金额校验异常（ORD-A4）/ externalOrderNo 幂等（ORD-A9）/ 订单创建通知（ORD-A16）
+# B03 order §A：金额校验异常（ORD-A4）/ externalOrderNo 幂等（ORD-A9）/ 订单创建通知（ORD-A16）/
+#     cancel-review 双形态（ORD-A18）/ 批量结果 status 字段（ORD-A19）/ verifyPurchase 双 ID 匹配（ORD-A20-1）
 B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderValidator.java	OrderValidationException
 B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java	findByExternalOrderNoAndUserId
 B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/listener/OrderEventListener.java	LocalNotificationService
+B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/dto/AdminCancelReviewRequest.java	Boolean approved
+B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/dto/BatchCreateOrderResponse.java	r.status = "SUCCESS";
+B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderQueryServiceImpl.java	item.getSkuId().equals(productId)
 #
 # B04 order §B：积分抵扣真扣减（ORD-B8）/ 免运费阈值读运行时配置（ORD-B5）
 B04	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java	redeemPoints
@@ -34,10 +38,18 @@ B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/Coupo
 B06	exists	ecommerce-payment/src/main/java/com/ecommerce/payment/service/PaymentSucceededNotificationListener.java
 B06	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/entity/PaymentStatus.java	CLOSED
 B06	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/PaymentCallbackService.java	valid-signature
+B06	exists	ecommerce-payment/src/main/java/com/ecommerce/payment/dto/WarehouseAcceptRequest.java
+B06	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/controller/AdminRefundController.java	WarehouseAcceptRequest
+B06	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/PaymentCallbackService.java	Cannot mark as SUCCESS when payment is already CLOSED
+B06	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/PaymentCallbackService.java	SystemClockService
 #
 # B07 payment §B：发票幂等键（PAY-B1）/ 结算退款汇总接入退款仓储（PAY-B2）
 B07	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/InvoiceService.java	findByInvoiceRequestNo
 B07	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/SettlementBatchService.java	RefundRecordRepository
+B07	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/InvoiceService.java	max-title-length
+B07	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/entity/InvoiceRecord.java	precision = 6, scale = 4
+B07	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/entity/RefundStatus.java	APPLIED,
+B07	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/service/SettlementBatchService.java	findByStatusInAndPaidAtBetween
 #
 # B08 product：搜索标签过滤（PRODUCT-3 新增 2 文件）/ 库存摘要接入 inventory（PRODUCT-1）
 B08	exists	ecommerce-product/src/main/java/com/ecommerce/product/entity/SpuTagRelation.java
@@ -57,6 +69,8 @@ B10	absent	ecommerce-cart/src/main/java/com/ecommerce/cart/repository/CartReposi
 B10	absent	ecommerce-cart/src/main/java/com/ecommerce/cart/repository/CartItemRepository.java
 B10	grep	ecommerce-cart/src/main/java/com/ecommerce/cart/service/CartService.java	CartCacheManager
 B10	grep	ecommerce-cart/src/main/java/com/ecommerce/cart/dto/CartEstimateResponse.java	applicableCoupons
+B10	grep	ecommerce-cart/src/main/java/com/ecommerce/cart/dto/AddCartItemRequest.java	@NotNull(message = "quantity must not be null")
+B10	grep	ecommerce-cart/src/main/java/com/ecommerce/cart/service/CartValidationService.java	RuntimeConfigRegistry.getInt("cart.max-items"
 #
 # B11 common：通知失败落记录（COMMON-2）/ 请求体解析失败按 VALIDATION_FAILED（COMMON-3）
 B11	grep	ecommerce-common/src/main/java/com/ecommerce/common/notification/NotificationRecordService.java	recordFailure
@@ -67,6 +81,8 @@ B12	exists	ecommerce-app/src/main/java/com/ecommerce/app/security/RestAuthentica
 B12	exists	ecommerce-app/src/main/java/com/ecommerce/app/security/RestAccessDeniedHandler.java
 B12	grep	ecommerce-app/src/main/java/com/ecommerce/app/SecurityConfig.java	exceptionHandling
 B12	grep	ecommerce-app/src/main/java/com/ecommerce/app/SecurityConfig.java	hasAnyRole("USER", "ADMIN")
+B12	grep	ecommerce-app/src/main/java/com/ecommerce/app/controller/SystemAdminController.java	parseOffsetMinutes
+B12	grep	ecommerce-app/src/main/java/com/ecommerce/app/controller/FaultInjectionAdminController.java	ValidationException
 #
 # B13 S2-events §A：common 权威事件 5 类（EVT-A1 新增）/ logistics 监听器与测试（EVT-A5 新增）/
 #     影子事件类与冗余监听器删除（EVT-A2/A3/A4/A6）/ markAsPaid 发布真事件（EVT-A7）
@@ -92,10 +108,23 @@ B14	exists	ecommerce-logistics/src/main/java/com/ecommerce/logistics/config/Frei
 B14	exists	ecommerce-logistics/src/main/java/com/ecommerce/logistics/cache/FreightTemplateCacheManager.java
 B14	grep	ecommerce-logistics/src/main/java/com/ecommerce/logistics/service/LogisticsCallbackService.java	valid-signature
 B14	grep	ecommerce-logistics/src/main/java/com/ecommerce/logistics/service/FreightCalculator.java	getProvinceRules()
+# B14 logistics（续）：LOGI-11 订单物流状态推进——order 推进服务+单测、app @Primary 适配器（3 个新文件；@Primary 是与冻结 harness no-op bean 共存的根基，缺失即整批未落地）
+B14	exists	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderLogisticsStatusService.java
+B14	exists	ecommerce-order/src/test/java/com/ecommerce/order/service/OrderLogisticsStatusServiceTest.java
+B14	exists	ecommerce-app/src/main/java/com/ecommerce/app/integration/OrderLogisticsStatusUpdaterImpl.java
+B14	grep	ecommerce-app/src/main/java/com/ecommerce/app/integration/OrderLogisticsStatusUpdaterImpl.java	@Primary
 #
 # B15 loyalty：年消费统计=事件喂养的本地累计（LOY-5「公开本地查询契约」，绝非直调 OrderQueryService）/ 积分过期定时扫描（LOY-8）
 B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/repository/OrderDataFetcher.java	recordPayment
 B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/service/PointsExpireService.java	@Scheduled
+B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/query/LoyaltyCommandService.java	refundPointsForOrder
+B15	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java	refundPointsForOrder
+B15	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderTimeoutService.java	refundPointsForOrder
+B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/dto/PointsEstimateResponse.java	deductedAmount
+B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/controller/LoyaltyController.java	setDeductedAmount
+B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/dto/MemberLevelResponse.java	pointsToNextLevel
+B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/controller/LoyaltyController.java	setPointsToNextLevel
+B15	grep	ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/dto/PointsEstimateResponse.java	private int redeemPoints;
 #
 # B16 S2-events §B：三个跨模块监听器（EVT-B1/B2/B3 新增）+ 监听失败落库（EVT-B4）
 #     ——正是实测中被"空心化"的批次：三个文件全缺、failureRecorder 零命中，verify 却照样固化
@@ -131,3 +160,42 @@ B19	grep	ecommerce-product/src/main/java/com/ecommerce/product/controller/Produc
 B19	grep	ecommerce-order/src/main/java/com/ecommerce/order/controller/OrderController.java	@RateLimit
 B19	grep	ecommerce-payment/src/main/java/com/ecommerce/payment/controller/PaymentController.java	@RateLimit
 B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/controller/PromotionController.java	getAuthentication().getName()
+B05	grep	ecommerce-promotion/pom.xml	spring-security-core
+#
+# 后补·取消释放专项（PROMO-14/PROMO-15/ORD-A17，卡见 promotion.md 末尾 / order.md §A 末尾）：
+# ORD-A17 改的是 order 模块文件，但依赖 PROMO-14/15 新增的 releaseForOrder，按卡内「执行时机」
+# 随 B05 一并应用，故其断言登记在 B05 而非 B03。
+B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/CouponService.java	public void releaseForOrder(Long orderId)
+B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/SeckillService.java	public void releaseForOrder(Long orderId)
+B05	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java	releasePromotions(order.getId());
+B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/dto/FullReductionCreateRequest.java	@JsonAlias("threshold")
+B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/PromotionCalculationService.java	new PromotionCalculateResponse.ApplicableCoupon()
+B05	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderTimeoutService.java	releasePromotions
+B05	exists	ecommerce-promotion/src/main/java/com/ecommerce/promotion/dto/SeckillActivityDto.java
+B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/SeckillService.java	public SeckillActivityDto validateSeckill(
+B05	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java	SeckillActivityDto
+#
+# 后补·回调轨迹去重（LOGI-10，卡见 logistics.md 末尾）：生产侧改动是删行（updateStatus 内部的
+# 冗余 recordTracking），grep 无法断言"不存在"，载重锚点登记在同步测试锁死该行为的断言上。
+B14	grep	ecommerce-logistics/src/test/java/com/ecommerce/logistics/service/ShipmentServiceTest.java	verify(trackingRepository, never()).save(any(ShipmentTracking.class));
+#
+# 后补·契约收口专项（LOGI-9 落地 / COMMON-4 / USER-7，卡见 logistics.md·common.md·user.md）：
+# COMMON-4 的支撑控制器错误体部分按卡内「执行时机」在 B12 之后补做，但其两条 grep 锚点都落在
+# common 模块文件上、随 B11 即成立；USER-7 随 B02 卡号顺序应用，锚点在 B02 结束时成立。
+B14	grep	ecommerce-logistics/src/main/java/com/ecommerce/logistics/controller/AdminLogisticsController.java	logistics.default-carrier
+B14	grep	ecommerce-logistics/src/main/java/com/ecommerce/logistics/service/ShipmentService.java	tracking.setEventTime(SystemClockService.now());
+B11	grep	ecommerce-common/src/main/java/com/ecommerce/common/test/RuntimeConfigRegistry.java	order.expire-minutes
+B11	grep	ecommerce-common/src/main/java/com/ecommerce/common/exception/GlobalExceptionHandler.java	NoResourceFoundException
+B11	grep	ecommerce-common/src/main/java/com/ecommerce/common/config/CommonAutoConfiguration.java	dateTimeProviderRef
+B11	grep	ecommerce-common/src/main/java/com/ecommerce/common/ratelimit/RateLimitAspect.java	SystemClockService
+B11	grep	ecommerce-common/src/main/java/com/ecommerce/common/notification/NotificationRecordService.java	String idempotencyKey, String failureReason
+B02	grep	ecommerce-user/src/main/java/com/ecommerce/user/service/UserRegisterService.java	SystemClockService.now()
+#
+# 后补·round-15 order/user/inventory/cart 簇（ORD-A23 / USER-8 / CART-6，卡见 order.md·user.md·cart.md）：
+# ORD-A23 的时钟锚点登记 B03（order §A 文件）、兑换率接配置锚点登记 B04（order §B 计价范畴）；
+# USER-8 随 B02、CART-6 随 B10。INV-6 round-15 撤销自造阈值不涉及任何既有断言（B09 三条均无关）。
+# 四条均已双向验证：终态命中、未修复基线（1b1e88f / 评测机 judge-assets code）不命中。
+B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderQueryServiceImpl.java	SystemClockService
+B02	grep	ecommerce-user/src/main/java/com/ecommerce/user/repository/UserRepository.java	findFirstByNicknameOrderByIdAsc
+B10	grep	ecommerce-cart/src/main/java/com/ecommerce/cart/cache/CartCacheManager.java	cart.ttl-days
+B04	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java	loyalty.redeem-rate

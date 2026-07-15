@@ -4,6 +4,7 @@ import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.notification.LocalNotificationService;
 import com.ecommerce.common.notification.NotificationChannel;
 import com.ecommerce.common.notification.NotificationRequest;
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderStatus;
 import com.ecommerce.order.event.OrderCancelledEvent;
@@ -17,7 +18,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 
@@ -59,6 +59,9 @@ public class OrderEventListener {
         NotificationRequest request = new NotificationRequest();
         request.setBizType("ORDER_CREATED");
         request.setBizId(String.valueOf(event.getOrderId()));
+        // Receiver = the ordering user (same String.valueOf(userId) convention as
+        // ShipmentService / InvoiceService notifications).
+        request.setReceiver(String.valueOf(event.getUserId()));
         request.setChannel(NotificationChannel.IN_APP);
         request.setTemplateCode("order_created");
         request.setVariables(Map.of(
@@ -86,7 +89,7 @@ public class OrderEventListener {
         if (orderOpt.isPresent()) {
             Order order = orderOpt.get();
             if (order.getStatus() == OrderStatus.PAID && order.getPaidAt() == null) {
-                order.setPaidAt(LocalDateTime.now());
+                order.setPaidAt(SystemClockService.now());
                 orderRepository.save(order);
                 log.debug("Paid timestamp updated for orderId={}", event.getOrderId());
             }

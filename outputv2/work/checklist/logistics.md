@@ -20,3 +20,4 @@
 
 - [ ] 物流回调**真实实现**：按 `trackingNo` 查发货单、按 `trackingNo+eventTime+status` 幂等去重、验签、真正更新状态（**不是**空实现）。
 - [ ] 运费模板有 30 分钟缓存；运费计算解析 `provinceRules`/`weightRules` 参与计算（**不是**只用固定 `defaultFreight`）。
+  ⚖ 状态标注（W15-C，不留空）：本条两点已实施（B14/LOGI-7：`FreightCacheConfig.java`/`FreightTemplateCacheManager.java` 存在、`FreightCalculator.java` 解析 `getProvinceRules()`，artifacts.tsv B14 断言通过）。相邻的**已裁决弃项**：运费模板系统**接入真实下单流程**（order 下单运费仍为固定 8.00/免邮 199.00 阈值）维持不做——下单运费口径受 PUB-104 等用例锚定，接入模板会改变已验证的可观察金额；弃项登记见 `work/bugs/findings.md` §7「已识别但因时间/风险预算未实施」（运费模板条目），W15-C 复核维持该裁决。

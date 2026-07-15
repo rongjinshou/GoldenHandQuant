@@ -16,4 +16,5 @@
 ## 敏感词
 
 - [ ] 敏感词过滤用 `contains`/`replace`（**包含匹配**），设计明确「不得只做完全相等匹配」。
-- [ ] 命中敏感词的评价落库为 `REJECTED`（进入允许的终态），而不是直接抛异常丢弃请求。`[suspicious]`
+- [x] 命中敏感词的评价落库为 `REJECTED`（进入允许的终态），而不是直接抛异常丢弃请求。`[suspicious]`
+  ✔ 已核实（W15-C 回勾）：`ReviewService.java:88`（`containsSensitiveWord` 判定）→ `:102-105` `sensitiveHit` 时 `setStatus(ReviewStatus.REJECTED)` + `reviewedAt` + 自动驳回 `reviewerResponse`，随后正常 `save`——请求不被抛弃。

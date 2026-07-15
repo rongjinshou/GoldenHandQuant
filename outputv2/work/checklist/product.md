@@ -13,10 +13,12 @@
 - [ ] 类目过滤**含子类目**（解析类目树取后代 ID 集合再过滤）。
 - [ ] 标签(tags)过滤字段被真正读取并生效。
 - [ ] 分页 `total` 在类目/品牌过滤时正确——过滤下推到 DB 层 Specification，**不是**先 DB 分页再内存过滤。
-- [ ] 关键词搜索至少匹配 SPU 名（不只 SKU 名）。`[suspicious]`
+- [x] 关键词搜索至少匹配 SPU 名（不只 SKU 名）。`[suspicious]`
+  ✔ 已核实（W15-C 回勾）：`ProductSearchService.java:83`（`resolveKeywordSpuIds`）+ `:176-186`——`spuRepository.findByNameContainingIgnoreCase(keyword)` 与 `findByDescriptionContainingIgnoreCase`（卖点）并入关键词谓词，SPU 名/卖点命中不再漏。
 
 ## 非功能
 
 - [ ] 商品上下架写审计日志。
 - [ ] 商品详情有 10 分钟缓存（仿 Caffeine 配置）。
-- [ ] 商品搜索接口有 `@RateLimit`：120 次/分钟/IP。
+- [x] 商品搜索接口有 `@RateLimit`：120 次/分钟/IP。
+  ✔ 已核实（W15-C 回勾）：`ProductController.java:56` `@RateLimit(key = "#httpRequest.getRemoteAddr()", permitsPerMinute = 120)`。

@@ -33,7 +33,7 @@ mode: subagent
    bash work/harness/mvnw.sh $S -Dmaven.repo.local="$PWD/maven-repo" -f code/pom.xml -pl <本批模块> -am test-compile -q
    ```
 
-   必须经 `work/harness/mvnw.sh` 而不是裸 `mvn`——它在脚本内部自动接入便携 JDK/Maven，
+   必须经 `work/harness/mvnw.sh` 而不是裸 `mvn`——它做环境守卫后透传参数，
    你的命令行因此不需要（也**绝不允许**）出现 `$HOME` 等工程外路径（见「边界」首条）。
    必须用 `test-compile` 而不是 `compile`——棘轮的编译门是 `install -DskipTests`，它**包含
    测试源码编译**：生产类签名变了而模块单测没跟着改，`compile` 自检照样全绿、verify 却整批
@@ -51,7 +51,7 @@ mode: subagent
    自检结果。整批的黑盒验证与固化/回滚由主 agent 统一跑 `work/harness/ratchet.sh verify` 决定，
    你**不要**自己跑全量黑盒。
 
-## 边界（务必遵守——违反任何一条都可能让全部 24 例归零）
+## 边界（务必遵守——违反任何一条都可能让全部用例归零）
 
 - **命令行中绝不引用工程外路径**（`$HOME`、`~`、`/home/...`、`/root/...`、绝对路径的用户目录等）——
   headless 运行时里，子会话命令引用工程外路径会触发外部目录权限询问，而无人值守模式下该询问

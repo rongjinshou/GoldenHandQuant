@@ -3,13 +3,28 @@
 本文件覆盖 findings.md order 模块（§6.2）12 项里的 11 项（#12「舍入模式 HALF_DOWN」根因在
 `ecommerce-common/MonetaryUtil.roundToCent`，与 common 批次 `S1-quick-wins.md` 的 S1-1 卡片完全
 同源同修，order 侧无任何代码要改，不出卡）、跨模块集成缺陷 BUG-INT-7、加固项「orderNo 同毫秒碰撞」、
-第二轮深审 7 项（#4/#14/#15/#16/#17/#19/#27）、第三轮深审·模块内 中的 4 项（#3/#4/#5/#6），合计
-**24 张卡片**，分两个执行批次：
+第二轮深审 7 项（#4/#14/#15/#16/#17/#19/#27）、第三轮深审·模块内 中的 4 项（#3/#4/#5/#6）、
+第四轮契约复核（wave-1B）3 张（ORD-A18/A19/A20，覆盖 5 处独立修复，全部已通过公开 24 例逐项门禁），
+再加 round-15 的 ORD-A23（时钟成套 + orderNo 日期段 + 兑换率接配置 + ORDER_CREATED receiver，
+附 payable 钳位决策留档，已实施并逐项门禁 24/0/0），
+合计 **31 张卡片**（含后补的取消释放接线卡 ORD-A17/ORD-A21——两张的「执行时机」都随 B05 落地、
+经 promotion.md PROMO-16 指针触达——和指向 loyalty.md LOY-12 的积分退还指针卡 ORD-A22，其实体
+随 B15 落地），分两个执行批次：
 
-- **§A order-core（批次 B03）**：状态机、错误码、下单前置校验、幂等——先做，因为 §B 的积分抵扣
-  （ORD-B8）在订单持久化之后追加逻辑，依赖 §A 里创建订单的整体流程已经是对的。
+- **§A order-core（批次 B03）**：状态机、错误码、下单前置校验、幂等、请求/响应契约形态对齐
+  （ORD-A18~A20）——先做，因为 §B 的积分抵扣（ORD-B8）在订单持久化之后追加逻辑，依赖 §A 里创建
+  订单的整体流程已经是对的。
 - **§B order-pricing（批次 B04）**：金额公式、运行时配置接入、积分抵扣落地、批量下单——建议排在
   §A 之后。
+
+**全批红线（B03/B04 通用勿犯）**：`ecommerce-order` 下存在一批**零注入零调用的死服务 bean**
+（`OrderLifecycleService`、`OrderPaymentEventHandler`、`AdminOrderService`、`CustomerOrderService`、
+`OrderSearchService`、`OrderMetricsService`、`OrderExportService`、`OrderReconciliationService`、
+`OrderWebhookService`、`OrderAuditService`、`OrderSnapshotService`、`OrderPricingService` 等）。任何卡
+都**不得**给它们接线（注入/调用/注册监听）：其中 `OrderLifecycleService` 与
+`OrderPaymentEventHandler.handlePaymentSuccess` 各持一套"第二发布点"逻辑，接线会造成 `OrderPaidEvent`
+双发（积分双发/物流双建单），直接破坏支付后置链。它们编译期为适配公共事件签名可能被动改动（合法），
+但运行期必须保持不可达。
 
 **前置依赖（已由更早批次满足，无需在本文件内处理）**：ORD-A7、ORD-A8 用到
 `ConflictException(String code, String message)` 两参构造函数；基线代码里 `ConflictException`
@@ -24,6 +39,11 @@
   （批次 B05）的范围。本文件卡片改到这个文件时，如果看到这些秒杀/优惠券相关代码已经存在，不要因为
   卡片里没提到就删除或改动；如果还不存在也不用等，本文件卡片的插入点都是按注释锚点/方法边界描述的，
   和这些代码不会插在同一行。
+- `OrderService.java` / `OrderCancelService.java` / `OrderTimeoutService.java`：订单取消（含超时）
+  后的**积分退还**接线、以及 `redeemPoints(...)` 调用追加第 4 个实参 `orderId`，属于 `loyalty.md`
+  LOY-12（批次 B15，经本文件 ORD-A22 指针防漏）的范围。B03/B04/B05 改到这三个文件时若看到
+  `loyaltyCommandService.refundPointsForOrder(...)` / `refundLoyaltyPoints(...)` 相关代码已存在，
+  不要因为卡片里没提到就删除；不存在也不用补——那是 B15 的事。
 - `OrderQueryServiceImpl.java`：真正往 logistics/loyalty 广播"订单已支付"这件事，需要在 `markAsPaid`
   里发布迁移到 `ecommerce-common` 后的 `OrderPaidEvent`——这是事件权威定义迁移专项（`S2-events.md`
   §A，批次 B13）的范围，不在本文件内处理（ORD-A11 只管状态机校验部分，见该卡片说明）。
@@ -449,7 +469,10 @@
   `OrderStateMachine.validateTransition` 的 `"Cannot transition order from ... to ..."`（而不是
   原来的 `"Cannot mark order ... as paid when status is ..."`），仍是 `BusinessException`
   （`ORDER_INVALID_TRANSITION`，400）——这是预期内的消息变化。CREATED/PAYING 状态订单仍能正常
-  标记为 PAID（`POST /api/v1/payment/pay` 走到底应仍能让订单变 PAID）。
+  标记为 PAID（`POST /api/v1/payment/pay` 走到底应仍能让订单变 PAID）。（注：ORD-A20-2 会在本卡
+  之后在方法开头再加一道显式 409 守卫，把"不可支付状态"的对外表现从这里的 400
+  `ORDER_INVALID_TRANSITION` 进一步收敛为冻结码 409 `ORDER_STATUS_CONFLICT`——两卡按序落地后以
+  ORD-A20-2 的验收为准，见该卡。）
 - **勿犯**: 
   1. `markAsPaid(Long orderId, String paymentNo)` 是 `OrderPaymentStatusUpdater` 接口方法，payment
      模块通过这个接口调用——方法名、参数、返回类型（`void`）一个字都不能改，只能改方法体内部实现。
@@ -485,7 +508,8 @@
   ```java
   PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "createdAt"))
   ```
-  只改排序字段名这一处。**注意**：`ecommerce-order` 模块里还有另一个同名方法
+  只改排序字段名这一处。（ORD-A20-1 随后会把这一行的分页 size 从 100 统一为 200，并把循环内的
+  SPU 匹配条件扩展成 SPU-or-SKU——两卡按序各改各的、互不冲突，见该卡。）**注意**：`ecommerce-order` 模块里还有另一个同名方法
   `OrderQueryServiceImpl.verifyPurchase(Long userId, Long productId)`（跨模块 `OrderQueryService`
   接口实现，供 review 模块调用）——那个方法基线代码里排序字段本来就已经是 `"createdAt"`，是对的，
   **不要**去改它，也不用管它。
@@ -722,6 +746,450 @@
      `getOrderId()`/`getPayableAmount()` 已存在）。
 - **验收**: 创建订单成功后，调用 `GET /api/v1/admin/notifications`（README.md §6 管理支撑接口）
   能查到一条 `bizType=ORDER_CREATED`、`channel=IN_APP` 的通知记录。
+
+---
+
+### ORD-A17 | 订单取消成功路径只释放库存，从不归还优惠券/秒杀名额（接线卡）
+
+- 风险: low · 置信度: definite
+- **执行时机（先读这条再动手）**: 本卡调用的 `couponService.releaseForOrder(...)` /
+  `seckillService.releaseForOrder(...)` 是 `promotion.md` PROMO-14/PROMO-15（批次 B05）新增的方法。
+  按批次表顺序（B03 早于 B05）执行到本文件时**这两个方法还不存在，先跳过本卡**，等执行 B05 批次时
+  把本卡与 PROMO-14/15 **同批一起落地、一起 verify**（若 B03 阶段就单独应用本卡，
+  `ecommerce-order` 编译不过、`mvn install -DskipTests` 失败，黑盒 0/24）。本卡编号留在 §A 只因
+  它改的是 order 模块文件；其产物断言在 `artifacts.tsv` 里也登记为 B05。
+- **文件**:
+  1. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java`
+  2. （同步测试）`code/ecommerce-order/src/test/java/com/ecommerce/order/service/OrderCancelServiceTest.java`
+- **现状**: 基线 `OrderCancelService` 的取消成功路径——`cancelCreatedOrder(...)`（基线第 110 行起，
+  内有 `inventoryReservationService.release(order.getId())`）、`cancelPayingOrder(...)`（基线第
+  143 行起）、`reviewCancel(...)` 审核通过分支（基线第 201 行起，内有
+  `inventoryReservationService.release(orderId)`）——只释放**库存**，从不通知 promotion 模块归还
+  券/秒杀名额；构造函数注入的 5 个协作者里没有任何 promotion 服务。ORD-A5/ORD-A7 落地后该文件的
+  PAID 分支改走 `requestPaidOrderCancelReview`（只进 `CANCEL_REVIEWING`，不释放任何资源——那是
+  对的，本卡不碰它）、5 处状态冲突换成了 `ConflictException`，但三条成功路径依旧没有券/名额释放。
+  于是（配合 PROMO-4/8/13 的消费侧）出现单向棘轮：下单即消费券和秒杀名额，取消却永不归还。
+- **期望**: 每条**真正到达 `CANCELLED`** 的路径（CREATED 直接取消、PAYING 取消、CANCEL_REVIEWING
+  审核通过）都调用 PROMO-14/15 的 `releaseForOrder(orderId)` 归还券与秒杀名额；释放是 best-effort
+  ——失败只记日志，绝不阻断取消本身（与同方法里既有的库存释放 try/catch 模式一致；精神同
+  design-docs/03 §8"监听器失败……不得回滚主事务"）。依据: design-docs/08 §6（取消规则表：取消
+  须释放订单占用的资源）+ PROMO-14/15 卡「期望」引用的 10 §2/§4 条款。来源：`findings.md`
+  「已识别但因时间/风险预算未实施」条目"优惠券/秒杀名额在订单取消后从未释放"的 order 侧接线。
+- **改法**:
+  1. 加 import（order 模块 pom 已依赖 ecommerce-promotion，`OrderService` 里早有同款注入，
+     不需要动任何 pom）：
+     ```java
+     import com.ecommerce.promotion.service.CouponService;
+     import com.ecommerce.promotion.service.SeckillService;
+     ```
+  2. 构造注入两个 promotion 领域服务（字段区加两个 `private final`，构造函数参数列表末尾追加
+     `CouponService couponService, SeckillService seckillService` 并赋值——增量追加，别整段替换
+     覆盖既有参数）。
+  3. 类末尾（`reviewCancel` 之后）新增私有帮助方法，两段**独立** try/catch：
+     ```java
+     /**
+      * Give back the coupons and the seckill allocation consumed by an order
+      * once its cancellation has succeeded (mirrors the consumption side,
+      * {@code OrderService} Step 10b). Both calls are best-effort: a release
+      * failure is logged and swallowed — it must never block the cancellation
+      * itself (design-docs/03: post-actions must not fail the main flow),
+      * exactly like the inventory release above. Only invoked on paths that
+      * actually reach CANCELLED — a PAID order entering CANCEL_REVIEWING keeps
+      * its coupons/allocation until the review is approved.
+      */
+     private void releasePromotions(Long orderId) {
+         try {
+             couponService.releaseForOrder(orderId);
+         } catch (Exception e) {
+             log.warn("Failed to release coupons for cancelled order {}: {}", orderId, e.getMessage());
+         }
+         try {
+             seckillService.releaseForOrder(orderId);
+         } catch (Exception e) {
+             log.warn("Failed to release seckill allocation for cancelled order {}: {}",
+                     orderId, e.getMessage());
+         }
+     }
+     ```
+  4. 三个调用点（都在订单已持久化为目标状态之后）：
+     - `cancelCreatedOrder(...)`：库存释放 try/catch 之后、`orderService.recordEvent(...)` 之前，加
+       ```java
+       // Give back coupons and seckill allocation consumed by this order
+       releasePromotions(order.getId());
+       ```
+     - `cancelPayingOrder(...)`：`orderRepository.save(order)` 之后、`recordEvent` 之前，加同样两行；
+     - `reviewCancel(...)` 的 `approved` 分支：库存释放 try/catch 之后、`recordEvent` 之前，加
+       `releasePromotions(orderId);`（形参本来就叫 `orderId`）。
+     `requestPaidOrderCancelReview` 与 `reviewCancel` 的驳回分支**不加**。
+  5. **`OrderCancelServiceTest.java`** 同步：
+     - 加 import `com.ecommerce.promotion.service.CouponService`/`SeckillService` 与
+       `static org.mockito.Mockito.doThrow`；`@Mock` 字段区加
+       `@Mock private CouponService couponService;`、`@Mock private SeckillService seckillService;`
+       （`@InjectMocks` 构造注入自动接上，缺了这两个 mock 会注入 null）；
+     - 既有 `testCancel_paidOrder_movesToCancelReviewing` 末尾加
+       `verify(couponService, never()).releaseForOrder(anyLong());` 与 seckill 同款断言
+       （审核前不许释放）；既有 `testReviewCancel_approve` 末尾加
+       `verify(couponService).releaseForOrder(10L);`、`verify(seckillService).releaseForOrder(10L);`；
+     - 新增三个用例：CREATED 取消 → 两个 `releaseForOrder(1L)` 各被调用一次；PAYING 取消（内联
+       fixture，`status=PAYING`）→ 响应 `CANCELLED` 且两个 `releaseForOrder(5L)` 被调用；
+       `doThrow(new RuntimeException("release boom")).when(couponService).releaseForOrder(1L)` 时
+       取消 CREATED 单**仍然成功**（响应 `CANCELLED`），且 `verify(seckillService).releaseForOrder(1L)`
+       （前一段失败不影响后一段）。
+- **验收**:
+  - 单测：`OrderCancelServiceTest` 全绿，覆盖"三条成功路径都释放、CANCEL_REVIEWING 阶段不释放、
+    释放失败不阻断取消"。
+  - 端到端：见 PROMO-14/15 的端到端验收（券回 `AVAILABLE`、`soldQuantity` 回落）；对 PAID 单仅发起
+    取消申请（进入 `CANCEL_REVIEWING`）后查券，状态仍是 `USED`；管理员审核**驳回**后券仍是 `USED`
+    （订单回到 PAID，资源保留）。
+  - 公开 24 例回归全绿。
+- **勿犯**: 不要在 `requestPaidOrderCancelReview`（PAID→CANCEL_REVIEWING）里释放——券/名额和库存
+  一样要等审核通过才归还，驳回时订单回到 PAID、资源必须原样保留（ORD-A5「勿犯」的镜像）。不要把
+  `releasePromotions` 的 try/catch 去掉或把异常往外抛——释放失败只 `log.warn`，绝不能让取消接口
+  500。不要把两段 try/catch 合并成一段——券释放失败不应连累秒杀释放。超时自动取消路径**不在本卡范围**（本卡只覆盖
+  `OrderCancelService` 的三条路径）——`OrderTimeoutService` 的同款释放由后补的 **ORD-A21** 单独
+  落卡（与本卡同批 B05 执行，见该卡），不要在本卡里顺手改它；`OrderLifecycleService` 依旧是
+  头部红线里的死服务，任何卡都不得接线。
+
+---
+
+### ORD-A18 | cancel-review 请求体双形态：冻结 fixture 发 {"approved": boolean}，被 decision 的 @NotBlank 直接 400
+
+- 风险: low · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-order/src/main/java/com/ecommerce/order/dto/AdminCancelReviewRequest.java`
+  2. `code/ecommerce-order/src/main/java/com/ecommerce/order/controller/AdminOrderController.java`
+  3. （同步测试）`code/ecommerce-order/src/test/java/com/ecommerce/order/controller/AdminOrderControllerTest.java`
+- **现状**: 基线 `AdminCancelReviewRequest` 只有 `decision`/`comment` 两个字段，且 `decision` 上有
+  `@NotBlank(message = "Review decision is required (APPROVE or REJECT)")`；
+  `AdminOrderController.reviewCancel(...)`（约第52-64行）以 `@Valid @RequestBody` 接收后
+  `boolean approved = "APPROVE".equalsIgnoreCase(request.getDecision());`。而**冻结**黑盒 fixture
+  `test-cases/src/test/java/com/ecommerce/blackbox/common/fixture/OrderFixture.java` 第143-148行的
+  `cancelReview(...)` 发送的请求体是 `{"approved": boolean}`——根本没有 decision 字段。于是所有经
+  fixture 走 `POST /api/v1/admin/orders/{orderId}/cancel-review` 的用例都在 bean-validation 阶段被
+  400（`VALIDATION_FAILED`）拒掉，永远到不了业务逻辑。
+- **期望**: 端点必须同时接受两种客户端形态：`{"approved": true/false}`（冻结 fixture 形态，
+  test-cases 不可修改，是该请求体形态的铁证）与 `{"decision": "APPROVE"/"REJECT"}`（基线管理台
+  形态，继续兼容）。依据: test-cases/.../fixture/OrderFixture.java:143-148（冻结请求体）、
+  README.md §6（`POST /api/v1/admin/orders/{orderId}/cancel-review | ADMIN | 200` 冻结端点）、
+  design-docs/08 §6/§9（取消审核流程）。
+- **改法**:
+  1. DTO：去掉 `decision` 上的 `@NotBlank`（连同已无人使用的
+     `import jakarta.validation.constraints.NotBlank;`），新增 `private Boolean approved;` 字段与
+     getter/setter。**必须用包装类型 `Boolean`**——null 表示"客户端没传这个字段"，原生 boolean 会把
+     "没传"和"传了 false"混为一谈。
+  2. Controller 把 `boolean approved = "APPROVE".equalsIgnoreCase(request.getDecision());` 改成：
+     ```java
+     boolean approved = request.getApproved() != null
+             ? request.getApproved()
+             : "APPROVE".equalsIgnoreCase(request.getDecision());
+     ```
+     显式 `approved` 优先；回落 decision 字符串时**常量写在前面**（`"APPROVE".equalsIgnoreCase(...)`），
+     decision 为 null 时天然不 NPE、按驳回处理。`orderCancelService.reviewCancel(orderId, approved,
+     comment, adminId)` 调用及其下游一概不动。
+  3. 同步测试 `AdminOrderControllerTest`：保留既有 3 个 decision 形态用例；新增 3 个用例——
+     `{"approved": true}`→批准、`{"approved": false}`→驳回、两字段同发时 approved 优先。注意新增
+     用例的 stub 里 comment 参数用 `any()` 而不是 `anyString()`（approved 形态下 comment 是 null，
+     `anyString()` 匹配不到 null，stub 不生效会 NPE）。
+- **验收**: 单测 `AdminOrderControllerTest` 全绿（8 例）。对 CANCEL_REVIEWING 状态订单：请求体
+  `{"approved": true}` → 200、订单转 CANCELLED；`{"approved": false}` → 200、订单回 PAID；
+  `{"decision": "APPROVE"}` 行为与基线一致。公开 24 例回归全绿。
+- **勿犯**: 不要动 fixture/test-cases（冻结）；不要给 `approved` 加任何 bean-validation 必填约束——
+  两种形态各只传自己的字段，任何一边必填都会 400 掉另一边；不要删 `decision` 字段或改其语义
+  （基线形态仍要兼容）；空体 `{}` 按驳回处理即可，不要为它发明新错误码。
+
+---
+
+### ORD-A19 | 批量下单每行结果缺 README §8 冻结的 status 字段（SUCCESS/FAILED）
+
+- 风险: low · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-order/src/main/java/com/ecommerce/order/dto/BatchCreateOrderResponse.java`
+  2. （同步测试）`code/ecommerce-order/src/test/java/com/ecommerce/order/service/BatchOrderServiceTest.java`
+- **现状**: 内部类 `BatchOrderResult`（约第53行起）只有
+  `externalOrderNo/orderId/orderNo/success(boolean)/error` 五个字段；`success(...)`/`failure(...)`
+  两个工厂方法只设置 `success` 布尔。每行结果的 JSON 里没有任何 `status` 字符串字段。
+- **期望**: README.md §8 PUB-016 验收明文"**每条结果 status=SUCCESS**，成功数量=2"——每行结果必须有
+  `status` 字段：成功行 `"SUCCESS"`、失败行 `"FAILED"`；`success` 布尔保留（既有对外字段，冻结契约
+  禁止删改字段名/类型，本卡只**新增**）。依据: README.md §8 PUB-016、design-docs/08 §7（"最终返回
+  每条的创建结果明细"）。
+- **改法**:
+  1. `BatchOrderResult` 增加 `private String status;` 与 getter/setter；
+  2. `success(...)` 工厂体内加 `r.status = "SUCCESS";`，`failure(...)` 工厂体内加 `r.status = "FAILED";`；
+  3. 同步测试 `BatchOrderServiceTest`：在既有 `isSuccess()` 断言旁补 `getStatus()` 等于
+     `"SUCCESS"`/`"FAILED"` 的断言（两处：单笔失败用例、全成功用例）。
+  `BatchOrderService` 本身零改动——两个静态工厂是 `BatchOrderResult` 唯一的构造入口，改工厂即覆盖
+  所有路径。
+- **验收**: `POST /api/v1/orders/batch` 两笔合法订单 → 每条结果 `status="SUCCESS"`、`successCount=2`
+  （PUB-016 主张）；一笔失败时该行 `status="FAILED"` 且 `error` 带失败原因。公开 24 例回归全绿。
+- **勿犯**: 不要删除/重命名 `success` 布尔或把它改成字符串——只新增 `status` 字段；不要在
+  `BatchOrderService` 里散落地 `setStatus(...)`，赋值只放在两个工厂方法里，保证 success 布尔与
+  status 字符串永远同步。
+
+---
+
+### ORD-A20 | 行为对齐三件套：verifyPurchase 双 ID 匹配、markAsPaid 409 冲突码、销售统计未授权 90 天上限
+
+一张卡三处独立小修（20-1/20-2/20-3），都在 order 模块、代码位置互不重叠，可一次落地一次回归。
+
+- 风险: low · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderQueryServiceImpl.java`（20-1、20-2）
+  2. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java`（20-1）
+  3. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/SalesStatisticsService.java`（20-3）
+  4. （同步测试）`OrderQueryServiceImplTest.java`、`SalesStatisticsServiceTest.java`
+
+**20-1 verifyPurchase 双路径按 SPU-or-SKU 匹配 + 分页 size 统一 200**
+
+- **现状**: 两条 verifyPurchase 路径——跨模块 `OrderQueryServiceImpl.verifyPurchase(userId, productId)`
+  （review 模块经 `OrderQueryService` 接口调用）与 REST 路径
+  `OrderService.verifyPurchase(VerifyPurchaseRequest)`（`GET /api/v1/orders/verify-purchase`）——匹配
+  条件都只按 SPU：`sku.getSpuId().equals(productId)`。而冻结 fixture `OrderFixture#verifyPurchase`
+  的 javadoc 明文 `@param productId product (SPU/SKU) id`——productId 可能传的就是 SKU id，按现状
+  一律误判为未购买。另外两路径分页 size 不一致（跨模块 200 / REST 100）。
+- **期望**: 匹配条件为"SPU 命中**或** SKU 命中"（当前绿路径的严格超集，只增不减）；两路径分页 size
+  统一为 200。依据: test-cases/.../fixture/OrderFixture.java（`productId product (SPU/SKU) id`）、
+  design-docs/08 §8（`verifyPurchase(userId, productId)`）、design-docs/13 §2（评价前购买校验）。
+- **改法**: 两处把匹配条件改为
+  ```java
+  if (sku != null && (sku.getSpuId().equals(productId)
+          || item.getSkuId().equals(productId))) {
+  ```
+  （REST 路径里 productId 写作 `request.getProductId()`）；REST 路径的
+  `PageRequest.of(0, 100, ...)` 改为 `PageRequest.of(0, 200, ...)`。**两处必须同改**，否则 REST 与
+  跨模块两个入口对同一 productId 给出不同答案。若执行时 ORD-A12 尚未应用（排序字段还是
+  `deliveredAt`），排序字段属于 ORD-A12 的范围，本卡只改 size 与匹配条件。
+- **验收**: `OrderQueryServiceImplTest` 新增"productId=SKU id（SPU id 不同）时返回 purchased=true"
+  用例；既有 SPU 命中 / 不命中 / 非签收跳过 3 个用例不改仍绿。
+
+**20-2 markAsPaid 不可支付状态显式抛 409 ORDER_STATUS_CONFLICT**
+
+- **现状**: `markAsPaid`（ORD-A11 落地后）把不可支付状态交给状态机深处抛
+  `ORDER_INVALID_TRANSITION`（400）；基线（ORD-A11 之前）则是手写 if 抛 `ORDER_INVALID_STATUS`
+  （400）。两个都不是冻结码，而"订单状态不允许操作"按 README §7.2 是 409。
+- **期望**: 订单状态不在可支付集合（CREATED/PAYING）时，`markAsPaid`（支付回调链路
+  `PaymentCallbackService.processSuccessCallback` → `markAsPaid`，链上无 catch，异常直达 REST 层）
+  必须对外表现为 409、`code=ORDER_STATUS_CONFLICT`，与 `getPayableOrder`（ORD-A8）一致。依据:
+  README.md §7.2（`ORDER_STATUS_CONFLICT | 409 | 订单状态不允许操作`）、design-docs/03 §2
+  （`ConflictException`=409 用于状态冲突）。
+- **改法**: 在 `markAsPaid` 取得 `OrderStatus fromStatus = order.getStatus();` 之后、状态机校验
+  之前插入：
+  ```java
+  if (fromStatus != OrderStatus.CREATED && fromStatus != OrderStatus.PAYING) {
+      throw new ConflictException("ORDER_STATUS_CONFLICT",
+              "Order " + orderId + " in status " + fromStatus
+                      + " cannot be marked paid");
+  }
+  ```
+  `ConflictException` 的 import 已由 ORD-A8 加过。**绝不动 `OrderStateMachine`**——守卫之后的链式
+  状态机校验原样保留（通过守卫的 CREATED/PAYING 仍走状态机权威校验）。本卡**收敛 ORD-A11 的验收**：
+  不可支付状态的对外表现由"400 `ORDER_INVALID_TRANSITION`"升级为"409 `ORDER_STATUS_CONFLICT`"。
+- **验收**: 单测：SHIPPED/CANCELLED 订单 `markAsPaid` → `ConflictException`、消息含
+  "cannot be marked paid"、不 save 不发事件；CREATED/PAYING 正常转 PAID 并发布 `OrderPaidEvent`
+  的既有用例不改仍绿。
+
+**20-3 销售统计删除未授权且恒假的 90 天上限**
+
+- **现状**: `SalesStatisticsService.getSalesStatistics` 在 startDate>endDate 校验之后有：
+  ```java
+  // Limit range to 90 days for performance
+  if (startDate.until(endDate).getDays() > 90) {
+      throw new BusinessException("DATE_RANGE_TOO_LARGE",
+              "Date range cannot exceed 90 days for performance reasons");
+  }
+  ```
+  `Period.getDays()` 只返回"日"分量（0-31），157 天跨度返回 6——该检查恒假、从未生效；且任何设计
+  文档（08 / 附录A / 附录B）都没有授权过统计窗口上限，`DATE_RANGE_TOO_LARGE` 也不是 README §7
+  冻结错误码。
+- **期望**: 大跨度日期范围正常出统计（不设上限）。**删除该检查而不是"修好"它**——把恒假检查修
+  "对"会让文档从未授权的 400 变成真实可达，反而制造新的不一致。保留 null 校验与 startDate>endDate
+  的 400（`INVALID_DATE_RANGE`）。依据: design-docs/08 §9（该端点无任何范围限制条款）。
+- **改法**: 整段删除上面的 if 块（含注释共 5-6 行）。`BusinessException` import 保留——前面两个
+  校验还在用。
+- **验收**: 单测：157 天跨度（2026-01-01 → 2026-06-07）正常返回不抛异常；startDate>endDate 仍 400。
+  端到端 `GET /api/v1/admin/orders/statistics/sales?startDate=2026-01-01&endDate=2026-06-07` → 200。
+
+- **公共验收**: 公开 24 例回归全绿（16+8）。
+- **勿犯**: 20-1 不要去掉 `sku != null` 判空、不要动方法签名（`OrderQueryService.verifyPurchase` 是
+  跨模块冻结接口）；20-2 不要把 409 守卫写进 `OrderStateMachine`（它是全部状态迁移的公共权威，409
+  冲突语义只属于"把订单标记为已支付"这一操作视角）；20-3 不要顺手把 `Period.getDays()` 换成
+  `ChronoUnit.DAYS.between(...)` 来"修复"上限——上限本身未获授权，要删不要修。
+
+---
+
+### ORD-A21 | 超时取消只释放库存，从不归还优惠券/秒杀名额（接线卡）
+
+- 风险: low · 置信度: definite
+- **执行时机（先读这条再动手）**: 同 ORD-A17——本卡调用的 `couponService.releaseForOrder(...)` /
+  `seckillService.releaseForOrder(...)` 是 `promotion.md` PROMO-14/PROMO-15（批次 B05）新增的方法。
+  按批次表顺序（B03 早于 B05）执行到本文件时**这两个方法还不存在，先跳过本卡**，等执行 B05 批次时
+  经 PROMO-16 指针把本卡与 ORD-A17、PROMO-14/15 **同批一起落地、一起 verify**（若 B03 阶段就单独
+  应用本卡，`ecommerce-order` 编译不过、黑盒 0/24）。本卡编号留在 §A 只因它改的是 order 模块文件；
+  其产物断言在 `artifacts.tsv` 里也登记为 B05。
+- **文件**:
+  1. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderTimeoutService.java`
+  2. （同步测试）`code/ecommerce-order/src/test/java/com/ecommerce/order/service/OrderTimeoutServiceTest.java`
+- **现状**: ORD-A10 落地后 `OrderTimeoutService.cancelExpiredOrder(...)` 已经会
+  `inventoryReservationService.release(order.getId())` 释放预占库存，但与 ORD-A17 修复前的
+  `OrderCancelService` 一样从不通知 promotion 模块。超时取消是**第四条真正到达 CANCELLED 的路径**
+  （前三条见 ORD-A17），漏掉它就是资源单向棘轮的最后一个缺口：用户下单占住券/秒杀名额后弃单不付，
+  60 分钟后系统自动取消，库存回来了，券和名额永远回不来。
+- **期望**: 超时取消与用户取消同样归还订单占用的资源。依据: design-docs/08 §5（超时"系统自动取消
+  订单并释放预占库存"）+ 08 §6 取消释放资源原则 + PROMO-14/15「期望」引用的 10 §2/§4 条款（与
+  ORD-A17 完全同源）。释放 best-effort：失败只记日志，绝不阻断取消本身。
+- **改法**:
+  1. 加 import（order 模块 pom 已依赖 ecommerce-promotion，不用动 pom）：
+     ```java
+     import com.ecommerce.promotion.service.CouponService;
+     import com.ecommerce.promotion.service.SeckillService;
+     ```
+  2. 字段区加两个 `private final`（`CouponService couponService;`、`SeckillService seckillService;`），
+     构造函数参数列表末尾**增量追加**同名参数并赋值——别整段替换覆盖既有参数。
+  3. `cancelExpiredOrder(...)` 里，`inventoryReservationService.release(order.getId());` 之后、
+     `orderService.recordEvent(...)` 之前，插入：
+     ```java
+     // Give back coupons and seckill allocation consumed by this order —
+     // a timeout cancellation returns the order's resources exactly like a
+     // user-requested cancellation (OrderCancelService) does.
+     releasePromotions(order.getId());
+     ```
+  4. 类末尾新增私有帮助方法（与 ORD-A17 的同名方法仅 javadoc/日志文案不同，两段**独立** try/catch）：
+     ```java
+     /**
+      * Give back the coupons and the seckill allocation consumed by an expired
+      * order once its timeout cancellation has succeeded (mirrors the
+      * consumption side, {@code OrderService} Step 10b, and the same helper in
+      * {@code OrderCancelService}). Both calls are best-effort: a release
+      * failure is logged and swallowed — it must never block the cancellation
+      * itself (design-docs/03: post-actions must not fail the main flow).
+      */
+     private void releasePromotions(Long orderId) {
+         try {
+             couponService.releaseForOrder(orderId);
+         } catch (Exception e) {
+             log.warn("Failed to release coupons for expired order {}: {}", orderId, e.getMessage());
+         }
+         try {
+             seckillService.releaseForOrder(orderId);
+         } catch (Exception e) {
+             log.warn("Failed to release seckill allocation for expired order {}: {}",
+                     orderId, e.getMessage());
+         }
+     }
+     ```
+  5. **`OrderTimeoutServiceTest.java`** 同步：
+     - 加 import `com.ecommerce.promotion.service.CouponService`/`SeckillService` 与
+       `static org.mockito.Mockito.doThrow`；`@Mock` 字段区加
+       `@Mock private CouponService couponService;`、`@Mock private SeckillService seckillService;`
+       （`@InjectMocks` 构造注入自动接上；缺了这两个 mock 会注入 `null`，helper 里的 NPE 会被
+       try/catch 吞掉，测试静默变弱）。
+     - 新增两个用例（B15 的 LOY-12 之后会把它们扩成含积分退还断言的终态，见该卡；本批先按下面写）：
+       ```java
+       @Test
+       @DisplayName("timeout gives back coupons and seckill allocation")
+       void testCancelExpiredOrder_releasesPromotionsAndRefundsPoints() {
+           orderTimeoutService.cancelExpiredOrder(expiredOrder);
+
+           verify(couponService).releaseForOrder(1L);
+           verify(seckillService).releaseForOrder(1L);
+       }
+
+       @Test
+       @DisplayName("timeout release failures are swallowed and never block the cancellation")
+       void testCancelExpiredOrder_releaseFailureDoesNotBlockCancel() {
+           doThrow(new RuntimeException("release boom")).when(couponService).releaseForOrder(1L);
+
+           orderTimeoutService.cancelExpiredOrder(expiredOrder);
+
+           assertThat(expiredOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+           verify(seckillService).releaseForOrder(1L);
+           verify(orderService).recordEvent(eq(1L), eq(OrderStatus.CREATED), eq(OrderStatus.CANCELLED),
+                   eq("TIMEOUT_CANCEL"), eq("SYSTEM"), anyString());
+           verify(eventPublisher).publish(any(com.ecommerce.order.event.OrderCancelledEvent.class));
+       }
+       ```
+- **验收**:
+  - 单测：`OrderTimeoutServiceTest` 全绿——超时取消调用两个 `releaseForOrder(1L)`；券释放抛异常时
+    取消仍完成（状态 CANCELLED、事件照记照发、秒杀释放照跑）。
+  - `grep -n "releasePromotions" OrderTimeoutService.java` 命中 ≥2 处（1 定义 + 1 调用）。
+  - 端到端：用券+秒杀下单后不支付，`POST /api/v1/admin/orders/timeout-cancel`（时钟拨过期后）触发
+    超时取消 → 券回 `AVAILABLE`、`soldQuantity` 回落（同 PROMO-14/15 的端到端验收）。
+  - 公开 24 例回归全绿。
+- **勿犯**: 不要把 try/catch 去掉或把异常往外抛——`cancelExpiredOrders` 的循环虽有外层 catch，但
+  释放失败若中断本方法，事件记录/发布会被跳过。不要把两段 try/catch 合并成一段——券释放失败不应
+  连累秒杀释放。**只做券/秒杀释放**：积分退还的两行是 B15 `loyalty.md` LOY-12 的事（本批 loyalty
+  侧 `refundPointsForOrder` 还不存在，现在接线必编译失败）。照旧不得接线 `OrderLifecycleService`
+  等头部红线死服务。
+
+---
+
+### ORD-A22 | 【指针卡】取消/超时路径的积分退还 —— 实体在 loyalty.md 的 LOY-12，随 B15 执行
+
+- 风险: low · 置信度: definite
+- **本卡不含改法**：订单取消（用户取消 CREATED/PAYING、商家审核通过、超时自动取消）后退还下单时
+  已抵扣的积分，需要 loyalty 侧先新增 `LoyaltyCommandService.refundPointsForOrder(...)`（批次 B15
+  才落地）。order 侧接线代码若在本批（B03）就应用，`ecommerce-order` 引用不存在的方法，编译不过、
+  黑盒 0/24——这与 ORD-A17/PROMO-16 的时序问题同型但方向相反（那次是 order 等 promotion 的 B05，
+  这次是 order 等 loyalty 的 B15）。因此**全部改动（loyalty 新方法 + REFUND 流水 + order 侧
+  `OrderService`/`OrderCancelService`/`OrderTimeoutService` 接线 + 三个测试文件同步）都写在
+  `work/bugs/loyalty.md` 的 `### LOY-12`**，随 B15 批次整体执行。
+- **执行时机**: B03/B04 执行本文件时**跳过本卡，什么都不改**；执行 B15 批次时打开
+  `work/bugs/loyalty.md`，定位 `### LOY-12`，逐字照做（含测试同步）。其产物断言在 `artifacts.tsv`
+  里登记为 B15。
+- **验收**: B15 之后 `grep -n "refundLoyaltyPoints"` 在 `OrderCancelService.java` 命中 ≥4 处
+  （1 处 helper 定义 + 3 处调用）、`OrderTimeoutService.java` 命中 ≥2 处（1 定义 + 1 调用）；
+  `grep -n "refundPointsForOrder"` 两文件各 ≥1 处（helper 体内的跨模块调用，artifacts.tsv B15
+  断言即它）；`OrderService.java` 的 `redeemPoints(...)` 调用带 4 个实参。
+- **勿犯**: 绝不能因为"这卡指向另一个文件"而跳过 B15 的 LOY-12——artifacts.tsv B15 的
+  `refundPointsForOrder` 三行会核验它，缺了整批按未完成处理。也绝不能在 B03/B04 提前做。
+
+---
+
+### ORD-A23 | round-15（已实施）：order 侧时钟成套 + orderNo 日期段 + 兑换率接配置 + ORDER_CREATED 补 receiver（附 payable 钳位决策留档）
+
+- 风险: low（8 处小步替换/补行，无契约变化） · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderQueryServiceImpl.java`
+  2. `code/ecommerce-order/src/main/java/com/ecommerce/order/listener/OrderEventListener.java`
+  3. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java`
+  4. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java`
+- **A·时钟成套（paidAt/cancelledAt）**: 原状 5 处业务时间戳读死墙钟——`OrderQueryServiceImpl.
+  markAsPaid()`（原 :163）`setPaidAt(LocalDateTime.now())`、`OrderEventListener.onOrderPaid()` 兜底补
+  paidAt（原 :89）、`OrderCancelService` 三个取消路径 `setCancelledAt(LocalDateTime.now())`
+  （原 :128/:167/:237）。管理端拨钟（`PUT /api/v1/admin/system/clock`，design-docs/03 §5 测试支撑）后
+  这些时间戳不跟走，与同模块已接时钟的 `expiresAt`（`OrderService` Step 9）不同源。改法：5 处全部换
+  `SystemClockService.now()`，各文件补 `import com.ecommerce.common.test.SystemClockService;`，清理
+  随之失效的 `java.time.LocalDateTime` import。
+- **B·orderNo 日期段**: `OrderService.generateOrderNo()`（原 :469）日期段 `LocalDate.now()` 改
+  `SystemClockService.now().toLocalDate()`（附录A 明示 orderNo 形如 `SO+yyyyMMdd+4 位序号`，日期段应
+  反映系统时钟）；单调序列段不动；`java.time.LocalDate` import 随之移除。
+- **C·下单路径兑换率接配置**: `OrderService` Step 7（原 :256-257）积分抵扣硬编码
+  `MonetaryUtil.multiply(points, 0.01)`，运行时改写 `loyalty.redeem-rate` 对下单路径无效、与 loyalty
+  侧 `LoyaltyPointService.pointsToAmount()`（读配置、`divide(rate, 2, HALF_UP)`）不同源。改法：与
+  loyalty 完全同式——`int redeemRate = RuntimeConfigRegistry.getInt("loyalty.redeem-rate", 100);
+  BigDecimal.valueOf(redeemedPoints).divide(BigDecimal.valueOf(redeemRate), 2, RoundingMode.HALF_UP)`
+  （附录B §1 该键默认 100；补 `java.math.RoundingMode` import）。
+- **D·ORDER_CREATED 通知补 receiver**: `OrderEventListener.onOrderCreated()` 构建的
+  `NotificationRequest` 从不 `setReceiver`，通知记录收件人为空。改法：补
+  `request.setReceiver(String.valueOf(event.getUserId()));`——与 `ShipmentService`/`InvoiceService`
+  的既有 `String.valueOf(userId)` 约定一致。
+- **勿犯**:
+  1. `OrderService.recordEvent()` 的 `setCreatedAtLog(LocalDateTime.now())` 和 JPA 审计列
+     （`createdAt`/`updatedAt`，由实体生命周期钩子填充）**不在本卡范围**，刻意未动——成套改它们
+     牵扯 `@PrePersist` 体系，需单独评估。
+  2. C 点必须保持与 `LoyaltyPointService.pointsToAmount` **完全同式**（同 key、同默认、同 divide
+     scale/舍入），否则订单侧 `pointsDeductionAmount` 与 loyalty 侧扣减金额在非默认 rate 下出现分叉。
+- **验收**: 拨钟 +N 天后支付/取消，`paidAt`/`cancelledAt` 为拨后时间，新订单 `orderNo` 日期段为拨后
+  日期；`PUT /api/v1/admin/system/configs/loyalty.redeem-rate=50` 后带 `redeemPoints=100` 下单，
+  `pointsDeductionAmount=2.00`（100/50）。公开 24 例回归通过（round-15 每项后门禁均 24/0/0）。
+  artifacts.tsv 锚点：B03 `OrderQueryServiceImpl`↦`SystemClockService`、B04 `OrderService`↦
+  `loyalty.redeem-rate`（均已双向验证：终态命中、基线 1b1e88f 不命中）。
+- **决策留档（payable < 0.01 钳位到 0.01，2026-07-15 复核维持）**: `OrderTotalCalculator.calculate()`
+  （:94-96）在扣完优惠/积分后若应付 `< 0.01` 则**钳位为 0.01**。design-docs/03 §1 存在双读法：
+  ①"入库金额保留 2 位、正额下限 0.01"（钳位读法）；②"扣减不得使应付为负，可为 0"（0 元单读法）。
+  选择维持钳位，理由：基线实现即钳位、公开 24 例与之相容；0 元应付将把"支付回调金额=0.00"的特判
+  引入支付链（改动面更大、风险更高）；loyalty 侧 `estimateRedeemPoints` 的抵扣上限（max-redeem-ratio
+  0.5）实际也使正常路径到不了 0 元。若隐藏用例证实 0 元单预期，改动点单一（删 :94-96 钳位分支），
+  持本记录重议即可。
 
 ---
 

@@ -213,6 +213,7 @@ class LocalNotificationServiceImplTest {
                     .receiver("fault@example.com")
                     .channel(NotificationChannel.EMAIL)
                     .templateCode("test_template")
+                    .idempotencyKey("fault-idem-001")
                     .build();
 
             assertDoesNotThrow(() -> service.send(request));
@@ -223,6 +224,10 @@ class LocalNotificationServiceImplTest {
                     NotificationRecordService.getByBizId("FAULT-001");
             assertThat(records).hasSize(1);
             assertThat(records.get(0).getFailureReason()).isNotNull();
+            // Failure records must carry the request's idempotency key, not a
+            // hardcoded null — failed sends are subject to the same duplicate
+            // detection contract as successful ones.
+            assertThat(records.get(0).getIdempotencyKey()).isEqualTo("fault-idem-001");
         } finally {
             FaultInjectionRegistry.clear();
             NotificationRecordService.clear();

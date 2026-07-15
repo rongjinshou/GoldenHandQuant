@@ -2,6 +2,7 @@ package com.ecommerce.common.ratelimit;
 
 import com.ecommerce.common.dto.ApiError;
 import com.ecommerce.common.exception.RateLimitException;
+import com.ecommerce.common.test.SystemClockService;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -20,6 +21,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
+import java.time.ZoneId;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.UUID;
@@ -98,7 +100,7 @@ public class RateLimitAspect {
      * if the current request count is under the limit.
      */
     private boolean isAllowed(String key, int permits) {
-        long now = System.currentTimeMillis();
+        long now = nowMillis();
         LinkedList<Long> timestamps = rateLimitStore.computeIfAbsent(key, k -> new LinkedList<>());
 
         synchronized (timestamps) {
@@ -114,5 +116,16 @@ public class RateLimitAspect {
 
             return false;
         }
+    }
+
+    /**
+     * Current epoch millis derived from the adjustable test clock
+     * ({@link SystemClockService}) instead of the real wall clock, so that
+     * clock-shift test cases can observe the sliding window expiring (e.g.
+     * "rate limit lifts after the window passes"). Identical to
+     * {@code System.currentTimeMillis()} when the clock is not shifted.
+     */
+    private long nowMillis() {
+        return SystemClockService.now().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 }

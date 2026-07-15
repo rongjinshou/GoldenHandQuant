@@ -145,10 +145,30 @@ class UserAuthServiceTest {
     }
 
     @Test
-    @DisplayName("throws ResourceNotFoundException when user email is not found")
+    @DisplayName("logs in via nickname fallback when the email field carries a nickname (04 §4 用户名或邮箱)")
+    void testLogin_nicknameInsteadOfEmail_fallsBackToNicknameLookup() {
+        User user = activeUser();
+        LoginRequest request = loginRequest("ActiveUser", "correctPassword");
+
+        when(userRepository.findByEmail("ActiveUser")).thenReturn(Optional.empty());
+        when(userRepository.findFirstByNicknameOrderByIdAsc("ActiveUser")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("correctPassword", user.getPasswordHash())).thenReturn(true);
+        when(jwtTokenProvider.generateToken(1L, List.of("USER"))).thenReturn("jwt-token-value");
+
+        LoginResponse response = userAuthService.login(request);
+
+        assertThat(response.getToken()).isEqualTo("jwt-token-value");
+        assertThat(response.getUserId()).isEqualTo(1L);
+        verify(userRepository).findFirstByNicknameOrderByIdAsc("ActiveUser");
+    }
+
+    @Test
+    @DisplayName("throws ResourceNotFoundException when neither email nor nickname matches")
     void testLogin_userNotFound_throwsException() {
         LoginRequest request = loginRequest("unknown@example.com", "anyPassword");
         when(userRepository.findByEmail("unknown@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findFirstByNicknameOrderByIdAsc("unknown@example.com"))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> userAuthService.login(request))
                 .isInstanceOf(ResourceNotFoundException.class)

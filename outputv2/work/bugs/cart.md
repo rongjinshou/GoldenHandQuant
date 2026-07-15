@@ -1,7 +1,10 @@
 # B10 · cart — 纯缓存购物车 · 估价同源
 
 覆盖 `findings.md`「cart 模块（§6.5，共 4 项）」**全部 4 条**，加「第三轮深审·跨领域」#6（估价配置
-不同源），一共 5 条发现、4 张卡片（§6.5 #1 与 #4 同根同解，合并成一张）。这 5 条发现最终全部落在
+不同源），再加 Wave1 契约复核后补的 CART-5（两点合一：`AddCartItemRequest.quantity` 缺 `@NotNull`、
+种类上限未接 `cart.max-items` 运行时配置），以及 round-15 后补的 CART-6（TTL 应用层过期接测试时钟与
+`cart.ttl-days`，已实施并门禁 24/0/0，见文件末尾）——一共 8 条发现、**6 张卡片**（§6.5 #1 与 #4
+同根同解，合并成一张）。前 5 条发现（CART-1…CART-4 覆盖）最终全部落在
 同一个文件 `CartService.java` 身上——JPA→缓存的存储介质切换（#1/#4）几乎重写了这个文件的每一个方法，
 累加语义（#2）、促销接入（#3）、配置同源（第三轮深审·跨领域 #6）又都分别改在这份重写之后的 `addItem`/`estimate`
 方法内部。
@@ -14,8 +17,9 @@
 `pom.xml`、`CartEstimateResponse.java` 两个 CART-1 完全不涉及的独立文件要单独编辑。
 
 **执行顺序：先完整应用 CART-1（删 5 个文件 + 整份替换 `CartService.java` + 整份替换
-`CartServiceTest.java`），再依次核对 CART-2 → CART-3 → CART-4。CART-3 在 CART-1 之后还必须单独编辑
-`pom.xml` 与 `CartEstimateResponse.java`。**
+`CartServiceTest.java`），再依次核对 CART-2 → CART-3 → CART-4，最后应用 CART-5。CART-3 在 CART-1
+之后还必须单独编辑 `pom.xml` 与 `CartEstimateResponse.java`。CART-5 改的是 `AddCartItemRequest.java`
+与 `CartValidationService.java` 两个前四卡不碰的文件，互不交叠、独立验收。**
 
 不在本文件范围内、不要顺手改的两处（同一批文件里但归属别的卡片）：
 - `CartValidationService.java` 里 `validateSku` 的 `"SKU_NOT_AVAILABLE"` → `"PRODUCT_NOT_FOR_SALE"`：
@@ -1183,3 +1187,110 @@
   - `RuntimeConfigRegistry.put("order.packaging-fee", "5.00")` 之后，`packagingFee` 应为 5.00。
   - 不覆盖时行为与原来完全一致（itemTotal<199 收 8.00 运费、包装费 2.00）——这是个"读取来源换了、
     默认行为不变"的卡片，不应该让任何既有黑盒用例的默认路径断言发生变化。
+---
+
+### CART-5 | 两点补全：`AddCartItemRequest.quantity` 缺 `@NotNull`（缺字段 500）；种类上限未接 `cart.max-items`
+
+- 风险: low · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-cart/src/main/java/com/ecommerce/cart/dto/AddCartItemRequest.java`
+  2. `code/ecommerce-cart/src/main/java/com/ecommerce/cart/service/CartValidationService.java`
+- **现状**:
+  (a) `AddCartItemRequest`（基线第 11-15 行）`skuId` 有 `@NotNull`，`quantity` 却只有 `@Min`：
+  ```java
+  @NotNull(message = "skuId must not be null")
+  private Long skuId;
+
+  @Min(value = 1, message = "quantity must be at least 1")
+  private Integer quantity;
+  ```
+  Bean Validation 规范里 `@Min` 对 null **视为合法**，于是缺 `quantity` 字段的
+  `POST /api/v1/cart/items` 穿过 `@Valid`，在 `CartService.addItem` 首行
+  `cartValidationService.validateQuantity(request.getQuantity())`（基线第 72 行；CART-1 重写版
+  同样是首行调用）把 null 拆箱成 int 时 NPE → 500。姊妹 DTO `UpdateCartItemRequest.quantity`
+  是有 `@NotNull` 的——全仓独此一处漏。
+  (b) `CartValidationService`（基线第 22 行）`private static final int MAX_ITEM_TYPES = 100;`
+  硬编码，`validateCartSize` 永远读不到管理员对 `cart.max-items` 的运行时覆盖。这是
+  `design-docs/附录B-配置参考.md` 配置表里**全仓唯一**没接 `RuntimeConfigRegistry` 的键
+  （`cart.ttl-days` 由 `CartCacheConfig` 消费，`order.*`/`member.*` 等其余键均已接线）。
+- **期望**: (a) 请求体缺必填字段 → 400 `VALIDATION_FAILED` 而非 500（`design-docs/03` §2 参数校验
+  失败走 `ValidationException` 语义；与 `UpdateCartItemRequest` 对称）。(b) `附录B` `cart.max-items`
+  （默认 100）是运行时配置项：代码经 `RuntimeConfigRegistry.getInt("cart.max-items", 100)` 读取，
+  未覆盖时行为与基线完全一致，覆盖后 `CART_FULL` 上限即时生效（`design-docs/07` §2 规则表
+  「最大商品种类 | 100」+ 附录B；同 CART-4 的「配置同源」原则）。
+- **改法**:
+  1. **`AddCartItemRequest.java`**——`quantity` 字段补注解（`jakarta.validation.constraints.NotNull`
+     的 import 基线已有，`skuId` 在用）：
+     ```java
+     @NotNull(message = "quantity must not be null")
+     @Min(value = 1, message = "quantity must be at least 1")
+     private Integer quantity;
+     ```
+  2. **`CartValidationService.java`**——新增 import
+     `com.ecommerce.common.test.RuntimeConfigRegistry;`；把常量
+     `private static final int MAX_ITEM_TYPES = 100;` 换成语义化的兜底默认值：
+     ```java
+     /**
+      * Default max distinct item types per cart; the effective limit is read from
+      * the runtime-overridable config key {@code cart.max-items} (附录B, default 100).
+      */
+     private static final int DEFAULT_MAX_ITEM_TYPES = 100;
+     ```
+     `validateCartSize` 改为读运行时配置（`CART_FULL` 错误码与消息前缀保持不变）：
+     ```java
+     public void validateCartSize(int currentItemCount, int newItemTypesToAdd) {
+         int maxItemTypes = RuntimeConfigRegistry.getInt("cart.max-items", DEFAULT_MAX_ITEM_TYPES);
+         if (currentItemCount + newItemTypesToAdd > maxItemTypes) {
+             throw new BusinessException("CART_FULL",
+                     "Cart can contain at most " + maxItemTypes + " distinct items. "
+                             + "Current: " + currentItemCount + ", adding: " + newItemTypesToAdd);
+         }
+     }
+     ```
+     `MAX_QUANTITY`（999）与其余方法不动。`CartValidationServiceTest` **不需要改**：兜底默认 100
+     使 `validateCartSize(50,1)/(99,1)/(100,1)` 三个既有断言行为不变，异常消息前缀
+     `"Cart can contain at most"` 也未变（已实测全绿）。
+- **验收**:
+  - `POST /api/v1/cart/items` 只带 `{"skuId":100}`（缺 quantity）→ 400 `VALIDATION_FAILED`
+    （不再 500）；带 `{"skuId":100,"quantity":0}` → 仍是 400（`@Min` 路径不受影响）。
+  - `PUT /api/v1/admin/system/configs/cart.max-items`（值 `2`）之后，同一购物车加入第 3 种 SKU →
+    400 `CART_FULL`；不覆盖时仍是第 101 种才触发（与基线一致）。
+  - `mvn -f code/pom.xml -pl ecommerce-cart test` 全绿；公开 24 例回归全绿
+    （本卡两点已在参考实现上分别单卡门禁验证 24/24）。
+- **勿犯**: 别动 `UpdateCartItemRequest`（它本来就对）；别挪走 `@Min` 或改动两条校验消息文案；
+  (b) 只换读取来源，**不要**改 `CART_FULL` 错误码或消息结构（黑盒可能断言前缀）；配置键必须逐字
+  `"cart.max-items"`（附录B 原文），写错键名等于没接。
+
+---
+
+### CART-6 | round-15（已实施）：购物车 TTL 应用层过期——`cart.ttl-days` 按测试时钟判定
+
+- 风险: low（只改 `CartCacheManager` 一个类 + 单测） · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-cart/src/main/java/com/ecommerce/cart/cache/CartCacheManager.java`
+  2. 同步单测：`CartCacheManagerTest.java`（新增拨钟过期/未过期 2 用例 + `@AfterEach` 复位时钟，
+     7 例全绿）
+- **现状（改前）**: 7 天 TTL 只存在于 `CartCacheConfig` 的 Caffeine `expireAfterWrite(Duration.ofDays(7))`
+  ——按**真实墙钟**流逝才过期。黑盒无法等 7 天，管理端拨钟（`PUT /api/v1/admin/system/clock`）对
+  购物车过期完全无感；附录B §2 的 `cart.ttl-days`（默认 7）运行时改写对已生效的 Caffeine 实例也无效。
+  `saveCart` 里 `CartData.updatedAt` 用裸 `LocalDateTime.now()`，与测试时钟不同源。
+- **期望**: 购物车 7 天 TTL 可被测试时钟与 `cart.ttl-days` 运行时配置共同驱动（CLAUDE.md/设计文档：
+  cart 为 Caffeine 缓存、7 天 TTL、从不落库；03 §5 测试支撑时钟）。
+- **改法**（已实施）:
+  1. `saveCart`：`cart.setUpdatedAt(SystemClockService.now());`（替换裸 now，写入时间入同源时钟）。
+  2. `getCart` 命中后追加应用层判定：`ttlDays = RuntimeConfigRegistry.getInt("cart.ttl-days", 7)`，
+     若 `updatedAt.plusDays(ttlDays).isBefore(SystemClockService.now())` → `cartCache.invalidate(key)`
+     并返回 `null`（等效未命中）；`updatedAt` 判空防御，恰好 +7 天整点不过期（`isBefore` 严格小于）。
+  3. `CartCacheConfig` 的 Caffeine 7 天 `expireAfterWrite` **保留不动**——作为真实时间维度的兜底层，
+     两层判定并存互不干扰。
+- **勿犯**:
+  1. 不要为"让拨钟生效"去改 Caffeine 的 `Ticker`/`expireAfter` 策略——Caffeine ticker 是纳秒级单调钟，
+     与 `SystemClockService` 的 offset/fixed 语义对不齐，应用层判定才是最小改动面。
+  2. 过期分支必须 `invalidate` 后返回 null，不能只返回 null 不清 key——否则"拨回时钟"能让已过期条目
+     复活，语义变成薛定谔缓存。
+  3. 配置键逐字 `"cart.ttl-days"`（附录B §2 原文，`RuntimeConfigRegistry` 文档默认表已收录 "7"）。
+- **验收**: 存购物车 → `SystemClockService.setOffset(7*24*60+1)` → `getCart` 返回 null 且底层 key 已清
+  （`CartCacheManagerTest.testAppLayerTtl_clockShiftedPastTtl_returnsNullAndInvalidates`）；偏移
+  7 天内（如 `7*24*60-60`）仍命中。`mvn -pl ecommerce-cart test` 全绿；公开 24 例回归全绿
+  （round-15 门禁 24/0/0）。artifacts.tsv 锚点：B10 `CartCacheManager`↦`cart.ttl-days`
+  （已双向验证：终态命中、基线 1b1e88f 不命中——基线该文件存在但无此键）。

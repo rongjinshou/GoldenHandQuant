@@ -1648,13 +1648,16 @@
   `ShipmentService.updateStatus` 里发布，不属于本卡，类本身已经在 EVT-A1 建好），但基线全仓库没有
   任何监听者。`OrderQueryServiceImpl.verifyPurchase` 判断"已购买且已收货"时只认 `DELIVERED`/
   `COMPLETED` 两个状态，订单永远到不了这两个状态，导致评价接口一直报 `REVIEW_PURCHASE_REQUIRED`
-  （Task 13 INT-5）。另外，`OrderLogisticsStatusUpdater` 这个端口在系统里是 no-op 实现（黑盒测试
-  harness 注册的是一个无限定符的 no-op bean，生产环境不能注册真实实现，否则会撞 Task 13 INT-1
-  同款 bean 冲突，详见 findings.md 第二轮"尽调后明确放弃"一节），所以 PICKING/SHIPPED 这两个中间
-  状态永远不会被真实写到订单上——收到 `ShipmentDeliveredEvent` 时订单状态实际上通常还是 `PAID`。
-- **期望**：新增监听器，收到 `ShipmentDeliveredEvent` 后把订单从当前状态推进到 `DELIVERED`。因为
-  中间状态不会被真实写入，需要顺着状态机链式校验 `PAID→PICKING→SHIPPED→DELIVERED`（只校验合法性，
-  不落库中间状态，只落库最终的 `DELIVERED`）。已经是 `DELIVERED`/`COMPLETED` 的直接跳过（幂等）。
+  （Task 13 INT-5）。另外，`OrderLogisticsStatusUpdater` 这个端口在**基线**上没有生产实现（黑盒
+  harness 注册的是一个无限定符的 no-op bean）——该缺失由 **B14/LOGI-11** 以 `@Primary` 生产 bean
+  补上（旧的"生产实现必撞 harness bean 冲突"弃项结论已被 LOGI-11 实证推翻，详见该卡）。按批次
+  顺序 B14 先于本批执行：本监听器就位时，订单通常已被 LOGI-11 推进到 `SHIPPED`；但若 LOGI-11
+  被跳过、或承运商在中间步骤前就回调签收（回调端点接受任意起点的 DELIVERED），订单仍可能停在
+  `PAID` 或 `PICKING`——监听器必须三种起点都能走通。
+- **期望**：新增监听器，收到 `ShipmentDeliveredEvent` 后把订单从当前状态推进到 `DELIVERED`。从
+  `PAID`/`PICKING` 起点时顺着状态机链式校验 `PAID→PICKING→SHIPPED→DELIVERED` 的剩余各跳（只校验
+  合法性，不落库中间状态，只落库最终的 `DELIVERED`）；`SHIPPED` 起点走单跳校验。已经是
+  `DELIVERED`/`COMPLETED` 的直接跳过（幂等）。
 - **改法**：新增文件
   `code/ecommerce-order/src/main/java/com/ecommerce/order/listener/ShipmentDeliveredEventListener.java`
   （`failureRecorder` 字段和上报调用**本步骤先不加**，留给 EVT-B4）：
@@ -1683,12 +1686,16 @@
    * received, which {@code OrderQueryService.verifyPurchase} then relies on to allow
    * a product review (design-docs/08 §2 order lifecycle: ... SHIPPED → DELIVERED).
    *
-   * <p>The logistics {@code OrderLogisticsStatusUpdater} port is a no-op in the
-   * running system, so the intermediate PICKING/SHIPPED statuses are never applied
-   * to the order — it is still PAID when the parcel arrives. Like
-   * {@code OrderQueryServiceImpl.markAsPaid} chains CREATED→PAYING→PAID, this
-   * validates the designed hops up to DELIVERED rather than bypassing the state
-   * machine with an ad-hoc jump.
+   * <p>The logistics {@code OrderLogisticsStatusUpdater} port (implemented by
+   * {@code com.ecommerce.app.integration.OrderLogisticsStatusUpdaterImpl}
+   * delegating to {@code OrderLogisticsStatusService}) normally advances the
+   * order to PICKING/SHIPPED before the parcel arrives, so the usual starting
+   * point here is SHIPPED. The order can still be PAID or PICKING when a carrier
+   * reports delivery early (the callback endpoint accepts DELIVERED from any
+   * shipment state, and a status race may have skipped an intermediate hop).
+   * Like {@code OrderQueryServiceImpl.markAsPaid} chains CREATED→PAYING→PAID,
+   * this validates the designed hops from wherever the order currently is up to
+   * DELIVERED rather than bypassing the state machine with an ad-hoc jump.
    *
    * <p>Runs AFTER_COMMIT in its own (REQUIRES_NEW) transaction: a failure here must
    * never roll back the logistics delivery (design-docs/02 §5 — non-critical
@@ -1728,11 +1735,17 @@
                   return; // idempotent — delivery already recorded
               }
 
-              // Validate the designed path to DELIVERED. Because the logistics status
-              // port is a no-op, the order is normally still PAID here, so chain the
-              // hops (PAID→PICKING→SHIPPED→DELIVERED) the state machine defines.
+              // Validate the designed path to DELIVERED from wherever the order is
+              // on the fulfilment chain, chaining the hops
+              // (PAID→PICKING→SHIPPED→DELIVERED) the state machine defines. With the
+              // production OrderLogisticsStatusUpdater active the order is normally
+              // SHIPPED here, but PAID/PICKING remain reachable when a carrier
+              // reports delivery before the intermediate warehouse steps.
               if (from == OrderStatus.PAID) {
                   stateMachine.validateTransition(OrderStatus.PAID, OrderStatus.PICKING);
+                  stateMachine.validateTransition(OrderStatus.PICKING, OrderStatus.SHIPPED);
+                  stateMachine.validateTransition(OrderStatus.SHIPPED, OrderStatus.DELIVERED);
+              } else if (from == OrderStatus.PICKING) {
                   stateMachine.validateTransition(OrderStatus.PICKING, OrderStatus.SHIPPED);
                   stateMachine.validateTransition(OrderStatus.SHIPPED, OrderStatus.DELIVERED);
               } else {

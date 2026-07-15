@@ -9,6 +9,7 @@ import com.ecommerce.common.exception.ResourceNotFoundException;
 import com.ecommerce.common.notification.LocalNotificationService;
 import com.ecommerce.common.notification.NotificationChannel;
 import com.ecommerce.common.notification.NotificationRequest;
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.payment.dto.RefundApplyRequest;
 import com.ecommerce.payment.dto.RefundResponse;
 import com.ecommerce.payment.dto.RefundReviewRequest;
@@ -24,7 +25,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -104,7 +104,7 @@ public class RefundService {
         refund.setUserId(userId);
         refund.setRefundAmount(refundAmount);
         refund.setReason(request.getReason());
-        refund.setStatus(RefundStatus.PENDING_REVIEW);
+        refund.setStatus(RefundStatus.APPLIED);
         refund.setRefundRequestNo(request.getRefundRequestNo());
 
         refund = refundRecordRepository.save(refund);
@@ -125,17 +125,18 @@ public class RefundService {
         RefundRecord refund = refundRecordRepository.findById(refundId)
                 .orElseThrow(() -> new ResourceNotFoundException("RefundRecord", refundId));
 
-        // README §7: REFUND_WAITING_WAREHOUSE_ACCEPT/409 — reviewing an already-
-        // approved refund again is exactly this "already waiting on warehouse
-        // acceptance" conflict; other non-PENDING_REVIEW states (WAREHOUSE_ACCEPTED
-        // /COMPLETED/REJECTED) are a state conflict too (03 §2: ConflictException=409).
-        if (refund.getStatus() == RefundStatus.WAITING_WAREHOUSE_ACCEPT) {
+        // README §7: REFUND_WAITING_WAREHOUSE_ACCEPT/409 (frozen error code
+        // string, unrelated to enum constant names) — reviewing an already-
+        // approved (REVIEWED) refund again is exactly this "already waiting on
+        // warehouse acceptance" conflict; other non-APPLIED states (ACCEPTED
+        // /REFUNDED/REJECTED) are a state conflict too (03 §2: ConflictException=409).
+        if (refund.getStatus() == RefundStatus.REVIEWED) {
             throw new ConflictException("REFUND_WAITING_WAREHOUSE_ACCEPT",
                     "Refund " + refundId + " is already waiting on warehouse acceptance");
         }
-        if (refund.getStatus() != RefundStatus.PENDING_REVIEW) {
+        if (refund.getStatus() != RefundStatus.APPLIED) {
             throw new ConflictException("REFUND_STATUS_INVALID",
-                    "Refund is not in PENDING_REVIEW status: " + refund.getStatus());
+                    "Refund is not in APPLIED status: " + refund.getStatus());
         }
 
         RefundStatus beforeStatus = refund.getStatus();
@@ -169,7 +170,7 @@ public class RefundService {
         RefundRecord refund = refundRecordRepository.findById(refundId)
                 .orElseThrow(() -> new ResourceNotFoundException("RefundRecord", refundId));
 
-        refund.setStatus(RefundStatus.WAITING_WAREHOUSE_ACCEPT);
+        refund.setStatus(RefundStatus.REVIEWED);
         refund.setReviewerId(reviewerId);
         refund.setReviewNote(note);
         refundRecordRepository.save(refund);
@@ -185,18 +186,18 @@ public class RefundService {
         RefundRecord refund = refundRecordRepository.findById(refundId)
                 .orElseThrow(() -> new ResourceNotFoundException("RefundRecord", refundId));
 
-        if (refund.getStatus() != RefundStatus.WAITING_WAREHOUSE_ACCEPT) {
+        if (refund.getStatus() != RefundStatus.REVIEWED) {
             throw new ConflictException("REFUND_STATUS_INVALID",
-                    "Refund must be WAITING_WAREHOUSE_ACCEPT to accept, current: "
+                    "Refund must be REVIEWED to accept, current: "
                             + refund.getStatus());
         }
 
-        refund.setStatus(RefundStatus.WAREHOUSE_ACCEPTED);
+        refund.setStatus(RefundStatus.ACCEPTED);
         refund.setWarehouseAcceptorId(acceptorId);
         refund = refundRecordRepository.save(refund);
         auditLogService.record(String.valueOf(acceptorId), "REFUND_WAREHOUSE_ACCEPT",
-                refund.getRefundNo(), RefundStatus.WAITING_WAREHOUSE_ACCEPT.name(),
-                RefundStatus.WAREHOUSE_ACCEPTED.name(), null);
+                refund.getRefundNo(), RefundStatus.REVIEWED.name(),
+                RefundStatus.ACCEPTED.name(), null);
 
         // After warehouse acceptance, process the refund
         processRefund(refund);
@@ -219,9 +220,9 @@ public class RefundService {
         RefundRecord refund = refundRecordRepository.findById(refundId)
                 .orElseThrow(() -> new ResourceNotFoundException("RefundRecord", refundId));
 
-        if (refund.getStatus() != RefundStatus.WAITING_WAREHOUSE_ACCEPT) {
+        if (refund.getStatus() != RefundStatus.REVIEWED) {
             throw new ConflictException("REFUND_STATUS_INVALID",
-                    "Refund must be WAITING_WAREHOUSE_ACCEPT to process warehouse acceptance, current: "
+                    "Refund must be REVIEWED to process warehouse acceptance, current: "
                             + refund.getStatus());
         }
 
@@ -229,7 +230,7 @@ public class RefundService {
         refund.setWarehouseAcceptorId(acceptorId);
         refund = refundRecordRepository.save(refund);
         auditLogService.record(String.valueOf(acceptorId), "REFUND_WAREHOUSE_ACCEPT",
-                refund.getRefundNo(), RefundStatus.WAITING_WAREHOUSE_ACCEPT.name(),
+                refund.getRefundNo(), RefundStatus.REVIEWED.name(),
                 RefundStatus.REJECTED.name(), "rejected: returned goods failed warehouse inspection");
 
         log.info("Refund rejected at warehouse acceptance: refundNo={}", refund.getRefundNo());
@@ -241,8 +242,9 @@ public class RefundService {
      * Processes the refund completion.
      */
     private void processRefund(RefundRecord refund) {
-        refund.setStatus(RefundStatus.COMPLETED);
-        refund.setCompletedAt(LocalDateTime.now());
+        refund.setStatus(RefundStatus.REFUNDED);
+        // Test-support system clock: equals the real system time unless shifted.
+        refund.setCompletedAt(SystemClockService.now());
         refundRecordRepository.save(refund);
 
         // Update payment status

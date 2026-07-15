@@ -1,7 +1,9 @@
 # B15 · loyalty — 积分赚取/抵扣汇率 · 冻结-过期 · 等级
 
 本文件覆盖 `findings.md`「loyalty 模块（§6.9）」11 项中的 9 项，加上第三轮深审·模块内 的 #1、#2
-（积分汇率两个 bug），合计 **11 张卡（LOY-1..LOY-11）**。§6.9 原表的 #2（监听本模块影子
+（积分汇率两个 bug），再加 Wave-2 契约复核后补的 3 张（LOY-12 取消退积分——**文件清单跨
+order/loyalty 两模块，整卡随本批 B15 执行**，由 `order.md` 末尾的 ORD-A22 指针卡防漏；LOY-13/14
+响应契约补字段），合计 **14 张卡（LOY-1..LOY-14）**。§6.9 原表的 #2（监听本模块影子
 `OrderPaidEvent`）、#3（同理，影子 `ReviewApprovedEvent`）**不在本文件**——两项的修复本质是
 "事件权威类迁移到 common + 既有监听器改 `@TransactionalEventListener(AFTER_COMMIT)`/
 `@Transactional(REQUIRES_NEW)`/显式 bean 名"，属于事件批（`S2-events.md`，批次 B13/B16），需要
@@ -20,9 +22,14 @@
   不确定那个文件当前状态的情况下安全插入。
 - **积分生命周期（LOY-8~9）**：过期批处理（完整定时任务实现，high 风险）与积分冻结（尽调后
   判定"不实现"，low 风险的显式跳过卡，防止有人看着 `frozenPoints` 恒为 0 就自己瞎猜着实现）。
-- **跨模块接线（LOY-10~11）**：订单创建成功后真正调用 `redeemPoints` 扣减积分（**改动文件在
+- **跨模块接线（LOY-10~12）**：订单创建成功后真正调用 `redeemPoints` 扣减积分（**改动文件在
   order 模块，与 `order.md §B`/B04"order-pricing"批次的声明范围重叠**，卡片里给了查重步骤）、
-  评价奖励积分读运行时配置。
+  评价奖励积分读运行时配置、订单取消后退还已抵扣积分（LOY-12：loyalty 侧新增幂等
+  `refundPointsForOrder` + REFUND 流水，order 侧四条取消路径接线——扣减侧 LOY-10/ORD-B8 的逆操作，
+  与 B05 已落地的券/秒杀释放 PROMO-14/15/ORD-A17/A21 同一"取消归还资源"家族）。
+- **响应契约字段（LOY-13~14）**：`estimate-redeem` 响应补 `deductedAmount`/`redeemPoints` 两个别名字段、
+  `member-level` 响应补 `pointsToNextLevel`——冻结黑盒 fixture 用 `has()` 容错读取、基线一直缺失
+  的两个字段，纯增量不动既有字段。
 
 ---
 
@@ -716,7 +723,10 @@
     应该因为积分扣减失败导致整个下单事务回滚。
   - `grep -n "loyaltyCommandService" OrderService.java` 命中字段声明、构造器参数、构造器赋值、
     `redeemPoints(...)` 调用**恰好 4 处**（不多不少——多于 4 处=重复插入，轻则重复构造器参数编译
-    失败，重则每单积分双扣，必须回退到只剩一份；不管走的是本卡还是 B04/ORD-B8，终态都是这 4 处）。
+    失败，重则每单积分双扣，必须回退到只剩一份；不管走的是本卡还是 B04/ORD-B8，终态都是这 4 处。注意：数的是**代码位点**——
+    Step 7 附近还有 1 行注释提及 `loyaltyCommandService.redeemPoints()`，`grep` 原始输出会是
+    5 行，注释行不计、也不用删；本批随后的 LOY-12 会给调用行追加第 4 个实参 `orderId`，
+    同样不改变以上位点数）。
 - **勿犯**:
   1. **先查重复**：本卡改的 `OrderService.createOrder` 是 order 模块核心方法，README.md 的批
      次表把"积分抵扣"接线也列进了 B04/`order.md §B`（order-pricing）批次——如果 `order.md` 里
@@ -776,3 +786,463 @@
     `earnPoints` 应以 `50` 被调用。
   - `ReviewApprovedEventListener.java` 里 `REVIEW_REWARD_POINTS` 常量声明保留1处，方法体内不
     应再直接引用该常量（应引用局部变量 `rewardPoints`）。
+
+---
+
+### LOY-12 | 订单取消后从不退还已抵扣积分——扣减侧（LOY-10/ORD-B8）的逆操作全缺（跨模块整卡）
+
+- 风险: high · 置信度: definite （来源：Wave-2 契约复核·取消资源对称性专项）
+- **执行时机（先读这条再动手）**: 本卡是 `order.md` 末尾指针卡 **ORD-A22** 的实体。改动文件跨
+  order/loyalty 两模块，但**整卡必须随本批（B15）一次性落地**：order 侧接线引用的
+  `refundPointsForOrder` 由本卡第 3~4 步现场新增，早于 B15 单独应用 order 侧改动必编译失败。
+  本卡也是本文件内**必须排在 LOY-10 之后执行**的卡（第 5 步要改 LOY-10/ORD-B8 接的那行调用）。
+- **文件**（7 个生产 + 3 个测试）:
+  1. `code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/entity/PointsTransactionType.java`
+  2. `code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/repository/PointsTransactionRepository.java`
+  3. `code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/query/LoyaltyCommandService.java`
+  4. `code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/service/LoyaltyPointService.java`
+  5. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java`（1 行实参）
+  6. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java`
+  7. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderTimeoutService.java`
+  8. （同步测试）`LoyaltyPointServiceTest.java`、`OrderCancelServiceTest.java`、`OrderTimeoutServiceTest.java`
+- **现状**: B04/ORD-B8（或本批 LOY-10）之后，创建订单 Step 10b 已真正调用
+  `loyaltyCommandService.redeemPoints(userId, redeemedPoints, prePointsAmount)` 把抵扣积分从用户
+  账户扣掉——**扣减发生在下单流程里，而不是支付后**。但四条真正到达 CANCELLED 的取消路径
+  （用户取消 CREATED/PAYING、商家审核通过、超时自动取消）无一退还这笔积分：loyalty 全模块没有任何
+  refund 方法，`PointsTransactionType` 只有 EARN/REDEEM/EXPIRE/ADJUST，也没有任何
+  `OrderCancelledEvent` 监听器补偿。更糟的是 `redeemPoints` 写 REDEEM 流水时 `bizId` 恒为
+  null（不记 orderId），loyalty 侧**无从按订单回冲**。结果：用户下单抵扣积分后取消/超时弃单，
+  钱没花出去，积分永久蒸发——与 B05 已修复的"券/秒杀名额单向棘轮"（PROMO-14/15/ORD-A17/A21）
+  完全同型的资损缺陷，且不可自愈。
+- **期望**: 每条到达 CANCELLED 的路径都退还该订单**实际扣减**的积分。依据: design-docs/08 §6
+  （取消规则表——取消必须归还订单占用的资源；设计文档没有逐字"退积分"条款，一致性原则依据与
+  PROMO-14「期望」的论证完全同构：积分与券/库存同是订单消费的用户资产）+ 08 §3 步骤7/12 §3
+  （被回冲的正是这套抵扣规则扣掉的积分）+ design-docs/03（后置动作失败不得回滚主流程）。
+  实现要求：**幂等**（按 orderId 查 REDEEM 流水回冲、以 REFUND 流水做重入挡板，重复调用无副作用）、
+  **账本权威**（退多少由 loyalty 自己的流水说了算，不信调用方报数）、**永不抛错**（order 侧在取消
+  事务里 best-effort 调用，机理同 PROMO-14「勿犯」的事务毒化警告）。
+- **改法**（loyalty 侧 1~4，order 侧 5~7，测试 8；顺序执行）:
+  1. **`PointsTransactionType.java`**——`REDEEM` 与 `EXPIRE` 之间插入新枚举值（存库为字符串，
+     无迁移问题）：
+     ```java
+     /** Points given back when an order that had redeemed them is cancelled. */
+     REFUND,
+     ```
+  2. **`PointsTransactionRepository.java`**——末尾追加两个派生查询：
+     ```java
+     /**
+      * Find the transactions of a given type recorded against a business id.
+      * For REDEEM rows, {@code bizId} is the id of the order that consumed the
+      * points — used to reverse that deduction when the order is cancelled.
+      *
+      * @param type  the transaction type
+      * @param bizId the business entity id the transaction references
+      * @return the matching transactions (empty if none)
+      */
+     List<PointsTransaction> findByTypeAndBizId(PointsTransactionType type, String bizId);
+
+     /**
+      * Whether a transaction of the given type already references this
+      * business id. Idempotency guard for order-cancel refunds: a REFUND row
+      * with the order's id means that order's deduction was already given back.
+      *
+      * @param type  the transaction type
+      * @param bizId the business entity id the transaction references
+      * @return {@code true} if such a transaction exists
+      */
+     boolean existsByTypeAndBizId(PointsTransactionType type, String bizId);
+     ```
+  3. **`LoyaltyCommandService.java`**——`redeemPoints` 追加第 4 个参数 `Long orderId`（javadoc 的
+     `@param orderId` 写明"记在 REDEEM 流水上，取消时按它回冲"），并新增：
+     ```java
+     /**
+      * Give back the points a cancelled order had redeemed at creation time.
+      *
+      * <p>Looks up the REDEEM transaction(s) recorded against {@code orderId}
+      * and reverses them: the available/total balances are restored and a
+      * REFUND transaction is written. Idempotent — an order whose deduction
+      * was already given back, or that never redeemed any points, is a no-op
+      * returning 0. Never throws in normal operation: the order module calls
+      * this best-effort on its cancellation paths and a refund failure must
+      * not block the cancellation itself.
+      *
+      * @param orderId the cancelled order's id
+      * @return the number of points given back (0 if nothing to refund)
+      */
+     int refundPointsForOrder(Long orderId);
+     ```
+  4. **`LoyaltyPointService.java`**——加 `import java.util.List;`；`redeemPoints` 签名同步加
+     `Long orderId`，写流水处在 `tx.setBizType("ORDER_REDEEM");` 之后插入：
+     ```java
+     // Record which order consumed the points, so refundPointsForOrder can
+     // reverse exactly this deduction if that order is cancelled.
+     tx.setBizId(orderId != null ? String.valueOf(orderId) : null);
+     ```
+     （尾部 `log.info` 建议一并带上 orderId。）然后在 `redeemPoints` 之后新增实现：
+     ```java
+     /**
+      * {@inheritDoc}
+      *
+      * <p>The refund is derived from the loyalty ledger itself — the REDEEM
+      * rows {@link #redeemPoints} recorded with the order's id as
+      * {@code bizId} — never from a caller-supplied amount, so it always gives
+      * back exactly what was actually deducted. Like the promotion-side
+      * {@code releaseForOrder} methods, the body deliberately never throws in
+      * normal operation ("no deduction for this order" is a legal empty
+      * result): the order module invokes it inside its cancellation
+      * transaction, and a refund failure must never block the cancellation.
+      */
+     @Override
+     @Transactional
+     public int refundPointsForOrder(Long orderId) {
+         if (orderId == null) {
+             return 0;
+         }
+         String bizId = String.valueOf(orderId);
+
+         // Idempotency guard: this order's deduction was already given back.
+         if (transactionRepository.existsByTypeAndBizId(PointsTransactionType.REFUND, bizId)) {
+             return 0;
+         }
+
+         List<PointsTransaction> redeems =
+                 transactionRepository.findByTypeAndBizId(PointsTransactionType.REDEEM, bizId);
+         int points = redeems.stream().mapToInt(tx -> -tx.getAmount()).sum();
+         if (points <= 0) {
+             // The order never redeemed any points — a perfectly normal no-op.
+             return 0;
+         }
+
+         Long userId = redeems.get(0).getUserId();
+         LoyaltyAccount account = getAccount(userId);
+         account.setAvailablePoints(account.getAvailablePoints() + points);
+         account.setRedeemedPoints(Math.max(0, account.getRedeemedPoints() - points));
+         account.setTotalPoints(account.getTotalPoints() + points);
+         accountRepository.save(account);
+
+         PointsTransaction tx = new PointsTransaction();
+         tx.setUserId(userId);
+         tx.setType(PointsTransactionType.REFUND);
+         tx.setAmount(points);
+         tx.setBalance(account.getAvailablePoints());
+         tx.setBizType("ORDER_CANCEL_REFUND");
+         tx.setBizId(bizId);
+         tx.setDescription("Points refunded for cancelled order " + orderId);
+         tx.setExpiresAt(null);
+         transactionRepository.save(tx);
+
+         log.info("Refunded {} redeemed points to userId={} for cancelled order {}, balance={}",
+                 points, userId, orderId, account.getAvailablePoints());
+         return points;
+     }
+     ```
+  5. **`OrderService.java`**——Step 10b 的调用行追加实参（LOY-10/ORD-B8 若因故未接线，先按
+     LOY-10 改法把 3 实参版本接好再改本步）：
+     ```java
+     loyaltyCommandService.redeemPoints(userId, redeemedPoints, prePointsAmount, orderId);
+     ```
+  6. **`OrderCancelService.java`**——加 `import com.ecommerce.loyalty.query.LoyaltyCommandService;`
+     （order 模块 pom 已依赖 ecommerce-loyalty，不用动 pom）；字段区加
+     `private final LoyaltyCommandService loyaltyCommandService;`，构造函数参数列表末尾**增量追加**
+     同名参数并赋值。类末尾（`releasePromotions` 之后）新增：
+     ```java
+     /**
+      * Give back the loyalty points a cancelled order had redeemed at creation
+      * time (mirrors the consumption side, {@code OrderService} Step 10b).
+      * Same best-effort contract as {@link #releasePromotions}: the refund is
+      * idempotent on the loyalty side and a failure is logged and swallowed —
+      * it must never block the cancellation itself. Only invoked on paths that
+      * actually reach CANCELLED — a PAID order entering CANCEL_REVIEWING keeps
+      * its points deduction until the review is approved.
+      */
+     private void refundLoyaltyPoints(Long orderId) {
+         try {
+             loyaltyCommandService.refundPointsForOrder(orderId);
+         } catch (Exception e) {
+             log.warn("Failed to refund redeemed points for cancelled order {}: {}",
+                     orderId, e.getMessage());
+         }
+     }
+     ```
+     三个调用点，每处紧跟既有的 `releasePromotions(...)` 调用之后（若 B05 被跳过导致
+     `releasePromotions` 不存在，锚点改为"库存释放 try/catch 之后、`recordEvent` 之前"）：
+     - `cancelCreatedOrder(...)`：
+       ```java
+       // Give back the loyalty points redeemed by this order
+       refundLoyaltyPoints(order.getId());
+       ```
+     - `cancelPayingOrder(...)`：同上两行（`order.getId()`）；
+     - `reviewCancel(...)` 的 `approved` 分支：同上两行但实参为 `orderId`。
+     `requestPaidOrderCancelReview` 与 `reviewCancel` 驳回分支**不加**（ORD-A17 同款边界）。
+  7. **`OrderTimeoutService.java`**——加同一 import；字段/构造参数**增量追加**
+     `LoyaltyCommandService loyaltyCommandService`；`cancelExpiredOrder(...)` 里紧跟
+     `releasePromotions(order.getId());`（ORD-A21 所加；若不存在，锚点为库存释放之后）插入：
+     ```java
+     // Give back the loyalty points redeemed by this order
+     refundLoyaltyPoints(order.getId());
+     ```
+     类末尾（`releasePromotions` helper 之后）新增：
+     ```java
+     /**
+      * Give back the loyalty points an expired order had redeemed at creation
+      * time. Same best-effort contract as {@link #releasePromotions}: the
+      * refund is idempotent on the loyalty side and a failure is logged and
+      * swallowed — it must never block the timeout cancellation itself.
+      */
+     private void refundLoyaltyPoints(Long orderId) {
+         try {
+             loyaltyCommandService.refundPointsForOrder(orderId);
+         } catch (Exception e) {
+             log.warn("Failed to refund redeemed points for expired order {}: {}",
+                     orderId, e.getMessage());
+         }
+     }
+     ```
+  8. **测试同步（三个文件都要，漏一个则 `install` 的 test-compile 阶段就失败）**:
+     - **`LoyaltyPointServiceTest.java`**：`import static org.mockito.Mockito.never;`；两处
+       `service.redeemPoints(1L, ..., BigDecimal.valueOf(100))` 调用追加第 4 实参 `900L`；
+       `testRedeemPoints_withinLimits_deductsPoints` 的流水断言组末尾加
+       ```java
+       assertEquals("900", tx.getBizId(),
+               "REDEEM transaction should record the consuming order's id for cancel refunds");
+       ```
+       再新增三个用例（放在 redeemPoints 区块之后）：回冲恢复余额并写 REFUND 流水
+       （`existsByTypeAndBizId(REFUND,"900")` 桩 false、`findByTypeAndBizId(REDEEM,"900")` 桩一条
+       `amount=-2000` 的流水 → `refundPointsForOrder(900L)` 返回 2000，账户
+       available/total +2000、redeemedPoints 归 0，保存的流水 type=REFUND、amount=2000、
+       bizType="ORDER_CANCEL_REFUND"、bizId="900"）；重入 no-op（exists 桩 true → 返回 0 且
+       零 save）；无抵扣订单 no-op（exists false + find 空列表 → 返回 0 且零 save，**不抛错**）。
+     - **`OrderCancelServiceTest.java`**：加 import 与 `@Mock private LoyaltyCommandService
+       loyaltyCommandService;`；既有用例逐处补断言——CREATED 取消用例加
+       `verify(loyaltyCommandService).refundPointsForOrder(1L);`、PAYING 用例加 `(5L)`、
+       `testReviewCancel_approve` 加 `(10L)`、券释放失败用例加 `(1L)`（前一段失败不影响退积分）、
+       `testCancel_paidOrder_movesToCancelReviewing` 加
+       `verify(loyaltyCommandService, never()).refundPointsForOrder(anyLong());`（审核前不退）。
+     - **`OrderTimeoutServiceTest.java`**：加 import 与 `@Mock private LoyaltyCommandService
+       loyaltyCommandService;`；把 ORD-A21 加的两个用例扩成终态——
+       ```java
+       @Test
+       @DisplayName("timeout gives back coupons, seckill allocation and redeemed points")
+       void testCancelExpiredOrder_releasesPromotionsAndRefundsPoints() {
+           orderTimeoutService.cancelExpiredOrder(expiredOrder);
+
+           verify(couponService).releaseForOrder(1L);
+           verify(seckillService).releaseForOrder(1L);
+           verify(loyaltyCommandService).refundPointsForOrder(1L);
+       }
+
+       @Test
+       @DisplayName("timeout release/refund failures are swallowed and never block the cancellation")
+       void testCancelExpiredOrder_releaseFailureDoesNotBlockCancel() {
+           doThrow(new RuntimeException("release boom")).when(couponService).releaseForOrder(1L);
+           doThrow(new RuntimeException("refund boom")).when(loyaltyCommandService).refundPointsForOrder(1L);
+
+           orderTimeoutService.cancelExpiredOrder(expiredOrder);
+
+           // The cancellation still completes: order flipped, seckill half still
+           // released, event recorded and published despite both failures.
+           assertThat(expiredOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+           verify(seckillService).releaseForOrder(1L);
+           verify(orderService).recordEvent(eq(1L), eq(OrderStatus.CREATED), eq(OrderStatus.CANCELLED),
+                   eq("TIMEOUT_CANCEL"), eq("SYSTEM"), anyString());
+           verify(eventPublisher).publish(any(com.ecommerce.order.event.OrderCancelledEvent.class));
+       }
+       ```
+- **验收**:
+  - 单测：三个测试文件全绿，覆盖"回冲恢复余额、REFUND 流水字段、重入 no-op、无抵扣 no-op、
+    四条取消路径都退、CANCEL_REVIEWING 阶段不退、退还失败不阻断取消"。
+  - 端到端：用户有 5000 积分，下单抵扣 2000（available 变 3000）→ 取消该订单 →
+    `GET /api/v1/loyalty/points` 的 `availablePoints` 回到 5000；再对同一订单重复触发取消相关
+    动作，余额仍是 5000（不重复退）；`GET /api/v1/loyalty/points/history` 出现一条
+    type=REFUND、amount=+2000 的流水。未用积分的订单取消后余额不变。
+  - `grep -n "refundPointsForOrder"`：`LoyaltyCommandService.java`/`LoyaltyPointService.java`/
+    `OrderCancelService.java`/`OrderTimeoutService.java` 均命中；`OrderService.java` 的
+    `redeemPoints` 调用为 4 实参（`loyaltyCommandService` 的**代码位点**仍是 LOY-10 验收的那
+    4 处——调用行只是加实参不加行，注释行照旧不计）。
+  - 公开 24 例回归全绿。
+- **勿犯**: ①`refundPointsForOrder` 方法体**永不抛错**（"没有这个订单的抵扣流水"是合法空结果，
+  没有任何 `orElseThrow`）——order 侧虽有 try/catch，但它是 `@Transactional` 代理 bean，抛
+  RuntimeException 会把共享事务标记 rollback-only，取消请求提交时 500（机理同 PROMO-14「勿犯」）。
+  ②退还数量只信 loyalty 自己的 REDEEM 流水（`-tx.getAmount()` 求和），**不要**改成读
+  `order.redeemedPoints` 传数——调用方报数一旦与账本漂移就会多退/少退。③幂等挡板必须查
+  REFUND+bizId，**不要**用"把 REDEEM 行删掉/置负"的方式实现回冲（审计流水只增不改）。
+  ④`requestPaidOrderCancelReview`（PAID→CANCEL_REVIEWING）与审核驳回分支绝不退积分——资源随
+  订单回到 PAID 原样保留（ORD-A17 同款边界）。⑤REFUND 流水 `expiresAt` 置 null 且**不要**把
+  REFUND 掺进 `PointsExpireService` 的 EARN 扫描——过期扫描按"池余额封顶"模型工作，退回的积分
+  自然受既有 EARN 批次的过期约束，不需要（也不能）新造一个可过期批次。⑥别忘三个测试文件的
+  `@Mock`——`@InjectMocks` 对缺失 mock 注入 null，helper 的 NPE 会被 try/catch 吞掉，用例
+  照绿但断言全空转。⑦头部红线依旧：不得借机接线 `OrderLifecycleService` 等死服务。
+
+---
+
+### LOY-13 | estimate-redeem 响应缺 `deductedAmount` 与 `redeemPoints`——冻结 fixture 容错读取的两个别名字段
+
+- 风险: low · 置信度: definite （来源：Wave-2 契约复核·冻结 fixture 反查）
+- **文件**:
+  1. `code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/dto/PointsEstimateResponse.java`
+  2. `code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/controller/LoyaltyController.java`
+- **现状**: 冻结的 `test-cases/.../LoyaltyFixture.parseRedeemEstimateResult` 从
+  `POST /api/v1/loyalty/points/estimate-redeem` 的响应里读三个字段：`redeemAmount`、
+  **`deductedAmount`**、`redeemPoints`，全部套 `data.has(...)` 容错守卫。响应 DTO
+  `PointsEstimateResponse` 只有 `maxRedeemablePoints`/`actualRedeemPoints`/`redeemAmount`/
+  `remainingPoints`——`deductedAmount` 与 `redeemPoints` 都缺失时 fixture 不报错，但解析结果里
+  它们恒为 `ZERO`/`0` 初值，任何基于"本次抵扣金额/实抵积分数"的隐藏断言必踩。
+- **期望**: 响应补两个别名字段（additive，不删不改既有字段）：`deductedAmount` = 本次估算的抵扣
+  金额，恒等于既有 `redeemAmount`（fixture 把两者当同一个量读，`BigDecimal` 同型同值）；
+  `redeemPoints` = 本次实抵积分数，恒等于既有 `actualRedeemPoints`（int 同型同值）。依据:
+  冻结 fixture 的读取契约 + design-docs/12 §3（抵扣金额 = 实际可用积分 / 兑换比例——`redeemAmount`
+  即该公式产物，LOY-4 已接 `pointsToAmount()`）。
+- **改法**:
+  1. **`PointsEstimateResponse.java`**——字段区末尾（`remainingPoints` 之后）加：
+     ```java
+     /**
+      * The amount this estimate would deduct from the order — always equal to
+      * {@link #redeemAmount}. The frozen black-box fixture reads the deduction
+      * under this field name, so it is exposed as an additive alias (existing
+      * fields are untouched) and must always be populated alongside
+      * {@code redeemAmount}, never left null.
+      */
+     private BigDecimal deductedAmount;
+
+     /**
+      * The number of points this estimate would actually redeem — always equal
+      * to {@link #actualRedeemPoints}. Same additive-alias rationale as
+      * {@link #deductedAmount}: the frozen black-box fixture reads the redeemed
+      * count under this field name.
+      */
+     private int redeemPoints;
+     ```
+     并在类末尾补标准 getter/setter（`getDeductedAmount`/`setDeductedAmount`、
+     `getRedeemPoints`/`setRedeemPoints`）。
+  2. **`LoyaltyController.java`**——`estimateRedeem(...)` 组装响应处，`setRedeemAmount` 之后加：
+     ```java
+     // Alias fields the frozen black-box fixture reads the deduction and the
+     // redeemed count under — same values as redeemAmount/actualRedeemPoints,
+     // never null.
+     resp.setDeductedAmount(redeemAmount);
+     resp.setRedeemPoints(actual);
+     ```
+- **验收**:
+  - `POST /api/v1/loyalty/points/estimate-redeem`（orderAmount=100、redeemPoints=2000、用户有
+    5000 积分）→ 响应同时含 `"redeemAmount":20.00`、`"deductedAmount":20.00`（两值恒等）与
+    `"redeemPoints":2000`（= `actualRedeemPoints`）；`actualRedeemPoints=0` 的边界（如请求
+    redeemPoints=0）下金额两者同为 `0`（非 null）、`redeemPoints` 为 `0`。
+  - 既有字段名/类型/值全部不变；公开 24 例回归全绿。
+  - `grep -qF "private int redeemPoints;" code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/dto/PointsEstimateResponse.java`
+    命中（artifacts.tsv B15 断言）。
+- **勿犯**: `deductedAmount` **必须恒非空**——Jackson 会把 null 序列化成 JSON null，而 fixture 的
+  `has("deductedAmount")` 对显式 null 节点返回 true，随后 `new BigDecimal(asText())` 直接抛
+  NumberFormatException，比"缺字段"更糟。两个别名都别算成别的口径（`deductedAmount` 就是
+  `redeemAmount` 的别名、`redeemPoints` 就是 `actualRedeemPoints` 的别名——注意响应别名
+  `redeemPoints` 与**请求** DTO `PointsEstimateRequest.redeemPoints`（用户想抵多少）不是一个量，
+  响应侧必须回显**实抵** `actual`，不要回显请求原值）。不要动 fixture 读取的第三个字段
+  `redeemAmount`——它本就存在。
+
+---
+
+### LOY-14 | member-level 响应缺 `pointsToNextLevel`——距下一等级积分数（12 §5 等级表推导）
+
+- 风险: low · 置信度: definite （来源：Wave-2 契约复核·冻结 fixture 反查）
+- **文件**:
+  1. `code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/dto/MemberLevelResponse.java`
+  2. `code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/service/MemberLevelService.java`
+  3. `code/ecommerce-loyalty/src/main/java/com/ecommerce/loyalty/controller/LoyaltyController.java`
+  4. （同步测试）`code/ecommerce-loyalty/src/test/java/com/ecommerce/loyalty/service/MemberLevelServiceTest.java`
+- **现状**: 冻结的 `LoyaltyFixture.parseMemberLevelResult` 从 `GET /api/v1/loyalty/member-level`
+  的响应里读 `level` 和 **`pointsToNextLevel`**（`asInt()`，`has()` 容错）。响应 DTO
+  `MemberLevelResponse` 只有 `level`/`levelName`/`multiplier`/`annualConsumption`/
+  `nextLevelCondition`——`pointsToNextLevel` 缺失，fixture 解析结果恒为 0 初值，隐藏断言必踩。
+- **期望**: 响应补 `pointsToNextLevel`（additive）。取值推导：design-docs/12 §5 等级表以**年消费
+  （元）**划档（SILVER 1,000 / GOLD 5,000 / PLATINUM 20,000），12 §2 赚取汇率为 1 积分/元——
+  所以"距下一等级还差的积分数"与"距下一档年消费的缺口（元）"是同一个数：
+  `下一档门槛 − annualConsumption`，向上取整、下限 0；PLATINUM 已是最高档，恒 0。
+- **改法**:
+  1. **`MemberLevelResponse.java`**——字段区末尾加（javadoc 写明推导依据，getter/setter 标准补齐）：
+     ```java
+     /**
+      * How far this account still is from the next membership tier, expressed
+      * in points. design-docs/12 §5 sets the tier thresholds in annual
+      * consumption yuan and §2 sets the earn rate at 1 point per yuan, so the
+      * remaining-consumption gap and the remaining-points gap are the same
+      * number: {@code nextTierThreshold - annualConsumption}, floored at 0.
+      * 0 for PLATINUM (already the highest tier). Read by the frozen
+      * black-box fixture under exactly this field name (additive — existing
+      * fields are untouched).
+      */
+     private int pointsToNextLevel;
+     ```
+  2. **`MemberLevelService.java`**——加 `import java.math.RoundingMode;`，`getOrCreateAccount`
+     之前新增 public 方法（**复用类里已有的三个 `*_THRESHOLD` 常量**，别再写字面量）：
+     ```java
+     /**
+      * How many more points the account needs to reach the next membership
+      * tier.
+      *
+      * <p>design-docs/12 §5 defines the tiers by annual consumption
+      * (SILVER 1,000 / GOLD 5,000 / PLATINUM 20,000 yuan) and §2 defines the
+      * earn rate as 1 point per yuan of paid amount, so the remaining
+      * consumption gap and the remaining points gap are the same number:
+      * {@code nextTierThreshold - annualConsumption}, rounded up to a whole
+      * point and floored at 0. PLATINUM is the highest tier, so its gap is 0.
+      *
+      * @param level             the account's current member level
+      * @param annualConsumption the account's running annual consumption
+      *                          ({@code null} is treated as 0)
+      * @return the points still needed for the next tier (0 at the top tier)
+      */
+     public int pointsToNextLevel(MemberLevel level, BigDecimal annualConsumption) {
+         BigDecimal nextThreshold;
+         switch (level) {
+             case NORMAL:
+                 nextThreshold = SILVER_THRESHOLD;
+                 break;
+             case SILVER:
+                 nextThreshold = GOLD_THRESHOLD;
+                 break;
+             case GOLD:
+                 nextThreshold = PLATINUM_THRESHOLD;
+                 break;
+             default:
+                 // PLATINUM — already at the highest tier.
+                 return 0;
+         }
+         BigDecimal consumed = annualConsumption != null ? annualConsumption : BigDecimal.ZERO;
+         BigDecimal gap = nextThreshold.subtract(consumed);
+         if (gap.compareTo(BigDecimal.ZERO) <= 0) {
+             return 0;
+         }
+         return gap.setScale(0, RoundingMode.CEILING).intValue();
+     }
+     ```
+  3. **`LoyaltyController.java`**——`getMemberLevel()` 组装响应处，`setNextLevelCondition` 之后加：
+     ```java
+     resp.setPointsToNextLevel(
+             memberLevelService.pointsToNextLevel(level, account.getAnnualConsumption()));
+     ```
+  4. **`MemberLevelServiceTest.java`**——`createAccount` 帮助方法之前追加一组用例：
+     NORMAL+0 → 1000；SILVER+1200 → 3800；GOLD+6000 → 14000；PLATINUM+50000 → 0；
+     NORMAL+1200 → 0（不为负）；NORMAL+999.50 → 1（CEILING 取整）；NORMAL+null → 1000。
+- **验收**:
+  - 新注册用户（零消费、NORMAL）`GET /api/v1/loyalty/member-level` → `"pointsToNextLevel":1000`；
+    年消费 1200 的 SILVER 用户 → `3800`；PLATINUM → `0`。字段恒存在（int 原生类型不可能为 null）。
+  - 既有字段全部不变；`MemberLevelServiceTest` 全绿；公开 24 例回归全绿。
+- **勿犯**: 阈值**必须**复用 `MemberLevelService` 的三个常量，别在新方法里再写 `1000/5000/20000`
+  字面量（一处改配四处漂）。别发明别的口径（比如按 `totalPoints`/`availablePoints` 距离算）——
+  等级由**年消费**驱动（12 §5），积分余额与等级无关；换算成"积分数"只因 12 §2 的 1 积分/元汇率，
+  这也是唯一有文档依据的整数化路径。取整用 CEILING（"还差多少"语义：差 0.5 元也得再花 1 元），
+  已达标或超出一律 0，绝不能出负数。
+
+---
+
+## 附注 · 决策留档（W15-C，第十五轮；只作裁决记录，不改上文任何卡片）
+
+1. **积分取整用 `RoundingMode.DOWN` —— 裁决：维持，不改**。质疑点是 03 §1 规定舍入 `HALF_UP`，
+   而积分计算用 DOWN（`LoyaltyPointService.java:86`、`:238`）。裁决理由：03 §1 通篇只约束**金额**
+   （"所有金额使用 BigDecimal…金额计算统一规则"，表内场景均为金额/税额/优惠额），**不约束积分这种
+   整数计数**；12 §2 的积分公式（`订单积分 = 实付金额 × 等级倍率 × 活动系数`）未规定取整方向，
+   向下取整（不奖励未满 1 分的零头）是唯一不多发积分的保守语义，且现状已被黑盒绿灯锚定。注意
+   `LoyaltyPointService.java:310` 积分→抵扣金额换算保留 2 位小数用的是 `HALF_UP`——那是金额输出，
+   恰好落在 03 §1 的约束面内，两者并不矛盾。**不要**有人再把 `:86/:238` 的 DOWN"统一"成 HALF_UP。
+2. **`frozenPoints` ≡ 0 —— 裁决：正式接受，结案**。全套文档只定义了列、没有任何冻结触发场景，
+   期望行为文档不可推导；决议全文与依据见 `findings.md` 文末《W15-C 增补》§3。checklist/loyalty.md
+   对应 suspicious 条目已同步标注，不再悬置。

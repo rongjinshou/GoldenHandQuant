@@ -5,6 +5,11 @@
 以及第二轮深审（§7）里 3 项库存相关发现（#21 错误码、#22 仓库排序、#28 release() 遗漏 DEDUCTED 分支）。
 #21 的修复面跨到 `ecommerce-cart`（`CartValidationService`），本文件一并列出。
 
+**round-15 修订（2026-07-15）**：INV-6 当年自标 `suspicious` 的"自造默认预警阈值"部分已整体撤销
+（附录B 无 `inventory.warning-threshold-default` 键、冻结契约无写入途径、同事测试实测打穿），
+现行实现为"入库新建行阈值保持 0，无规则 → 空列表"；卡片总数不变，INV-6 内容已按现行实现修订，
+详见该卡卡首修订块。`artifacts.tsv` B09 三条断言与此撤销无关，未动。
+
 **依赖顺序**：INV-5（并发控制）建立在 INV-1（守恒修复）改完之后的代码之上，**必须**在 INV-1 之后执行；
 其余 7 张卡互不依赖，理论上可任意顺序，但建议按下面的编号顺序（贴合 findings.md 原表顺序 + 深审顺序）
 逐张执行，每 2~3 卡编译自检一次。
@@ -504,9 +509,25 @@
 
 ---
 
-### INV-6 | 低库存预警端点在冻结契约内不可达（findings §6.7 #7）
+### INV-6 | 低库存预警端点在冻结契约内不可达（findings §6.7 #7）——round-15 修订：自造默认阈值已撤销
 
-- 风险: high（实体新增字段 + 2 个 service 类改写） · 置信度: suspicious
+- 风险: high（实体新增字段 + 2 个 service 类改写） · 置信度: 修订后 definite（原 suspicious 部分已整体撤销）
+- **修订（2026-07-15 · round-15 项4，已实施）**: 本卡当年自标 `suspicious` 的那部分——自造运行时配置键
+  `inventory.warning-threshold-default`、默认阈值常量 `DEFAULT_WARNING_THRESHOLD = 10`、以及 `inbound()`
+  给**新建**库存行自动设置该阈值——**已整体撤销删除**。理由：
+  1. `design-docs/附录B` 配置表中**不存在**该键。键名与数值 10 都是本卡当年自定的发明，冻结文档任何
+     位置都没有登记；`RuntimeConfigRegistry` 的文档默认表也从未收录它。
+  2. 冻结契约内**没有任何写入 `inventory_stock.warning_threshold` 列的途径**——README §6.3 的 7 个库存
+     端点没有一个接受该字段（`POST .../warnings/rule` 是非冻结端点、写的也是 `stock_warning_rule` 表）。
+     "入库后自动出现阈值 10"因此是文档从未承诺过的行为。
+  3. 同事测试实测打穿：自造默认使 `GET /api/v1/admin/inventory/warnings` 报出**没有任何人配置过**的
+     预警行（任何入库量 ≤10 的新行立即上榜），与"无规则 → 空列表"的契约读法直接冲突。
+  撤销后行为：`inbound()` 新建行保持表结构默认 `warning_threshold = 0`；`StockWarningService.getWarnings()`
+  的列基分支（`stock.getWarningThreshold() > 0` 守卫）**保留原样、自然休眠**——实体列映射（改法第 1 步，
+  附录C 有此列，保留）与双来源合并+去重逻辑（改法第 3 步，保留）仍是本卡已落地的正确部分，仅改法第 2 步
+  被撤销。无规则、无列值时端点正确返回空列表。同步：`InventoryServiceTest` 原"入库默认阈值=10"用例改为
+  断言"新建行 warningThreshold 保持 0"；`artifacts.tsv` 经查无引用该键/阈值的断言（B09 三条锚点均与
+  本撤销无关），无需删改。
 - **文件**:
   1. `code/ecommerce-inventory/src/main/java/com/ecommerce/inventory/entity/InventoryStock.java`
   2. `code/ecommerce-inventory/src/main/java/com/ecommerce/inventory/service/InventoryService.java`
@@ -523,8 +544,9 @@
 - **期望**: `GET /api/v1/admin/inventory/warnings` 仅凭冻结契约内的端点（入库 + 查预警）就能返回有意义
   的结果，不依赖非冻结的 `warnings/rule` 端点。依据: `design-docs/附录C-数据模型.md`
   （`inventory_stock.warning_threshold` 列已定义）、`README.md` §6.3（冻结端点列表不含 `warnings/rule`）。
-  **本卡置信度为 `suspicious`**——默认阈值数值（10）与其运行时配置 key 名（`inventory.warning-threshold-default`）
-  是本卡自定的合理实现，design-docs 未指定具体默认值。
+  ~~本卡置信度为 `suspicious`——默认阈值数值（10）与其运行时配置 key 名（`inventory.warning-threshold-default`）
+  是本卡自定的合理实现，design-docs 未指定具体默认值。~~ **（round-15 修订：这段自我辩护不成立，
+  自造键+默认值已撤销，见卡首修订块。）**
 - **改法**:
   1. **`InventoryStock.java`** 加字段（若 INV-5 已执行，`@Version` 字段已存在，本卡字段加在其前后均可，
      两卡不冲突）：
@@ -540,7 +562,8 @@
              this.warningThreshold = warningThreshold;
          }
      ```
-  2. **`InventoryService.java`**——加 import：
+  2. **【已撤销（round-15 项4）——本步不要执行，以下保留仅作历史记录；现行实现是新建行保持
+     warningThreshold=0，见卡首修订块】** `InventoryService.java`——加 import：
      ```java
      import com.ecommerce.common.test.RuntimeConfigRegistry;
      ```
@@ -621,16 +644,16 @@
   1. **`addWarning` 用 `(warehouseId, skuId)` 组合 key 去重，两个来源命中同一行时只能进最终列表一次。**
      不去重的话，某个仓库同一 SKU 既配了 `StockWarningRule` 又踩到自己的 `warningThreshold`，会在返回
      列表里出现两条内容几乎一样的记录，任何断言"预警数量"的用例都会被这多出来的一条弄挂。
-  2. **只对 `inbound()` 新建库存行设默认阈值**，不要在 `outbound`/`StockAdjustmentService.create`/
-     `reserve`/`release`/`deductAfterPayment` 这些不创建新 `InventoryStock` 行的地方碰这个字段——它们
-     操作的都是已存在的行。
-  3. **`RuntimeConfigRegistry.getInt` 的 key 字符串只是本卡自定的名字，design-docs/附录B 并未登记这个
-     配置项**——这是本卡在 `suspicious` 置信度下为了让默认阈值可测试/可运行时覆盖而自行引入的实现细节，
-     只要 `getWarnings()` 端到端可达即达成目标，不用去附录B 里对照这个 key 名。
-- **验收**: `POST /api/v1/admin/inventory/inbound`（新 SKU/仓库组合，不先调 `warnings/rule`）入库数量
-  低于默认阈值 10（如入库 5），紧接着 `GET /api/v1/admin/inventory/warnings` 应包含这条记录（改前必为
-  空列表，因为 `stock_warning_rule` 表从未被冻结契约内的调用填充过）。已有的"先设 rule 再查 warnings"
-  路径行为不变（`StockWarningServiceTest` 里基于 rule 的既有用例应继续通过）。
+  2. ~~只对 `inbound()` 新建库存行设默认阈值~~ **（round-15 修订：整个"设默认阈值"动作已撤销，
+     `inbound()` 任何分支都不再写 `warningThreshold`；本条历史提醒随之作废。）**
+  3. **（round-15 反转为反面教材）** 原文声称"key 字符串只是本卡自定的名字……不用去附录B 里对照"——
+     这正是本卡被打穿的根因：**附录B 没登记的配置键不许发明，冻结契约没提供写入途径的行为不许自动附赠。**
+     修复方向永远是"实现向文档收敛"，而不是"给文档没写的行为补一个可配置开关"。
+- **验收（round-15 修订后）**: 全新环境（无 rule、无列值）下 `POST /api/v1/admin/inventory/inbound`
+  任意数量（含 <10 的小额入库）后，`GET /api/v1/admin/inventory/warnings` 返回**空列表**（无规则 → 空，
+  不再有自造默认阈值造出的幽灵预警）。仍可用的两条预警路径行为不变：①非冻结 `warnings/rule` 端点设
+  rule 后命中 rule 分支；②数据直接把 `inventory_stock.warning_threshold` 设为 >0 时命中列基分支
+  （`StockWarningServiceTest` 既有用例 + `InventoryServiceTest` 新断言"新建行阈值保持 0"均通过）。
 
 ---
 

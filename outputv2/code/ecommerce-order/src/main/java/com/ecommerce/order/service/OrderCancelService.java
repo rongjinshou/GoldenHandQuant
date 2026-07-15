@@ -4,6 +4,7 @@ import com.ecommerce.common.event.DomainEventPublisher;
 import com.ecommerce.common.exception.BusinessException;
 import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.inventory.query.InventoryReservationService;
 import com.ecommerce.loyalty.query.LoyaltyCommandService;
 import com.ecommerce.order.dto.CancelOrderResponse;
@@ -17,8 +18,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
 
 /**
  * Handles order cancellation with different logic per order status.
@@ -125,7 +124,7 @@ public class OrderCancelService {
 
         order.setStatus(OrderStatus.CANCELLED);
         order.setCancelReason(reason);
-        order.setCancelledAt(LocalDateTime.now());
+        order.setCancelledAt(SystemClockService.now());
         orderRepository.save(order);
 
         // Release reserved inventory
@@ -164,7 +163,7 @@ public class OrderCancelService {
 
         order.setStatus(OrderStatus.CANCELLED);
         order.setCancelReason(reason);
-        order.setCancelledAt(LocalDateTime.now());
+        order.setCancelledAt(SystemClockService.now());
         orderRepository.save(order);
 
         // Give back coupons and seckill allocation consumed by this order
@@ -234,7 +233,7 @@ public class OrderCancelService {
             stateMachine.validateTransition(fromStatus, OrderStatus.CANCELLED);
             order.setStatus(OrderStatus.CANCELLED);
             order.setCancelReviewerId(reviewerId);
-            order.setCancelledAt(LocalDateTime.now());
+            order.setCancelledAt(SystemClockService.now());
             orderRepository.save(order);
 
             // Release inventory if still reserved

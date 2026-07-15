@@ -38,9 +38,9 @@ import static org.mockito.Mockito.when;
  * Tests for {@link RefundService}.
  *
  * <p>Per design-docs/09 §4, merchant approval must NOT complete a refund
- * directly — the flow is:
- * PENDING_REVIEW -> (approve) -> WAITING_WAREHOUSE_ACCEPT -> (warehouse
- * accepts) -> WAREHOUSE_ACCEPTED -> COMPLETED. {@code processRefund()} only
+ * directly — the flow is (enum names per 附录C refunds.status):
+ * APPLIED -> (approve) -> REVIEWED -> (warehouse accepts) -> ACCEPTED
+ * -> REFUNDED. {@code processRefund()} only
  * ever runs from {@link RefundService#warehouseAccept(Long, Long)}.
  */
 @ExtendWith(MockitoExtension.class)
@@ -81,9 +81,9 @@ class RefundServiceTest {
     // ---- approveRefund_movesToWaitingWarehouseAccept_doesNotCompleteImmediately ----
 
     @Test
-    @DisplayName("reviewRefund(approved) moves to WAITING_WAREHOUSE_ACCEPT, does not complete immediately")
+    @DisplayName("reviewRefund(approved) moves to REVIEWED, does not complete immediately")
     void approveRefund_movesToWaitingWarehouseAccept_doesNotCompleteImmediately() {
-        // Given: a refund in PENDING_REVIEW
+        // Given: a refund in APPLIED
         RefundRecord refund = new RefundRecord();
         refund.setId(1L);
         refund.setRefundNo("RF001");
@@ -91,7 +91,7 @@ class RefundServiceTest {
         refund.setOrderId(10L);
         refund.setUserId(100L);
         refund.setRefundAmount(new BigDecimal("97.00"));
-        refund.setStatus(RefundStatus.PENDING_REVIEW);
+        refund.setStatus(RefundStatus.APPLIED);
         refund.setReason("Changed mind");
 
         PaymentRecord payment = new PaymentRecord();
@@ -109,15 +109,15 @@ class RefundServiceTest {
         // When: admin approves the refund
         RefundResponse response = refundService.reviewRefund(1L, 999L, reviewRequest);
 
-        // Then: status only reaches WAITING_WAREHOUSE_ACCEPT — merchant
+        // Then: status only reaches REVIEWED — merchant
         // approval must not complete the refund directly (design-docs/09 §4).
         // Note: approveRefund() must NOT reach processRefund()/payment lookup
         // at all — verified structurally by never stubbing
         // paymentRecordRepository here (strict stubs would fail this test
         // if approveRefund() started querying it again).
-        assertEquals(RefundStatus.WAITING_WAREHOUSE_ACCEPT, response.getStatus(),
+        assertEquals(RefundStatus.REVIEWED, response.getStatus(),
                 "reviewed refund status");
-        assertNotEquals(RefundStatus.COMPLETED, response.getStatus());
+        assertNotEquals(RefundStatus.REFUNDED, response.getStatus());
         assertNull(response.getCompletedAt());
         assertNotEquals(PaymentStatus.CLOSED, payment.getStatus(),
                 "payment must not be closed until warehouse acceptance completes the refund");
@@ -136,7 +136,7 @@ class RefundServiceTest {
         refund.setOrderId(10L);
         refund.setUserId(100L);
         refund.setRefundAmount(new BigDecimal("97.00"));
-        refund.setStatus(RefundStatus.WAITING_WAREHOUSE_ACCEPT);
+        refund.setStatus(RefundStatus.REVIEWED);
 
         PaymentRecord payment = new PaymentRecord();
         payment.setPaymentNo("PAY001");
@@ -153,8 +153,8 @@ class RefundServiceTest {
         // When: warehouse accepts the returned goods
         RefundResponse response = refundService.warehouseAccept(1L, 888L);
 
-        // Then: the refund is now COMPLETED and the payment is CLOSED
-        assertEquals(RefundStatus.COMPLETED, response.getStatus());
+        // Then: the refund is now REFUNDED and the payment is CLOSED
+        assertEquals(RefundStatus.REFUNDED, response.getStatus());
         assertNotNull(response.getCompletedAt());
         assertEquals(PaymentStatus.CLOSED, payment.getStatus());
     }
@@ -162,21 +162,21 @@ class RefundServiceTest {
     // ---- testWarehouseAccept_wrongStatus_throwsRefundStatusInvalid ----
 
     @Test
-    @DisplayName("warehouseAccept on a refund that isn't WAITING_WAREHOUSE_ACCEPT throws")
+    @DisplayName("warehouseAccept on a refund that isn't REVIEWED throws")
     void testWarehouseAccept_wrongStatus_throwsRefundStatusInvalid() {
-        // Given: warehouseAccept requires WAITING_WAREHOUSE_ACCEPT status
+        // Given: warehouseAccept requires REVIEWED status
         RefundRecord refund = new RefundRecord();
         refund.setId(2L);
         refund.setRefundNo("RF002");
         refund.setPaymentNo("PAY002");
         refund.setOrderId(20L);
         refund.setUserId(200L);
-        refund.setStatus(RefundStatus.COMPLETED); // already completed
+        refund.setStatus(RefundStatus.REFUNDED); // already refunded
 
         when(refundRecordRepository.findById(2L)).thenReturn(Optional.of(refund));
 
-        // When/Then: calling warehouseAccept on a COMPLETED refund throws
-        // because it requires WAITING_WAREHOUSE_ACCEPT status
+        // When/Then: calling warehouseAccept on a REFUNDED refund throws
+        // because it requires REVIEWED status
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> refundService.warehouseAccept(2L, 999L));
         assertEquals("REFUND_STATUS_INVALID", ex.getCode());
@@ -195,7 +195,7 @@ class RefundServiceTest {
         refund.setOrderId(30L);
         refund.setUserId(300L);
         refund.setRefundAmount(new BigDecimal("97.00"));
-        refund.setStatus(RefundStatus.WAITING_WAREHOUSE_ACCEPT);
+        refund.setStatus(RefundStatus.REVIEWED);
 
         when(refundRecordRepository.findById(3L)).thenReturn(Optional.of(refund));
         when(refundRecordRepository.save(any(RefundRecord.class)))
@@ -215,13 +215,13 @@ class RefundServiceTest {
         verify(notificationService, never()).send(any(NotificationRequest.class));
         // Audit trail records the true before/after states
         verify(auditLogService).record(eq("888"), eq("REFUND_WAREHOUSE_ACCEPT"),
-                eq("RF003"), eq("WAITING_WAREHOUSE_ACCEPT"), eq("REJECTED"), any());
+                eq("RF003"), eq("REVIEWED"), eq("REJECTED"), any());
     }
 
     // ---- warehouseReject_wrongStatus_throwsConflict ----
 
     @Test
-    @DisplayName("warehouseReject on a refund that isn't WAITING_WAREHOUSE_ACCEPT throws 409")
+    @DisplayName("warehouseReject on a refund that isn't REVIEWED throws 409")
     void warehouseReject_wrongStatus_throwsConflict() {
         // Given: a refund still pending merchant review
         RefundRecord refund = new RefundRecord();
@@ -230,7 +230,7 @@ class RefundServiceTest {
         refund.setPaymentNo("PAY004");
         refund.setOrderId(40L);
         refund.setUserId(400L);
-        refund.setStatus(RefundStatus.PENDING_REVIEW);
+        refund.setStatus(RefundStatus.APPLIED);
 
         when(refundRecordRepository.findById(4L)).thenReturn(Optional.of(refund));
 
@@ -238,7 +238,7 @@ class RefundServiceTest {
         ConflictException ex = assertThrows(ConflictException.class,
                 () -> refundService.warehouseReject(4L, 999L));
         assertEquals("REFUND_STATUS_INVALID", ex.getCode());
-        assertEquals(RefundStatus.PENDING_REVIEW, refund.getStatus());
+        assertEquals(RefundStatus.APPLIED, refund.getStatus());
     }
 
     // ---- applyRefund_duplicateRefundRequestNo_returnsExistingRecord_doesNotCreateSecond ----
@@ -291,7 +291,7 @@ class RefundServiceTest {
     // ---- testApplyRefund_createsRefundRecord ----
 
     @Test
-    @DisplayName("applyRefund creates a refund record in PENDING_REVIEW status")
+    @DisplayName("applyRefund creates a refund record in APPLIED status")
     void testApplyRefund_createsRefundRecord() {
         // Given: a successful payment exists
         PaymentRecord payment = new PaymentRecord();
@@ -317,7 +317,7 @@ class RefundServiceTest {
         assertEquals("PAY003", response.getPaymentNo());
         assertEquals(30L, response.getOrderId());
         assertEquals(100L, response.getUserId());
-        assertEquals(RefundStatus.PENDING_REVIEW, response.getStatus());
+        assertEquals(RefundStatus.APPLIED, response.getStatus());
         assertEquals("Defective item", response.getReason());
         assertNotNull(response.getRefundNo());
     }

@@ -1,5 +1,6 @@
 package com.ecommerce.user.service;
 
+import com.ecommerce.common.test.SystemClockService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -34,9 +36,11 @@ public class JwtTokenProvider {
 
     /**
      * Generates a JWT token containing userId and roles claims.
+     * iat/exp are taken from the test-support clock ({@link SystemClockService}),
+     * not the wall clock, so an admin-shifted system time is reflected in tokens.
      */
     public String generateToken(Long userId, List<String> roles) {
-        Date now = new Date();
+        Date now = clockNow();
         Date expiration = new Date(now.getTime() + expireMinutes * 60 * 1000);
 
         return Jwts.builder()
@@ -51,13 +55,25 @@ public class JwtTokenProvider {
 
     /**
      * Validates and parses a JWT token, returning the claims.
+     * The parser's expiry check runs off the same {@link SystemClockService}
+     * source as token issuance (jjwt 0.12 {@code JwtParserBuilder.clock}),
+     * keeping both sides of the JWT lifecycle on one coherent clock.
      */
     public Jws<Claims> validateToken(String token) {
         return Jwts.parser()
                 .verifyWith(secretKey)
                 .requireIssuer(issuer)
+                .clock(JwtTokenProvider::clockNow)
                 .build()
                 .parseSignedClaims(token);
+    }
+
+    /**
+     * Current instant per {@link SystemClockService}, converted to the legacy
+     * {@link Date} the jjwt API expects.
+     */
+    private static Date clockNow() {
+        return Date.from(SystemClockService.now().atZone(ZoneId.systemDefault()).toInstant());
     }
 
     /**

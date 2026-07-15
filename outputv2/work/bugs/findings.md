@@ -277,12 +277,20 @@
 | 27 | 积分抵扣只估算（`estimateRedeemPoints`）从未真正扣减（`redeemPoints` 命令全仓零调用，含未接线的死代码平行实现），同一批积分可在任意多笔订单重复"抵扣" | `OrderService.createOrder` | definite（独立判断：连从未接线的平行实现`OrderPricingService`/`LoyaltyIntegrationService`里也只做估算，说明"扣减"这一半功能从未被写过，不是接错线） | 附录A §6（`pointsDeductionAmount` 字段） | 订单持久化后调用 `loyaltyCommandService.redeemPoints`（与优惠券/秒杀"仅在持久化成功后消费"同一模式） |
 | 28 | `InventoryReservationService.release()` 只处理 `RESERVED` 状态预占；已支付订单（预占早已转为 `DEDUCTED`）走商家审核通过取消时，`release()` 找不到 `RESERVED` 记录、静默 no-op，`onHandStock` 永久性短少（货从未发出） | `InventoryReservationServiceImpl.release` | likely | 06§3（取消需释放库存）+ 08§6 | `release()` 增加对 `DEDUCTED` 记录的处理：归还 `onHandStock`，置 `RELEASED` |
 
-### 尽调后明确放弃（2 项，风险高于收益）
+### 尽调后明确放弃（1 项，风险高于收益；另 1 项已在 Wave-3 实证反转）
 
 | 项目 | 尽调结论 |
 |---|---|
-| `OrderLogisticsStatusUpdater` 生产实现（物流状态从未真正推进订单 PICKING/SHIPPED） | 冻结的 `test-cases/BlackboxHarnessConfig`（黑盒测试基类会 import）已注册一个**无限定符**的该接口 no-op bean。若在 `ecommerce-order` 生产代码新增真实实现（会被 `@ComponentScan` 扫到），会与该 no-op bean 类型冲突，在黑盒测试的 Spring 上下文启动时精确重演 BUG-INT-1（`NoUniqueBeanDefinitionException`）——不是"中风险"，是**必定复现 24 例全灭**。彻底放弃。 |
 | `@EnableMethodSecurity`（激活全仓库当前休眠的 `@PreAuthorize` 注解） | 逐条核对 README §6 全部 61 个端点，URL 级 `SecurityConfig` 规则已 100% 独立覆盖，启用方法级安全**不会修复任何当前可观察的行为**，只会让此前从未生效过的 `@PreAuthorize` 注解突然生效——如果其中任何一处注解的角色写错（因为从未被执行过，没有任何验证），会静默改变现有端点的鉴权行为。零当前收益、非零风险，放弃。 |
+
+**弃项反转（Wave-3 实验实证）**：`OrderLogisticsStatusUpdater` 生产实现（物流状态从未真正推进订单
+PICKING/SHIPPED，且生产入口 `ShopHubApplication` 因缺 bean 无法独立启动）——本表旧版曾以"与冻结
+harness 的无限定符 no-op bean 类型冲突、必 `NoUniqueBeanDefinitionException` 24 例全灭"为由彻底
+放弃。该结论**只对无消歧的裸实现成立**：Wave-3 以 **`@Primary`** 生产 bean（app 模块组合根落位，
+委托 order 模块推进服务，harness bean 保持注册但确定性落选注入）实施后，完整公开套件 **24/24 全绿**
+（每个用例都在 harness 配置下启动完整上下文，共存被逐例实证），生产入口独立启动成功（Started in
+~3.6s）。已固化为 **B14/LOGI-11 卡**（含四条勿犯红线：不去 @Primary / 不动 harness bean / 不放
+order 模块 / 不出现第二个 @Primary），11 §3 的"物流状态变更后必须通过该端口更新订单"由此闭环。
 
 ### 已识别但因时间/风险预算未实施（供后续参考）
 
@@ -349,7 +357,7 @@
 
 ### 本轮明确不做（高危 / 已知弃项）
 
-- **logistics `OrderLogisticsStatusUpdater` 生产实现**：本轮 logistics agent 再次以动态验证指出「生产入口无法独立启动」，但这正是 §7 已彻底放弃的项——冻结 `test-cases/BlackboxHarnessConfig` 注册了**无限定符**的该接口 no-op bean，加生产 bean 必与之冲突、**24 例全灭**；评分只经 harness（可用），从不独立启动生产入口，当前状态正确。
+- **logistics `OrderLogisticsStatusUpdater` 生产实现**：本轮 logistics agent 再次以动态验证指出「生产入口无法独立启动」，当时按 §7 弃项维持不做。**该弃项已在 Wave-3 反转实施**（见 §7「弃项反转」与 B14/LOGI-11 卡）：`@Primary` 生产 bean 与 harness no-op bean 共存已被 24/24 门禁逐例实证，生产入口独立启动亦已修复——本条目仅保留为决策历史。
 - **把库存扣减塞回支付确认事务**（跨领域 agent P1-6）：改事务边界高危，且 02§6 与 03§8 本身对「扣减是否属于确认事务」存在张力（当前经 `PaymentSucceededInventoryListener` 在 AFTER_COMMIT 扣减，happy-path 可观测行为正确），放弃。
 
 ### 已识别但未实施（供后续 / 用户裁决）
@@ -360,3 +368,23 @@
 ---
 
 *验证结果：完整公开黑盒套件（`PubBasicFlowTest` PUB-001..016 + `PubAdditionalBehaviorTest` PUB-101..108，共 24 例）在清空上下文的重复独立运行下稳定 **24/24 全绿**（第一轮 6+ 次、第二/三轮每个批次提交前各 1 次，累计 17+ 次）。三轮全部改动已在作者侧通过端到端干跑验证：从未修复的原始工程出发，应用全部修复（166 处修改 + 37 处新增 + 13 处删除，零失败）→ 独立构建 → 黑盒 24/24 全绿，且修复应用过程验证过幂等（重复应用不产生任何额外改动）。各卡片「改法」里给出的目标代码即来自这份已验证的最终实现。*
+
+---
+
+## W15-C 增补（第十五轮 common 簇复核留档；只追加、不改上文任何历史记录）
+
+### 1. order 模块死服务 bean 全量登记——「接线即地雷」，永久不接线
+
+全仓 grep 复核（含 `src/test` 与 `test-cases`）：`ecommerce-order` 存在 **14 个零注入零调用的 `@Service` 类**——order.md 头部红线（order.md:18-23）点名 12 个 +「等」，本次全量口径补齐 `OrderLockService`、`OrderNumberGenerator`。完整清单：`AdminOrderService`、`CustomerOrderService`、`OrderAuditService`、`OrderExportService`、`OrderLifecycleService`、`OrderLockService`、`OrderMetricsService`、`OrderNumberGenerator`、`OrderPaymentEventHandler`、`OrderPricingService`、`OrderReconciliationService`、`OrderSearchService`、`OrderSnapshotService`、`OrderWebhookService`。它们全部带 `@Service` 被组件扫描实例化，但无 `@EventListener`/`@Scheduled`、无任何注入方——运行期完全惰性、不影响可观察行为。**登记为永久不接线**，重点地雷四例：
+
+- **双发地雷（OrderPaidEvent 第二/第三发布点）**：`OrderPaymentEventHandler.java:110/:135`（置 PAID 后再次 `eventPublisher.publish(new OrderPaidEvent(...))`）与 `OrderLifecycleService.java:100→:167`（迁移到 PAID 时经 `publishTransitionEvent` 又发一次）。存活路径 `OrderQueryServiceImpl.markAsPaid`（`OrderQueryServiceImpl.java:174`）已经发布该事件——给这两个类任何一处接线即 `OrderPaidEvent` 双发：logistics 重复自动建发货单、loyalty 重复计分，黑盒事件链断言全乱。
+- **混钟比较地雷**：`CustomerOrderService.java:74/:133-156` 与 `OrderReconciliationService.java:49/:66/:84` 一律拿裸 `LocalDateTime.now()` 与持久化时间（`expiresAt`/`createdAt`/`paidAt`）比较；而存活路径的 `expiresAt` 出自测试时钟（`OrderService.java:283` `SystemClockService.now().plusMinutes(...)`），审计 `createdAt`/`updatedAt` 自 B11/COMMON-5 起也走测试时钟——接线后一切拨钟场景下的超时/滞留判定系统性错乱。
+
+### 2. 运行注意（冻结 harness 固有约束，非缺陷，勿"修"）
+
+- **黑盒套件不可并行化**：测试支撑面四件套（`SystemClockService`/`FaultInjectionRegistry`/`RuntimeConfigRegistry`/`NotificationRecordService`）全部是 **JVM 级静态注册表**，harness 在每个用例的新 Spring 上下文启动时统一清零（`test-cases/.../BlackboxHarnessConfig.java:33-36`）。surefire 一旦开 `parallel`/`forkCount>1` 并发，多个用例上下文共享同一份静态态，用例隔离即破（拨钟/故障注入互相污染）。这是冻结 harness（design-docs/03 §5）的固有设计；README/INSTRUCTION 给定命令默认串行，照原样执行即可，**勿以提速为名改并行**。
+- **`LocalNotificationServiceImpl.sentRecords` 是无读者死累积表**：其 `getRecords()`/`clearRecords()` 全仓（含 test-cases）**零调用**，且 harness 清零面（上条四件套）不含它——它跨用例只增不清。通知记录的契约读路径是 `NotificationRecordService`（`GET /api/v1/admin/notifications`，harness 会清）。**勿给 `sentRecords` 加读者/端点**：暴露它等于暴露未被隔离清理的跨用例残留，必产生依赖执行顺序的脏断言。
+
+### 3. `frozenPoints` ≡ 0 —— 裁决：文档不可推导，正式接受
+
+design-docs/12 与附录 C 仅定义了 `loyalty_account.frozen_points` 列本身；全套设计文档不存在任何冻结**触发场景**（何时冻结、冻结额度、何时解冻均未定义），期望行为**文档不可推导**。依「朝设计契约修、绝不无中生有」的总原则，**正式接受实现现状（恒 0），结案，不再作为悬置项跟踪**。checklist/loyalty.md 对应条目已标注本裁决；bugs/loyalty.md 文末附注同步指向本节。

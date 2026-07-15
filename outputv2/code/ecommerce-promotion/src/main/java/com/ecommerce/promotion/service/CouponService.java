@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -68,7 +67,7 @@ public class CouponService {
         userCoupon.setCouponTemplateId(templateId);
         userCoupon.setCouponCode(generateCouponCode());
         userCoupon.setStatus(CouponStatus.AVAILABLE);
-        userCoupon.setClaimedAt(LocalDateTime.now());
+        userCoupon.setClaimedAt(SystemClockService.now());
 
         return userCouponRepository.save(userCoupon);
     }

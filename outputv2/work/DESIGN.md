@@ -15,7 +15,7 @@
   模块在前（早修早锁分），结构性高危改动殿后。
 - **修复层（评测机 AI 现场做）**：主 agent 按批次派 subagent（`bug-fixer` 规范）照卡片改
   `code/`——这是纯 AI 的部分，也是唯一必须由 AI 做的部分。
-- **质量控制层（确定性脚本）**：`ratchet.sh` 把每批的结果二值化——编译过且公开 24 例不回退
+- **质量控制层（确定性脚本）**：`ratchet.sh` 把每批的结果二值化——编译过、用例通过数不回退且**没有任何此前通过的用例变红**（逐用例回归门，用例总数以运行环境实际为准）
   → 固化为新 golden；否则**自动回滚**，就当这批没发生。
 
 数学效果：**最坏交付 = max(基线, 已固化最佳)**。AI 发挥好 → 高分；AI 发挥差 → 若干批被回滚、
@@ -31,7 +31,8 @@
 2. **公开分优先 + 高危殿后**——速赢与公开用例相关的模块批先修先固化，结构性改动
    （事件/审计/缓存）押后，失败不拖累已锁定的成果；
 3. **高危黑名单 + 「绝不做」清单**——把已知会炸上下文的操作（第二个 CacheManager、
-   @EnableMethodSecurity、OrderLogisticsStatusUpdater 生产 bean 等）写成禁令；
+   @EnableMethodSecurity、无 @Primary 消歧的裸 OrderLogisticsStatusUpdater 生产 bean 等）写成
+   禁令（该端口的生产实现本身已由 B14/LOGI-11 以 @Primary 方案安全落地，禁令约束的是落地形态）；
 4. **卡片详细化**——每卡六字段，改法对照已验证的最终代码写成方法级说明 + 验收断言，
    把「理解错误」的空间压到最小。
 
@@ -41,7 +42,7 @@
 |---|---|---|
 | BUG 卡片库 | `work/bugs/`（`README.md` 索引 + 19 批卡片文件） | 检查成果：六字段详细卡片 + 批次表 + 绝不做清单 |
 | 棘轮护栏 | `work/harness/ratchet.sh` | snapshot / verify-固化 / 自动回滚（每批强制门禁） |
-| 只读诊断 | `work/harness/check-all.sh` | 编译 + 公开 24 例，只报告不动工作树 |
+| 只读诊断 | `work/harness/check-all.sh` | 编译 + 全量用例，只报告不动工作树 |
 | subagent 注册器 | `work/harness/install-agent.sh` | 把技能装进 OpenCode 项目级 + 全局（`~/.config/opencode/`）注册目录（幂等双保险） |
 | subagent 技能 | `work/skills/bug-fixer/SKILL.md` | 单批修复规范：强制编译自检 + 高危黑名单 |
 | 复核清单 | `work/checklist/<module>.md` | 逐模块强规则速查 |

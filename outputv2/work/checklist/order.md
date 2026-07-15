@@ -15,7 +15,8 @@
 
 - [ ] 已支付订单取消进入 `CANCEL_REVIEWING`（走商家审核，审核通过才真正取消退款）——**不是**直接跳 `CANCELLED`。
 - [ ] `OrderStateMachine` 中 `PAID` 的合法迁移集合**不含 `CANCELLED`**。
-- [ ] `markAsPaid` 经状态机（`CREATED → PAYING → PAID`），不绕过。
+- [x] `markAsPaid` 经状态机（`CREATED → PAYING → PAID`），不绕过。
+  ✔ 已核实（W15-C 回勾）：`OrderQueryServiceImpl.java:154-159`——CREATED 起点两跳链式 `stateMachine.validateTransition(CREATED→PAYING)` + `(PAYING→PAID)`，其余起点单跳校验；`:141-145` 不可支付状态先行 409 `ORDER_STATUS_CONFLICT` 守卫。
 - [ ] 超时取消订单时**释放预占库存**（调 `InventoryReservationService.release`）。
 
 ## 批量下单

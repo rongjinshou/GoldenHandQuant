@@ -1,5 +1,6 @@
 package com.ecommerce.payment.controller;
 
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.payment.dto.SettlementBatchResponse;
 import com.ecommerce.payment.service.SettlementBatchService;
 import org.slf4j.Logger;
@@ -33,16 +34,20 @@ public class AdminSettlementController {
      * Generates a settlement batch.
      * POST /api/v1/admin/settlements/batches -> 201 Created, ADMIN
      *
-     * <p>The generated batch aggregates only successfully paid orders
-     * (payments with status SUCCESS for the batch date), plus that day's
-     * completed refunds and issued invoices — design-docs/14 §5. Non-paid
-     * orders are never included.
+     * <p>The generated batch aggregates the orders actually paid on the batch
+     * date (payments whose paidAt falls in that day, status SUCCESS or CLOSED
+     * — CLOSED being "paid, then refunded"), plus that day's REFUNDED refunds
+     * and ISSUED invoices — design-docs/14 §5. PENDING/FAILED payment attempts
+     * are never included, and a day with zero payments still aggregates its
+     * refund/invoice totals.
      */
     @PostMapping("/batches")
     public ResponseEntity<SettlementBatchResponse> generateBatch(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate batchDate) {
-        LocalDate date = batchDate != null ? batchDate : LocalDate.now();
+        // Default batch date comes from the test-support system clock (equal to
+        // the real current date unless the admin clock-shift endpoint is used).
+        LocalDate date = batchDate != null ? batchDate : SystemClockService.now().toLocalDate();
         log.info("Generating settlement batch for date: {}", date);
         SettlementBatchResponse response = settlementBatchService.generateBatch(
                 date, SecurityContextHolder.getContext().getAuthentication().getName());

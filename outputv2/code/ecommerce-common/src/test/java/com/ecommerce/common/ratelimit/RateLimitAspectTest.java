@@ -1,6 +1,7 @@
 package com.ecommerce.common.ratelimit;
 
 import com.ecommerce.common.exception.RateLimitException;
+import com.ecommerce.common.test.SystemClockService;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.junit.jupiter.api.BeforeEach;
@@ -152,6 +153,28 @@ class RateLimitAspectTest {
         for (int i = 0; i < 5; i++) {
             Object result = aspect.enforceRateLimit(joinPoint, rateLimit);
             assertThat(result).isEqualTo("pass");
+        }
+    }
+
+    @Test
+    @DisplayName("sliding window follows the adjustable test clock: shifting past the window lifts the limit")
+    void testWindowFollowsTestClock_limitLiftsAfterClockShift() throws Throwable {
+        RateLimit rateLimit = createRateLimit("clock-shift-user", 1);
+        try {
+            when(joinPoint.proceed()).thenReturn("first");
+            assertThat(aspect.enforceRateLimit(joinPoint, rateLimit)).isEqualTo("first");
+
+            // Second call inside the window: blocked
+            assertThatThrownBy(() -> aspect.enforceRateLimit(joinPoint, rateLimit))
+                    .isInstanceOf(RateLimitException.class);
+
+            // Shift the test clock 2 minutes forward — beyond the 1-minute window
+            SystemClockService.setOffset(2);
+
+            when(joinPoint.proceed()).thenReturn("after-window");
+            assertThat(aspect.enforceRateLimit(joinPoint, rateLimit)).isEqualTo("after-window");
+        } finally {
+            SystemClockService.reset();
         }
     }
 

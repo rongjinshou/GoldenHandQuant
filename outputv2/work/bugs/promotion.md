@@ -2,7 +2,10 @@
 
 本卡片文件覆盖 `findings.md` 中 promotion 模块（§6.4，10 项）全部条目，加上三张跨领域/深审卡：
 `BUG-INT-2`（秒杀事务毒化，高危）、第三轮深审·模块内 #11（重复 couponId 双重计算）、
-第三轮深审·跨领域 #1（`markUsed` 缺归属校验）。共 **13 张卡**，编号 PROMO-1 … PROMO-13。
+第三轮深审·跨领域 #1（`markUsed` 缺归属校验）。共 **19 张卡**，编号 PROMO-1 … PROMO-19（PROMO-16 为指向 order.md/ORD-A17、ORD-A21 的接线指针卡）
+（PROMO-14/15 为后补的「订单取消释放」卡，来源 findings.md「已识别但因时间/风险预算未实施」，
+与 order.md 的 ORD-A17 接线卡同批落地；PROMO-17/18/19 为 Wave1 契约复核后补卡——满减创建双形态
+兼容、`applicableCoupons` 组装、创建入口防护——每张均已在参考实现上通过全部 24 例公开黑盒单卡门禁）。
 
 **执行前提（务必读完再动手）：**
 
@@ -437,8 +440,9 @@
 
 - 风险: low · 置信度: definite
 - **文件**:
-  1. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/controller/PromotionController.java`
-  2. `code/ecommerce-promotion/src/test/java/com/ecommerce/promotion/controller/PromotionControllerTest.java`（配合改，否则原有用例会全部因 NPE 变红）
+  1. `code/ecommerce-promotion/pom.xml`（**新增依赖，本卡明确要求——属 pom 黑名单豁免**）
+  2. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/controller/PromotionController.java`
+  3. `code/ecommerce-promotion/src/test/java/com/ecommerce/promotion/controller/PromotionControllerTest.java`（配合改，否则原有用例会全部因 NPE 变红）
 - **现状**: `extractUserId()`（基线第 115-119 行）：
   ```java
   private Long extractUserId() {
@@ -453,7 +457,27 @@
 - **期望**: 从当前登录态取真实 `userId`。依据: `design-docs/02-系统架构.md`（从 SecurityContext 取
   当前用户）。项目里 JWT 认证成功后，`Authentication.getName()` 就是 `userId` 的字符串形式
   （其他模块的 `SecurityContextHolder` 用法与此一致）。
-- **改法**: 把 `extractUserId()` 替换为：
+- **改法**:
+  **(0) 先给 `ecommerce-promotion/pom.xml` 加依赖**——基线的 promotion 模块 classpath 里没有
+  Spring Security，任何 `SecurityContextHolder` import 都会编译失败；这一步是本卡的必要组成
+  部分（卡片明确要求 = 黑名单豁免），在 `<dependencies>` 内新增：
+  ```xml
+  <dependency>
+      <!-- Provides SecurityContextHolder for reading the authenticated
+           userId in PromotionController. Deliberately just spring-security-core
+           (not the full spring-boot-starter-security) so this module does not
+           pick up Spring Boot's default deny-all filter-chain autoconfiguration,
+           which would require a permissive test SecurityFilterChain bean. -->
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-core</artifactId>
+  </dependency>
+  ```
+  **勿犯：绝不能用 `spring-boot-starter-security` 代替 `spring-security-core`**——starter 会
+  连带引入 Boot 的默认"全部拒绝"安全过滤链自动配置，毒化本模块自身的 Spring 上下文测试；
+  只需要 core 里的 `SecurityContextHolder` 类。版本由父 POM 的 `spring-boot-dependencies`
+  BOM 管理，不要写 `<version>`。
+
+  **(1) 把 `extractUserId()` 替换为**：
   ```java
   private Long extractUserId() {
       String principal = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -556,12 +580,14 @@
 ### PROMO-8 | 秒杀完全没接入下单流程（含限购/库存校验补全）
 
 - 风险: high · 置信度: definite
-- **文件**（5 个，2 个新增）:
+- **文件**（7 个，3 个新增）:
   1. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/SeckillService.java`（重写）
   2. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/entity/SeckillPurchaseRecord.java`（**新增**）
   3. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/repository/SeckillPurchaseRecordRepository.java`（**新增**）
-  4. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java`（跨模块接入点，依赖 PROMO-4 已应用）
-  5. 配合改测试：`SeckillServiceTest.java`、`OrderServiceTest.java`
+  4. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/dto/SeckillActivityDto.java`（**新增**——秒杀活动的全部出参走这个 DTO，实体绝不跨界）
+  5. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/controller/AdminPromotionController.java`（`createSeckill` 返回类型换 DTO）
+  6. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java`（跨模块接入点，依赖 PROMO-4 已应用）
+  7. 配合改测试：`SeckillServiceTest.java`、`AdminPromotionControllerTest.java`、`OrderServiceTest.java`
 - **现状**: `SeckillService`（基线全文）有 `create`/`validateSeckill(Long skuId)`/
   `recordPurchase(Long activityId)` 三个方法，逻辑本身基本对（校验时间窗口、库存 `<=0`），但
   **全仓库没有任何地方调用 `validateSeckill`/`recordPurchase`**（`OrderService`/`CartService`
@@ -569,7 +595,10 @@
   根本不存在，`SECKILL_NOT_STARTED`/`SECKILL_ENDED`/`SECKILL_SOLD_OUT` 都是死代码。另外基线
   `validateSeckill` 本身也没有限购校验（design-docs 要求"用户未超过限购数量"），`SeckillActivity`
   实体虽有 `perUserLimit` 字段但从未被读取；库存校验用 `availableStock <= 0`，没考虑"本次购买数量"
-  （买 5 个但只剩 3 个也会通过）。
+  （买 5 个但只剩 3 个也会通过）。另外基线把 `SeckillActivity` **JPA 实体**直接当 REST 响应体
+  （`AdminPromotionController.createSeckill`）；接入下单流程时若继续拿实体当跨模块返回值，等于把
+  02 §3 第 3 条『跨模块边界传输的数据是 DTO，绝不是 JPA 实体』的破口从 REST 层扩散进 order 模块
+  （全仓唯一实体跨界点），必须在本卡一并收口。
 - **期望**: `design-docs/10` §4 秒杀规则：
   ```text
   1. 活动处于进行中。 2. SKU 参与活动。 3. 用户未超过限购数量。
@@ -577,7 +606,9 @@
   ```
   下单时，购物车/订单里若某 SKU 命中一个进行中的秒杀活动，应按秒杀价结算、走上述 4 项校验、
   成功下单后扣减秒杀库存并记录该用户的购买量（供以后限购判断累加）；第 5 条（不参与普通满减）
-  由订单侧在计算优惠时把秒杀条目排除在外来保证。
+  由订单侧在计算优惠时把秒杀条目排除在外来保证。另依 `design-docs/02` §3 第 3 条，`SeckillService`
+  交给 REST 层与 order 模块的一律是 `SeckillActivityDto`（字段名/类型/声明顺序逐字段镜像实体的
+  序列化形状，冻结响应 JSON 逐字段不变），`SeckillActivity` 实体不出 promotion 模块。
 - **改法**（先促销侧，再订单侧，缺一不可）：
 
   **① `SeckillService.java` 整体重写：**
@@ -595,18 +626,18 @@
       }
 
       @Transactional
-      public SeckillActivity create(SeckillActivity activity) {
+      public SeckillActivityDto create(SeckillActivity activity) {
           if (activity.getStartTime() != null && activity.getEndTime() != null
                   && !activity.getEndTime().isAfter(activity.getStartTime())) {
               throw new ValidationException("endTime", "End time must be after start time");
           }
           activity.setSoldQuantity(0);
           activity.setStatus("ACTIVE");
-          return seckillRepository.save(activity);
+          return toDto(seckillRepository.save(activity));
       }
 
       @Transactional(readOnly = true)
-      public SeckillActivity validateSeckill(Long userId, Long skuId, Integer quantity) {
+      public SeckillActivityDto validateSeckill(Long userId, Long skuId, Integer quantity) {
           SeckillActivity activity = seckillRepository.findBySkuIdAndStatus(skuId, "ACTIVE")
                   .orElseThrow(() -> new ResourceNotFoundException("SeckillActivity for SKU", skuId));
 
@@ -638,7 +669,7 @@
               throw new BusinessException("SECKILL_SOLD_OUT", "Seckill stock has been exhausted");
           }
 
-          return activity;
+          return toDto(activity);
       }
 
       @Transactional
@@ -657,11 +688,37 @@
           record.setQuantity(purchaseQuantity);
           purchaseRecordRepository.save(record);
       }
+
+      /**
+       * Map the JPA entity to its boundary DTO, field for field. The single
+       * conversion point for everything this service returns across the module
+       * boundary (REST response body, order-side seckill probe) — the entity
+       * itself must never leave the promotion module (design-docs/02 §3 rule 3).
+       */
+      private SeckillActivityDto toDto(SeckillActivity activity) {
+          SeckillActivityDto dto = new SeckillActivityDto();
+          dto.setId(activity.getId());
+          dto.setCreatedAt(activity.getCreatedAt());
+          dto.setUpdatedAt(activity.getUpdatedAt());
+          dto.setName(activity.getName());
+          dto.setSkuId(activity.getSkuId());
+          dto.setSeckillPrice(activity.getSeckillPrice());
+          dto.setStockQuantity(activity.getStockQuantity());
+          dto.setSoldQuantity(activity.getSoldQuantity());
+          dto.setPerUserLimit(activity.getPerUserLimit());
+          dto.setStartTime(activity.getStartTime());
+          dto.setEndTime(activity.getEndTime());
+          dto.setStatus(activity.getStatus());
+          return dto;
+      }
   }
   ```
   新增 import：`com.ecommerce.common.test.SystemClockService`、
+  `com.ecommerce.promotion.dto.SeckillActivityDto`、
   `com.ecommerce.promotion.entity.SeckillPurchaseRecord`、
   `com.ecommerce.promotion.repository.SeckillPurchaseRecordRepository`（其余基线已有）。
+  **入参保持 `SeckillActivity` 实体不动**（`create` 的 `@RequestBody` 绑定形状 = 冻结请求契约，
+  且请求侧不跨模块）；换的是**全部返回值**。
   注意时间判断从 `LocalDateTime.now()` 改成了 `SystemClockService.now()`（黑盒测试可能通过
   `PUT /api/v1/admin/system/clock` 设置测试时钟，用真实系统时钟会导致时钟相关用例不受控）；
   库存校验从 `availableStock <= 0` 改成了 `availableStock < purchaseQuantity`。
@@ -717,12 +774,74 @@
   }
   ```
 
+  **③b 新增 `SeckillActivityDto.java`**（出参 DTO。字段名/类型/**声明顺序**逐字段镜像实体的
+  序列化形状——`BaseEntity` 审计字段 `id`/`createdAt`/`updatedAt` 在前、实体自有字段按声明序在后——
+  这样 `POST /api/v1/admin/promotions/seckill` 的响应 JSON 逐字段不变）：
+  ```java
+  package com.ecommerce.promotion.dto;
+
+  import java.math.BigDecimal;
+  import java.time.LocalDateTime;
+
+  /**
+   * Boundary DTO for a seckill activity.
+   *
+   * <p>design-docs/02 §3 rule 3: data crossing a module boundary must be a DTO,
+   * never a JPA entity. This class is what {@code SeckillService} hands to the
+   * REST layer and to other modules (the order module's seckill probe) instead
+   * of the {@code SeckillActivity} entity itself.
+   *
+   * <p>Field names, types and declaration order deliberately mirror the JSON
+   * shape the entity used to serialize (BaseEntity audit fields first, then the
+   * activity fields), so the frozen REST response of
+   * {@code POST /api/v1/admin/promotions/seckill} is unchanged field-for-field.
+   */
+  public class SeckillActivityDto {
+
+      private Long id;
+      private LocalDateTime createdAt;
+      private LocalDateTime updatedAt;
+      private String name;
+      private Long skuId;
+      private BigDecimal seckillPrice;
+      private Integer stockQuantity;
+      private Integer soldQuantity;
+      private Integer perUserLimit;
+      private LocalDateTime startTime;
+      private LocalDateTime endTime;
+
+      /**
+       * Activity status: ACTIVE, INACTIVE, or FINISHED.
+       */
+      private String status;
+
+      public SeckillActivityDto() {
+      }
+
+      // 12 个字段的标准 getter/setter 全套（getId/setId … getStatus/setStatus），无其他逻辑。
+  }
+  ```
+  （getter/setter 按字段序补全即可，不要加任何注解或额外字段。）
+
+  **③c `AdminPromotionController.java`：`createSeckill` 返回 DTO**（入参绑定不动）：
+  ```java
+  import com.ecommerce.promotion.dto.SeckillActivityDto;   // 新增 import
+  ```
+  ```java
+  @PostMapping("/seckill")
+  public ResponseEntity<SeckillActivityDto> createSeckill(@Valid @RequestBody SeckillActivity activity) {
+      SeckillActivityDto created = seckillService.create(activity);
+      return ResponseEntity.status(HttpStatus.CREATED).body(created);
+  }
+  ```
+
   **④ `OrderService.java`（跨模块，依赖 PROMO-4 已应用，即已有 `couponService` 字段/Step 10b）：**
   - 字段区追加：`private final SeckillService seckillService;`
   - 构造函数参数列表末尾追加 `SeckillService seckillService` 形参（跟在 PROMO-4 加的
     `CouponService couponService` 后面），方法体追加 `this.seckillService = seckillService;`。
-  - 新增 import：`com.ecommerce.promotion.entity.SeckillActivity;`、
-    `com.ecommerce.promotion.service.SeckillService;`（`ResourceNotFoundException` 基线已导入）。
+  - 新增 import：`com.ecommerce.promotion.dto.SeckillActivityDto;`、
+    `com.ecommerce.promotion.service.SeckillService;`（`ResourceNotFoundException` 基线已导入；
+    **不要** import `com.ecommerce.promotion.entity.SeckillActivity`——order 模块只见 DTO，02 §3）。
   - 找到 **"Step 2: Validate SKUs and get product data"** 循环（锚点：
     `for (CreateOrderRequest.OrderItemRequest reqItem : requestItems) {`），把循环前的局部变量声明
     和循环体改成：
@@ -743,7 +862,7 @@
         BigDecimal effectivePrice = sku.getPrice();
         boolean seckillItem = false;
         try {
-            SeckillActivity activity = seckillService.validateSeckill(
+            SeckillActivityDto activity = seckillService.validateSeckill(
                     userId, sku.getSkuId(), reqItem.getQuantity());
             if (activity != null && activity.getSeckillPrice() != null) {
                 effectivePrice = activity.getSeckillPrice();
@@ -821,6 +940,16 @@
       `perUserLimit`，`userId` 传什么值都不会误触发新的限购分支，可以直接传常量。
     - 全文件把所有 `seckillService.recordPurchase(xxxL)`（1 参数，3 处）改成
       `seckillService.recordPurchase(xxxL, USER_ID, 1)`。
+    - 新增 import `com.ecommerce.promotion.dto.SeckillActivityDto;`，并把全部
+      `SeckillActivity result = seckillService.create(...)` / `SeckillActivity result =
+      seckillService.validateSeckill(...)` 的**接收变量类型**改成 `SeckillActivityDto result = ...`
+      （约 10 处；断言全是 getter 级比较，DTO 同名 getter 直接兼容，断言本身不用改）。
+  - `AdminPromotionControllerTest.java`：新增 import `com.ecommerce.promotion.dto.SeckillActivityDto;`；
+    seckill 嵌套类里 `private SeckillActivity createdActivity;` 改成
+    `private SeckillActivityDto createdActivity;`、`createdActivity = new SeckillActivity();` 改成
+    `createdActivity = new SeckillActivityDto();`（stub `when(seckillService.create(any(
+    SeckillActivity.class))).thenReturn(createdActivity)` 的返回值类型随 service 签名变了；
+    `request` 字段与 jsonPath 断言不动——响应字段名逐字段未变，这组断言正好锁死冻结形状）。
   - `OrderServiceTest.java`：新增 `@Mock private SeckillService seckillService;` 字段（同 PROMO-4，
     `@InjectMocks` 反射注入，不需要改构造调用；不加则未 stub 的 `validateSeckill` 调用返回 `null`，
     代码里 `if (activity != null && ...)` 已经处理了 `null`，不会 NPE，但**必须**加这个 `@Mock`
@@ -836,10 +965,18 @@
   - 秒杀限购：用户已购买量 + 本次购买量 > `perUserLimit` → 抛 `SECKILL_LIMIT_EXCEEDED`。
   - 秒杀库存：`stockQuantity - soldQuantity < 本次购买数量` → 抛 `SECKILL_SOLD_OUT`（哪怕
     `availableStock > 0`，只是不够本次购买的量）。
+  - 实体不跨界（02 §3 第 3 条）：`grep -rn "com.ecommerce.promotion.entity.SeckillActivity"
+    code/ecommerce-order/src/main/java` 零命中；`grep -n "public SeckillActivityDto validateSeckill("
+    SeckillService.java` 命中 1 处。`POST /api/v1/admin/promotions/seckill` 响应 JSON 与改前逐字段
+    一致（`id/createdAt/updatedAt/name/skuId/seckillPrice/stockQuantity/soldQuantity/perUserLimit/
+    startTime/endTime/status`），`AdminPromotionControllerTest` 的 jsonPath 断言全绿即为证。
 - **勿犯**: 不要漏加 `SeckillServiceTest.java` 的 `@Mock purchaseRecordRepository` 字段——这个不是
   编译错误，是**运行时空指针**，容易被"反正模块单测不计分"的心态忽略，但会让原本全绿的模块自测
   出现新的失败，影响自查判断。不要在 Step 2 循环里去掉 `try/catch ResourceNotFoundException`
-  ——普通订单（无秒杀）必须能正常创建。不要碰 `ecommerce-cart` 模块。
+  ——普通订单（无秒杀）必须能正常创建。不要碰 `ecommerce-cart` 模块。DTO 三禁：**禁**增删改字段名
+  或调整字段类型（响应 JSON 形状是冻结契约，DTO 就是实体序列化形状的逐字段镜像）；**禁**让
+  `SeckillActivityDto` 继承 `BaseEntity` 或加 JPA/Jackson 注解（纯 POJO）；**禁**把 `create` 的
+  `@RequestBody SeckillActivity` 入参也换成 DTO——入参绑定不跨模块且形状冻结，本卡只收口返回值。
 
 ---
 
@@ -950,12 +1087,12 @@
 - **改法**: 只改 `validateSeckill` 方法头上的注解，从
   ```java
   @Transactional(readOnly = true)
-  public SeckillActivity validateSeckill(Long userId, Long skuId, Integer quantity) {
+  public SeckillActivityDto validateSeckill(Long userId, Long skuId, Integer quantity) {
   ```
   改成
   ```java
   @Transactional(readOnly = true, noRollbackFor = ResourceNotFoundException.class)
-  public SeckillActivity validateSeckill(Long userId, Long skuId, Integer quantity) {
+  public SeckillActivityDto validateSeckill(Long userId, Long skuId, Integer quantity) {
   ```
   就这一处。可以在方法上方补一句注释说明原因（非必需，但强烈建议，方便下一个人理解为什么这里
   要加 `noRollbackFor`）：
@@ -1134,3 +1271,541 @@
   本条 finding 的范围，`PromotionCalculateResponse` 目前也没有回传"计算阶段实际应用了哪些券"这个
   字段，做金额级别的核销校验需要跨模块 DTO 变更，属于 `findings.md` 里明确标注"已识别但因改动面
   更大暂缓"的项，不要在本卡顺手做。
+
+---
+
+### PROMO-14 | 订单取消后优惠券从不回退，USED 状态被已取消订单永久占用
+
+- 风险: low · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/repository/UserCouponRepository.java`
+  2. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/CouponService.java`
+  3. （同步测试）`code/ecommerce-promotion/src/test/java/com/ecommerce/promotion/service/CouponServiceTest.java`
+- **现状**: 基线 `UserCoupon` 实体本来就有消费记账字段（基线第 32-33 行
+  `@Column(name = "used_order_id") private Long usedOrderId;` 与 `usedAt`）；PROMO-4/PROMO-13
+  落地后，下单成功会经 `CouponService.markUsed(userCouponId, orderId, userId)` 把券置为
+  `CouponStatus.USED` 并记录 `usedOrderId`。但**全仓库没有任何反向路径**（基线与 PROMO-1..13
+  落地后都一样）：订单取消后（用户直接取消 CREATED/PAYING 单，或 PAID 单商家审核通过），券永远停在
+  `USED`，`GET /api/v1/promotions/coupons/my` 里再也不可用——用户什么都没买成，券却被烧掉了。
+  `UserCouponRepository`（基线 36 行，仅 `findByUserId`/`findByUserIdAndCouponCode`/
+  `findByUserIdAndStatus`/`countByUserIdAndCouponTemplateId` 四个方法）也没有任何按
+  `usedOrderId` 反查的入口。
+- **期望**: 订单取消成功后，该订单核销的优惠券应回到可用状态（`USED` → `AVAILABLE`，清除
+  `usedOrderId`/`usedAt`）。设计文档没有逐字写"退券"条款，最接近的一致性原则依据：
+  design-docs/08 §6（取消规则表——CREATED 行"用户可直接取消，**释放库存**"：取消必须归还订单
+  占用的资源，券与库存同理；PAID 行"审核通过后按退款流程处理"）；design-docs/10 §2（优惠券校验
+  顺序第 6 条"是否已使用"——`USED` 的语义是"已被真实成交订单消费"，被已取消订单占住的 `USED`
+  是伪状态，会让校验第 6 条给出错误答案）。来源：`findings.md`「已识别但因时间/风险预算未实施」
+  条目"优惠券/秒杀名额在订单取消后从未释放（需要 promotion 侧新增 release 方法 + order 侧接线）"
+  ——本卡即其中优惠券侧的 promotion 落地；秒杀侧见 PROMO-15，order 侧接线见 `order.md` ORD-A17
+  （**与本卡同批应用**）。
+- **改法**:
+  1. **`UserCouponRepository.java`** 末尾（`countByUserIdAndCouponTemplateId` 之后）加一个反查方法：
+     ```java
+     /**
+      * Find all coupons in a given status that were consumed by a given order,
+      * used to give coupons back when that order is cancelled.
+      */
+     List<UserCoupon> findByStatusAndUsedOrderId(CouponStatus status, Long usedOrderId);
+     ```
+     （`List`/`CouponStatus` 的 import 基线已有，不用加。）
+  2. **`CouponService.java`** 在 `markUsed(...)` 方法之后、私有 `generateCouponCode()` 之前，新增
+     `markUsed` 的逆操作：
+     ```java
+     /**
+      * Give back every coupon consumed by a cancelled order: each USED coupon
+      * whose {@code usedOrderId} matches becomes AVAILABLE again, with the
+      * consumption bookkeeping ({@code usedOrderId}/{@code usedAt}) cleared.
+      * The inverse of {@link #markUsed}, called by the order module on the
+      * successful-cancellation paths.
+      *
+      * <p>Deliberately a no-op for orders that consumed no coupon, and never
+      * throws in normal operation — a release failure must not block the
+      * cancellation itself. Whether the coupon is still inside its validity
+      * window is not re-checked here: the validator enforces the template
+      * window again at next use.
+      */
+     @Transactional
+     public void releaseForOrder(Long orderId) {
+         if (orderId == null) {
+             return;
+         }
+         for (UserCoupon userCoupon
+                 : userCouponRepository.findByStatusAndUsedOrderId(CouponStatus.USED, orderId)) {
+             userCoupon.setStatus(CouponStatus.AVAILABLE);
+             userCoupon.setUsedOrderId(null);
+             userCoupon.setUsedAt(null);
+             userCouponRepository.save(userCoupon);
+         }
+     }
+     ```
+     注意方法体里**没有任何 `orElseThrow`/主动抛异常**——"这个订单没用过券"就是合法的空遍历，
+     这是设计出来的"永不抛错"语义（原因见「勿犯」）。
+  3. **`CouponServiceTest.java`** 在 `MarkUsed` 嵌套类之后追加一组新用例（沿用同文件
+     `userCouponCaptor` 捕获器）：
+     ```java
+     @Nested
+     @DisplayName("releaseForOrder")
+     class ReleaseForOrder {
+
+         private final Long orderId = 900L;
+         private UserCoupon usedCoupon;
+
+         @BeforeEach
+         void setUp() {
+             usedCoupon = new UserCoupon();
+             usedCoupon.setId(55L);
+             usedCoupon.setUserId(42L);
+             usedCoupon.setCouponTemplateId(1L);
+             usedCoupon.setCouponCode("CPN-USED");
+             usedCoupon.setStatus(CouponStatus.USED);
+             usedCoupon.setUsedOrderId(orderId);
+             usedCoupon.setUsedAt(LocalDateTime.of(2026, 1, 1, 12, 0));
+         }
+
+         @Test
+         @DisplayName("releaseForOrder: puts the order's USED coupons back to AVAILABLE and clears usage bookkeeping")
+         void testReleaseForOrder_restoresCoupon() {
+             when(userCouponRepository.findByStatusAndUsedOrderId(CouponStatus.USED, orderId))
+                     .thenReturn(java.util.List.of(usedCoupon));
+             when(userCouponRepository.save(any(UserCoupon.class)))
+                     .thenAnswer(invocation -> invocation.getArgument(0));
+
+             couponService.releaseForOrder(orderId);
+
+             verify(userCouponRepository).save(userCouponCaptor.capture());
+             UserCoupon saved = userCouponCaptor.getValue();
+             assertThat(saved.getStatus()).isEqualTo(CouponStatus.AVAILABLE);
+             assertThat(saved.getUsedOrderId()).isNull();
+             assertThat(saved.getUsedAt()).isNull();
+         }
+
+         @Test
+         @DisplayName("releaseForOrder: is a no-op for an order that consumed no coupon")
+         void testReleaseForOrder_noCoupons_noop() {
+             when(userCouponRepository.findByStatusAndUsedOrderId(CouponStatus.USED, orderId))
+                     .thenReturn(java.util.List.of());
+
+             couponService.releaseForOrder(orderId);
+
+             verify(userCouponRepository, never()).save(any(UserCoupon.class));
+         }
+
+         @Test
+         @DisplayName("releaseForOrder: is a no-op for a null orderId")
+         void testReleaseForOrder_nullOrderId_noop() {
+             couponService.releaseForOrder(null);
+
+             verify(userCouponRepository, never()).save(any(UserCoupon.class));
+         }
+     }
+     ```
+- **验收**:
+  - 单测：`releaseForOrder(orderId)` 对 `status=USED && usedOrderId=orderId` 的券 → 置回
+    `AVAILABLE` 且 `usedOrderId`/`usedAt` 清空；订单没用过券 → 一次 `save` 都不发生；
+    `releaseForOrder(null)` → 纯 no-op、不查库。
+  - 端到端（ORD-A17 接线后）：领券 → 用券下单（`discountAmount>0`，`coupons/my` 显示 `USED`）→
+    `POST /api/v1/orders/{orderId}/cancel` → 再查 `GET /api/v1/promotions/coupons/my`，该券状态回到
+    `AVAILABLE`，且可再次用于新订单正常抵扣。
+  - 公开 24 例回归全绿（本卡为纯增量，不改任何既有方法的行为）。
+- **勿犯**: 本卡是纯增量（新方法+新查询），**不要**动 `markUsed`/`claim`/`calculateDiscount` 的任何
+  既有逻辑。不要在 `releaseForOrder` 里"顺手"校验有效期或把 `EXPIRED` 的券也重置——只回退
+  `USED && usedOrderId` 匹配的券，过没过期交给下次使用时 `CouponValidator` 用模板时间窗判断。
+  最重要的一条：**保持方法体"永不抛错"（没有任何 `orElseThrow`）**——它将被 ORD-A17 在订单取消的
+  共享事务里调用，`CouponService` 是 `@Transactional` 代理 bean，若这里抛出 RuntimeException，
+  即使调用方 catch 住，事务也已在代理边界被标记 rollback-only，整个取消请求会在提交时 500
+  （机理同 PROMO-11 的事务毒化）。
+
+---
+
+### PROMO-15 | 订单取消后秒杀名额从不归还（购买记录缺 orderId，无从反查）
+
+- 风险: high · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/entity/SeckillPurchaseRecord.java`（PROMO-8 新增的实体，本卡加字段）
+  2. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/repository/SeckillPurchaseRecordRepository.java`（PROMO-8 新增，本卡加方法）
+  3. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/SeckillService.java`（`recordPurchase` 改签名 + 新增 `releaseForOrder`）
+  4. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java`（Step 10b 调用点同步实参）
+  5. （同步测试）`code/ecommerce-promotion/src/test/java/com/ecommerce/promotion/service/SeckillServiceTest.java`
+- **现状**: 基线 `SeckillService.recordPurchase(Long activityId)`（基线第 80-87 行）只做
+  `soldQuantity+1`，连购买记录都不存在；PROMO-8 落地后 `recordPurchase(activityId, userId, quantity)`
+  会累加 `soldQuantity` 并写一条 `SeckillPurchaseRecord(activityId, userId, quantity)` 供限购判断
+  累加。但记录上**没有 orderId**，且全仓库没有任何释放路径：订单取消后 `soldQuantity` 不回落、
+  购买记录不删除——秒杀活动库存与该用户的限购额度被已取消的订单**永久占用**：活动名额白白流失，
+  取消过秒杀单的用户自己也会因 `SECKILL_LIMIT_EXCEEDED` 无法再买。
+- **期望**: 订单取消成功后归还其秒杀占用：活动 `soldQuantity` 回落该单购买量、删除该单的购买记录
+  （同时恢复限购余量）。一致性原则依据同 PROMO-14（design-docs/08 §6 取消释放资源），另加
+  design-docs/10 §4（秒杀校验第 3 条"用户未超过限购数量"、第 4 条"秒杀库存充足"——这两条消费的
+  都应是**真实有效订单**的占用量，被取消订单不应继续计入）。来源：`findings.md`「已识别但因
+  时间/风险预算未实施」同一条目的秒杀侧；order 侧接线见 `order.md` ORD-A17（**与本卡同批应用**）。
+- **改法**（在 PROMO-8/PROMO-11 已落地的文件状态上继续改）：
+  1. **`SeckillPurchaseRecord.java`** 在 `userId` 字段之后、`quantity` 之前插入：
+     ```java
+     /**
+      * The order that consumed this seckill allocation. Used to give the
+      * allocation back (restore activity stock and per-user limit headroom)
+      * when that order is cancelled.
+      */
+     @Column(name = "order_id")
+     private Long orderId;
+     ```
+     并在 getter/setter 区补 `getOrderId()`/`setOrderId(Long orderId)`（体例同相邻字段）。列可空
+     （历史行没有订单信息也不影响限购累加），Hibernate `ddl-auto` 自动补列，不需要手写 schema。
+  2. **`SeckillPurchaseRecordRepository.java`** 在 `findByActivityIdAndUserId` 之后加：
+     ```java
+     /**
+      * Find all purchase records consumed by a given order, used to give the
+      * seckill allocation back when that order is cancelled.
+      */
+     List<SeckillPurchaseRecord> findByOrderId(Long orderId);
+     ```
+  3. **`SeckillService.java`** 把 `recordPurchase` 的签名从
+     `recordPurchase(Long activityId, Long userId, Integer quantity)` 扩成
+     **`recordPurchase(Long activityId, Long userId, Integer quantity, Long orderId)`**，方法体只
+     多一行 `record.setOrderId(orderId);`（加在 `record.setUserId(userId);` 之后），javadoc 补
+     `@param orderId` 说明；然后在 `recordPurchase` 之后新增逆操作：
+     ```java
+     /**
+      * Give back the seckill allocation consumed by a cancelled order: for each
+      * purchase record of that order, the activity's {@code soldQuantity} is
+      * restored (floored at 0) and the record itself is deleted, so both the
+      * activity stock and the user's per-user-limit headroom are returned.
+      * The inverse of {@link #recordPurchase}, called by the order module on
+      * the successful-cancellation paths.
+      *
+      * <p>Deliberately a no-op for orders without seckill items, and never
+      * throws in normal operation — a release failure must not block the
+      * cancellation itself (a vanished activity just skips the stock
+      * restoration and still removes the stale record).
+      */
+     @Transactional
+     public void releaseForOrder(Long orderId) {
+         if (orderId == null) {
+             return;
+         }
+         for (SeckillPurchaseRecord record : purchaseRecordRepository.findByOrderId(orderId)) {
+             seckillRepository.findById(record.getActivityId()).ifPresent(activity -> {
+                 int sold = activity.getSoldQuantity() != null ? activity.getSoldQuantity() : 0;
+                 int quantity = record.getQuantity() != null ? record.getQuantity() : 0;
+                 activity.setSoldQuantity(Math.max(0, sold - quantity));
+                 seckillRepository.save(activity);
+             });
+             purchaseRecordRepository.delete(record);
+         }
+     }
+     ```
+  4. **`OrderService.java`** Step 10b 里唯一的调用点同步加实参（`orderId` 本来就在作用域内，
+     PROMO-8 接线时定义的 `final Long orderId`）：
+     ```java
+     for (SeckillPurchase purchase : seckillPurchases) {
+         seckillService.recordPurchase(purchase.activityId, userId, purchase.quantity, orderId);
+     }
+     ```
+  5. **`SeckillServiceTest.java`** 同步：
+     - 共享测试数据区（`USER_ID` 之后）加 `private static final Long ORDER_ID = 900L;`；
+     - `RecordPurchase` 嵌套类里全部 5 处 `seckillService.recordPurchase(..., ...)` 调用统一追加
+       第 4 实参 `ORDER_ID`；"persists a purchase record" 用例的断言区加一行
+       `assertThat(saved.getOrderId()).isEqualTo(ORDER_ID);`；
+     - 追加 `@Nested @DisplayName("releaseForOrder") class ReleaseForOrder`，fixture 为
+       `record = new SeckillPurchaseRecord()`（`activityId=1L, userId=USER_ID, orderId=ORDER_ID,
+       quantity=2`），四个用例：
+       1) `soldQuantity=5` 时 release → 活动 save 后 `soldQuantity==3` 且
+          `verify(purchaseRecordRepository).delete(record)`；
+       2) `soldQuantity=1`、记录 quantity=2 → 回补下限兜底，`soldQuantity==0` 不为负；
+       3) `findByOrderId` 返回空 → 不 save 活动、不 delete 记录（纯 no-op）；
+       4) 活动已不存在（`seckillRepository.findById` 返回空）→ 不 save 活动但**仍然
+          `delete(record)`**（清掉孤儿记录，恢复限购余量）。
+- **验收**:
+  - 单测：上述 `RecordPurchase`（含 orderId 断言）与 `ReleaseForOrder` 四用例全绿。
+  - 端到端（ORD-A17 接线后）：创建秒杀活动（库存 N、限购 1）→ 用户秒杀下单成功（`soldQuantity`
+    变 1）→ `POST /api/v1/orders/{orderId}/cancel` → `soldQuantity` 回落为 0，同一用户可再次
+    秒杀下单成功（限购余量已恢复）；对无秒杀条目的订单取消行为完全不变。
+  - 公开 24 例回归全绿。
+- **勿犯**: `recordPurchase` 改签名后**必须一次改完全部调用点**——生产代码只有 `OrderService.java`
+  Step 10b 一处（改法第 4 步），测试有 `SeckillServiceTest` 5 处（改法第 5 步）；漏任何一处
+  `code/ecommerce-order` 或 `ecommerce-promotion` 编译不过，`mvn install -DskipTests` 整体失败、
+  黑盒 0/24（后果同 PROMO-13「勿犯」所述）。`releaseForOrder` 里活动查不到时**不要抛
+  `ResourceNotFoundException`**——用 `ifPresent` 跳过库存回补、仍删除记录（永不抛错的理由同
+  PROMO-14「勿犯」：取消共享事务的 rollback-only 毒化）。`soldQuantity` 回补必须
+  `Math.max(0, ...)` 兜底，不许出现负库存。不要动 `validateSeckill` 上 PROMO-11 加的
+  `noRollbackFor` 注解。
+
+### PROMO-16 | 【指针卡】券/秒杀释放的 order 侧接线 —— 执行 order.md 的 ORD-A17 与 ORD-A21
+
+- 风险: low · 置信度: definite
+- **本卡不含新改法**：PROMO-14/15 只提供了 promotion 侧的 `releaseForOrder(...)` 方法，
+  真正让"订单取消 → 归还券与秒杀名额"生效的 order 侧接线写在 `work/bugs/order.md` §A 末尾的
+  **两张卡**里：
+  1. **`### ORD-A17`**（六字段自包含：给 `OrderCancelService` 注入两个 promotion 服务、三条取消
+     成功路径调用 `releasePromotions(orderId)`、同步 `OrderCancelServiceTest`）；
+  2. **`### ORD-A21`**（同款接线的第四条路径：`OrderTimeoutService` 超时自动取消——注入同两个
+     服务、`cancelExpiredOrder` 在库存释放后调用 `releasePromotions(order.getId())`、同步
+     `OrderTimeoutServiceTest`）。
+  两张卡按批次表都属于 **本批（B05）**——B03 执行 order.md 时会按各卡「执行时机」说明跳过它们，
+  等的就是现在。
+- **改法**: 打开 `work/bugs/order.md`，先定位 `### ORD-A17` 逐字照做（含测试同步），再定位
+  `### ORD-A21` 逐字照做（含测试同步），与 PROMO-14/15 同批一起 verify。
+- **验收**:
+  - `grep -n "releasePromotions" code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java`
+    命中 ≥4 处（1 处方法定义 + 3 处调用点）；
+  - `grep -n "releasePromotions" code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderTimeoutService.java`
+    命中 ≥2 处（1 处方法定义 + 1 处调用点）。
+- **勿犯**: 绝不能因为"这卡指向另一个文件"而跳过——本批的产物断言
+  （artifacts.tsv B05 的两条 `releasePromotions` 行）会核验它，缺了整批按未完成处理。ORD-A21
+  只做券/秒杀释放：积分退还是 B15 的 `loyalty.md` LOY-12（经 order.md ORD-A22 指针），本批
+  loyalty 侧方法还不存在，谁在本批接线谁编译失败。
+---
+
+### PROMO-17 | 满减创建收不下冻结 fixture 的 `threshold`/`reduction` 字段名（隐藏用例必 400）
+
+- 风险: low · 置信度: definite
+- **文件**: `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/dto/FullReductionCreateRequest.java`
+- **现状**: 基线 DTO 的两个金额字段（基线第 18-22 行）只有长字段名与 `@NotNull`，全文件没有任何
+  Jackson 别名注解：
+  ```java
+  @NotNull
+  private BigDecimal thresholdAmount;
+
+  @NotNull
+  private BigDecimal reductionAmount;
+  ```
+  而冻结黑盒 fixture `test-cases/src/test/java/com/ecommerce/blackbox/common/fixture/PromotionFixture.java`
+  的 `createFullReduction(...)`（第 162-165 行）发送的请求体用的是**短字段名**（铁证，逐字引用）：
+  ```java
+  Map<String, Object> body = new LinkedHashMap<>();
+  body.put("name", name);
+  body.put("threshold", threshold);
+  body.put("reduction", reduction);
+  ```
+  控制器 `AdminPromotionController.createFullReduction`（第 53-58 行）以 `@Valid @RequestBody` 绑定该
+  DTO：Jackson 找不到 `threshold`/`reduction` 对应属性 → 两个金额字段绑定后为 null → `@NotNull` 触发
+  `MethodArgumentNotValidException` → 任何经该 fixture 建满减的黑盒用例在第一步就拿到 400
+  （`VALIDATION_FAILED`），后续断言全线失败。公开 24 例恰好没有调用 `createFullReduction`
+  （已核实：该方法在 `test-cases/` 里只有 fixture 定义、无公开用例调用），所以这个断裂只会在更大的
+  非公开用例集上爆发——历史批次因此漏掉它。
+- **期望**: `POST /api/v1/admin/promotions/full-reductions` 必须能接受冻结 fixture 的
+  `{"name","threshold","reduction"}` 形态并成功建活动（201）；同时不得丢弃
+  `thresholdAmount`/`reductionAmount` 长形态与既有响应字段名。`test-cases/` 冻结不可改，修复方向
+  只能是代码侧兼容双形态。依据: `test-cases/.../PromotionFixture.java:162-165`（发送形态即可执行
+  契约）、README（test-cases 不可修改）、`design-docs/10` §3（满减活动 = 门槛 + 减免金额）。
+- **改法**: 给两个金额字段加 `@JsonAlias`（只影响反序列化输入：短名/长名都收；不改字段名，
+  序列化输出保持长名不变）。新增 import：
+  ```java
+  import com.fasterxml.jackson.annotation.JsonAlias;
+  ```
+  字段改为：
+  ```java
+  @NotNull
+  @JsonAlias("threshold")
+  private BigDecimal thresholdAmount;
+
+  @NotNull
+  @JsonAlias("reduction")
+  private BigDecimal reductionAmount;
+  ```
+  只改这一个 DTO 文件；controller/service/实体/单测一概不动。
+- **验收**:
+  - 短形态 `{"name":"满100减10","threshold":100.00,"reduction":10.00}` → 201，活动
+    `thresholdAmount=100.00`、`reductionAmount=10.00`；随后 `POST /api/v1/promotions/calculate`
+    对 `itemTotal>=100` 的请求返回 `fullReductionDiscount=10.00`。
+  - 长形态 `{"name":...,"thresholdAmount":...,"reductionAmount":...}` 照常可用（存量行为不回归）。
+  - 公开 24 例回归全绿（本卡已在参考实现上单卡门禁验证 24/24）。
+- **勿犯**: 不要把字段改名为 `threshold`/`reduction`——那会丢长形态并连带改掉既有输出；也不要用
+  `@JsonProperty("threshold")`——它会同时改写序列化输出且使长名输入失效。`@JsonAlias` 是唯一
+  「两形态都收、输出不变」的改法。
+
+---
+
+### PROMO-18 | `calculate` 响应的 `applicableCoupons` 恒为空列表，从不组装可用券
+
+- 风险: low · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/PromotionCalculationService.java`
+  2. `code/ecommerce-promotion/src/test/java/com/ecommerce/promotion/service/PromotionCalculationServiceTest.java`
+     （同步签名 + 补断言——`calculateCouponDiscount` 改签名是硬编译错误，漏改则 `install -DskipTests`
+     在 test-compile 阶段失败，黑盒 0/24）
+- **现状**（依赖 PROMO-2/3/5/12 已按序落地：`calculate()` 已是满减→券→会员顺序，
+  `calculateCouponDiscount` 已是带 `skuIds` 的 4 参版本、含归属静默跳过与重复 couponId 去重）:
+  基线第 79 行的 `response.setApplicableCoupons(new ArrayList<>());` 原样存活至今——前序所有卡都没
+  组装过这个列表。`PromotionCalculateResponse.ApplicableCoupon` 内部类
+  （`couponId`/`couponCode`/`name`/`discountAmount` 四字段）在响应 DTO 里早已定义齐全，但全仓库
+  没有一处实例化过它；下游 `/cart/estimate`（CART-3 落地后透传 `promoResponse.getApplicableCoupons()`）
+  拿到的因此永远是 `[]`。
+- **期望**: `design-docs/07-购物车服务设计.md` §3 价格预估返回清单第 3 项「优惠券可用列表」——
+  优惠计算/估价响应必须列出本次计算中真实可用的券：**校验通过且折扣 > 0** 的券组装为
+  `ApplicableCoupon`（`couponId` = `UserCoupon.id`、`couponCode` = `UserCoupon.couponCode`、
+  `name` = `CouponTemplate.name`、`discountAmount` = 该券本次折扣额）；无券/全部被静默跳过时保持
+  空列表（`[]` 而非 `null`）。
+- **改法**（三处，都是对既有方法做加法）:
+  1. `calculate()` 的 Step 2 改为——引入收集器并作为新实参传入：
+     ```java
+     // Step 2: coupon discount, based on the full-reduction result. Coupons that
+     // pass validation and actually discount something are collected into the
+     // response's applicable-coupon list (design-docs/07 §3 item 3).
+     List<PromotionCalculateResponse.ApplicableCoupon> applicableCoupons = new ArrayList<>();
+     BigDecimal couponDiscount = calculateCouponDiscount(request.getUserId(),
+             request.getCouponIds(), afterFullReduction, skuIds, applicableCoupons);
+     BigDecimal afterCoupon = MonetaryUtil.subtract(afterFullReduction, couponDiscount);
+     ```
+     响应组装处把 `response.setApplicableCoupons(new ArrayList<>());` 改为
+     `response.setApplicableCoupons(applicableCoupons);`。
+  2. `calculateCouponDiscount` 加第 5 个参数，并在循环尾部把模板提为局部变量、折扣>0 时收集：
+     ```java
+     BigDecimal calculateCouponDiscount(Long userId, List<Long> couponIds,
+                                         BigDecimal currentAmount, List<Long> skuIds,
+                                         List<PromotionCalculateResponse.ApplicableCoupon> applicableCoupons) {
+     ```
+     循环内 `templateOpt` 判空之后改为：
+     ```java
+     CouponTemplate template = templateOpt.get();
+
+     BigDecimal discount = couponService.calculateDiscount(currentAmount, template);
+     totalCouponDiscount = MonetaryUtil.add(totalCouponDiscount, discount);
+
+     if (discount.compareTo(BigDecimal.ZERO) > 0) {
+         PromotionCalculateResponse.ApplicableCoupon applicable =
+                 new PromotionCalculateResponse.ApplicableCoupon();
+         applicable.setCouponId(userCoupon.getId());
+         applicable.setCouponCode(userCoupon.getCouponCode());
+         applicable.setName(template.getName());
+         applicable.setDiscountAmount(discount);
+         applicableCoupons.add(applicable);
+     }
+     ```
+     方法开头的 null/空参数快速返回分支不动（收集器保持空）。方法 javadoc 建议补一句收集语义说明。
+  3. **同步 `PromotionCalculationServiceTest.java`**（3 处）：
+     - `testCalculate_appliesFullReductionThenCouponThenMember` 断言区末尾追加：
+       ```java
+       // The coupon that passed validation with a positive discount is exposed
+       // in applicableCoupons (design-docs/07 §3 item 3 "优惠券可用列表").
+       assertThat(response.getApplicableCoupons()).hasSize(1);
+       PromotionCalculateResponse.ApplicableCoupon applicable = response.getApplicableCoupons().get(0);
+       assertThat(applicable.getCouponId()).isEqualTo(1L);
+       assertThat(applicable.getCouponCode()).isEqualTo("CPN-DISC80");
+       assertThat(applicable.getName()).isEqualTo("80% Off");
+       assertThat(applicable.getDiscountAmount()).isEqualByComparingTo(new BigDecimal("18.00"));
+       ```
+     - `testCalculate_noDiscounts_appliesNone` 断言区末尾追加
+       `assertThat(response.getApplicableCoupons()).isEmpty();`
+     - `CalculateCouponDiscount` 嵌套类里对 4 参方法的直接调用改为 5 参并断言收集器不被污染：
+       ```java
+       List<PromotionCalculateResponse.ApplicableCoupon> applicableCoupons = new ArrayList<>();
+       BigDecimal discount = promotionCalculationService.calculateCouponDiscount(
+               1L, List.of(1L), new BigDecimal("100.00"), List.of(1L), applicableCoupons);
+
+       assertThat(discount).isEqualByComparingTo(BigDecimal.ZERO);
+       // A skipped coupon must not be surfaced as applicable either.
+       assertThat(applicableCoupons).isEmpty();
+       ```
+     该测试文件的 `java.util.ArrayList` / `PromotionCalculateResponse` import 基线已有，不需新增。
+- **验收**:
+  - 领一张 8 折券（`discountValue=0.8`）后 `POST /api/v1/promotions/calculate`（100 元商品）：
+    `applicableCoupons` 恰含 1 项，`couponId`=该 userCouponId、`couponCode` 非空、
+    `discountAmount` 与 `couponDiscount` 一致（本例 18.00：满减 -10 之后的基数 90 × 0.2）。
+  - 不带 `couponIds`、券不属于本人、或折扣计算为 0 → `applicableCoupons == []`。
+  - `/cart/estimate` 带同一 `couponIds` 时响应 `applicableCoupons` 同步非空（CART-3 透传链路）。
+  - `mvn -f code/pom.xml -pl ecommerce-promotion test` 全绿；公开 24 例回归全绿
+    （本卡已在参考实现上单卡门禁验证 24/24）。
+- **勿犯**: 校验失败的券在 `calculate` 语义下依然**抛异常**（PROMO-3 落地的行为，
+  `COUPON_EXPIRED`/`COUPON_THRESHOLD_NOT_MET`/… → 400），本卡不改这一点——「无券/全失败保持空列表」
+  指的是被**静默跳过**的券（非本人 / userCouponId 不存在 / 模板缺失）与零折扣券不入列表，
+  不是把 `CouponValidator` 的异常吞掉变成跳过。也不要在收集处做额外舍入——`discountAmount` 直接用
+  `CouponService.calculateDiscount` 的返回值，舍入口径由 `MonetaryUtil` 统一。
+
+---
+
+### PROMO-19 | 创建入口防护两连：同 SKU 秒杀重复创建应 409；优惠券折扣值缺范围校验
+
+- 风险: low · 置信度: likely
+- **文件**:
+  1. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/SeckillService.java`
+  2. `code/ecommerce-promotion/src/test/java/com/ecommerce/promotion/service/SeckillServiceTest.java`（补 1 个用例）
+  3. `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/CouponTemplateService.java`
+- **现状**（依赖 PROMO-8/11 已落地：`SeckillService` 已有 `validateSeckill(userId, skuId, quantity)`，
+  秒杀探测已接进 `OrderService.createOrder` 主链路）: 两个管理员创建入口都不设防——
+  (a) `SeckillService.create(...)` 只校验时间窗合法就直接 `save`：同一 `skuId` 可以创建任意多个
+  `ACTIVE` 活动。而 `SeckillRepository.findBySkuIdAndStatus` 返回 `Optional<SeckillActivity>`，
+  整条秒杀查询路径建立在「每 SKU 至多一个进行中活动」的隐含唯一性上：一旦出现两行，
+  `validateSeckill` 的这条查询抛 `IncorrectResultSizeDataAccessException`——含该 SKU 的
+  **所有下单请求 500**（不限秒杀单：普通下单的秒杀探测也走这条查询）。
+  (b) `CouponTemplateService.validateCreateRequest` 只查 null 不查数值范围：`DISCOUNT` 券
+  `discountValue=1.5` 时 `CouponService.calculateDiscount` 按 `1 - 1.5 = -0.5` 产出**负折扣**，
+  应付金额不降反升；`AMOUNT_OFF`/`THRESHOLD_OFF` 传 0/负数同理（负立减 = 变相加价）。
+- **期望**: (a) 同 SKU 已存在进行中活动时再次创建 → `ConflictException`（单参构造，
+  code=`CONFLICT`）→ 409（README §7 冻结错误码表 409/CONFLICT），从创建侧守住
+  `design-docs/10` §4 第 1/2 条校验所依赖的查询唯一性。(b) `design-docs/10` §2：`discountValue`
+  是折扣率（8 折 = `0.8`）→ `DISCOUNT` 必须 ∈ (0, 1]；立减/满减券的减免额必须 > 0；违者
+  `ValidationException` → 400。总纲依据 `design-docs/03` §1 金额规则表「优惠金额 | 不得小于 0，
+  不得大于商品金额」。
+- **改法**:
+  1. **`SeckillService.java`**——新增 import `com.ecommerce.common.exception.ConflictException;`，
+     `create` 在时间窗校验之后、`setSoldQuantity(0)` 之前插入查重（`skuId` 判空保护是必须的：
+     `SeckillActivity` 是直接 `@RequestBody` 绑定的实体，`skuId` 可能缺省）：
+     ```java
+     if (activity.getSkuId() != null
+             && seckillRepository.findBySkuIdAndStatus(activity.getSkuId(), "ACTIVE").isPresent()) {
+         throw new ConflictException("同 SKU 已存在进行中的秒杀活动");
+     }
+     ```
+     方法 javadoc 建议补充唯一性依据（`findBySkuIdAndStatus` 的 `Optional` 约定即隐含约束）。
+  2. **`SeckillServiceTest.java`**——新增 import `com.ecommerce.common.exception.ConflictException;`，
+     `Create` 嵌套类补用例（放在既有 `testCreate_invalidTimeRange` 前后均可）：
+     ```java
+     @Test
+     @DisplayName("create: rejects a second ACTIVE activity for the same SKU with 409 CONFLICT")
+     void testCreate_duplicateActiveSku_throwsConflict() {
+         when(seckillRepository.findBySkuIdAndStatus(100L, "ACTIVE"))
+                 .thenReturn(Optional.of(activity));
+
+         SeckillActivity duplicate = new SeckillActivity();
+         duplicate.setName("Second sale for same SKU");
+         duplicate.setSkuId(100L);
+
+         assertThatThrownBy(() -> seckillService.create(duplicate))
+                 .isInstanceOf(ConflictException.class)
+                 .hasFieldOrPropertyWithValue("code", "CONFLICT");
+         verify(seckillRepository, never()).save(any(SeckillActivity.class));
+     }
+     ```
+     既有 create 用例不用改：`findBySkuIdAndStatus` 未打桩时 Mockito 对 `Optional` 返回
+     `Optional.empty()`，查重自然放行（strict-stub 只拦「打桩未用」，不拦「未打桩调用」）。
+  3. **`CouponTemplateService.java`**——新增 import `java.math.BigDecimal;`，
+     `validateCreateRequest` 末尾追加一行 `validateDiscountValueRange(request);`，并新增私有方法：
+     ```java
+     /**
+      * Range-check {@code discountValue} so a mis-configured template can never
+      * produce a negative discount that raises the payable amount (design-docs/03
+      * §1: 优惠金额不得小于 0). Per design-docs/10 §2, for DISCOUNT the value is a
+      * rate (8 折 = 0.8) and must be within (0, 1]; for AMOUNT_OFF/THRESHOLD_OFF
+      * it is the amount taken off and must be positive when present.
+      */
+     private void validateDiscountValueRange(CouponCreateRequest request) {
+         BigDecimal discountValue = request.getDiscountValue();
+         if (discountValue == null) {
+             return;
+         }
+         if (request.getType() == CouponType.DISCOUNT) {
+             if (discountValue.compareTo(BigDecimal.ZERO) <= 0
+                     || discountValue.compareTo(BigDecimal.ONE) > 0) {
+                 throw new ValidationException("discountValue",
+                         "Discount rate must be within (0, 1] for DISCOUNT coupon");
+             }
+         } else if (discountValue.compareTo(BigDecimal.ZERO) <= 0) {
+             throw new ValidationException("discountValue",
+                     "Discount value must be greater than 0 for " + request.getType() + " coupon");
+         }
+     }
+     ```
+- **验收**:
+  - 同 SKU 第二次 `POST /api/v1/admin/promotions/seckill` → 409 且 `code=CONFLICT`；首次创建与
+    不同 SKU 的创建照常 201；冲突时不落库（`save` 不被调用）。
+  - `POST /api/v1/admin/promotions/coupons`：type=DISCOUNT 且 discountValue ∈ {0, -0.2, 1.2} →
+    400 `VALIDATION_FAILED`；`0.8` 照常 201。type=AMOUNT_OFF 且 discountValue=-5 → 400；`10.00` → 201。
+  - `AMOUNT_OFF`/`THRESHOLD_OFF` 不带 `discountValue`（null）时行为与基线一致（计算侧按 0 处理），
+    本卡不新增必填约束。
+  - `mvn -f code/pom.xml -pl ecommerce-promotion test` 全绿；公开 24 例回归全绿
+    （本卡两点已在参考实现上分别单卡门禁验证 24/24）。
+- **勿犯**: 不要动 `validateSeckill` 上 PROMO-11 加的 `noRollbackFor`（防事务毒化的关键）；查重
+  必须带 `skuId != null` 保护；`ConflictException` 用**单参构造**（code 固定 `CONFLICT`），别传
+  自定义 code。(b) 不要把 `AMOUNT_OFF` 的 `discountValue` 顺手改成必填——基线允许 null（折扣按 0
+  处理），加必填会缩小既有可通过请求面，超出「防负值」的最小修复。

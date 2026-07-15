@@ -111,6 +111,7 @@ public class LocalNotificationServiceImpl implements LocalNotificationService {
                     request.getReceiver(),
                     request.getChannel(),
                     request.getTemplateCode(),
+                    request.getIdempotencyKey(),
                     e.getMessage());
         }
     }

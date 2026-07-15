@@ -9,6 +9,7 @@ import com.ecommerce.common.notification.LocalNotificationService;
 import com.ecommerce.common.notification.NotificationChannel;
 import com.ecommerce.common.notification.NotificationRequest;
 import com.ecommerce.common.test.RuntimeConfigRegistry;
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.payment.dto.InvoiceRequest;
 import com.ecommerce.payment.dto.InvoiceResponse;
 import com.ecommerce.payment.entity.InvoiceRecord;
@@ -23,7 +24,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -141,7 +141,8 @@ public class InvoiceService {
         invoice.setInvoiceTitle(request.getInvoiceTitle());
         invoice.setTaxId(request.getTaxId());
         invoice.setStatus(InvoiceStatus.ISSUED);
-        invoice.setIssuedAt(LocalDateTime.now());
+        // Test-support system clock: equals the real system time unless shifted.
+        invoice.setIssuedAt(SystemClockService.now());
         invoice.setInvoiceRequestNo(request.getInvoiceRequestNo());
 
         invoice = invoiceRecordRepository.save(invoice);

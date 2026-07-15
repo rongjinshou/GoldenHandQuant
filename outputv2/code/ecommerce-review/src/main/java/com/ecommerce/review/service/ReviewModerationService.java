@@ -4,6 +4,7 @@ import com.ecommerce.common.event.DomainEventPublisher;
 import com.ecommerce.common.event.ReviewApprovedEvent;
 import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
+import com.ecommerce.common.test.SystemClockService;
 import com.ecommerce.review.entity.Review;
 import com.ecommerce.review.entity.ReviewStatus;
 import com.ecommerce.review.repository.ReviewRepository;
@@ -12,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -52,7 +52,7 @@ public class ReviewModerationService {
 
         review.setStatus(ReviewStatus.APPROVED);
         review.setReviewedBy(adminId);
-        review.setReviewedAt(LocalDateTime.now());
+        review.setReviewedAt(SystemClockService.now());
         if (reviewerNote != null && !reviewerNote.isBlank()) {
             review.setReviewerResponse(reviewerNote);
         }
@@ -87,7 +87,7 @@ public class ReviewModerationService {
 
         review.setStatus(ReviewStatus.REJECTED);
         review.setReviewedBy(adminId);
-        review.setReviewedAt(LocalDateTime.now());
+        review.setReviewedAt(SystemClockService.now());
         review.setReviewerResponse(reviewerNote);
         reviewRepository.save(review);
 

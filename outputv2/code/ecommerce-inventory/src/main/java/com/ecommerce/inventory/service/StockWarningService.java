@@ -30,19 +30,18 @@ public class StockWarningService {
     }
 
     /**
-     * Returns all current low-stock warnings, combining two sources so that
-     * GET /api/v1/admin/inventory/warnings (frozen contract) is meaningful on
-     * its own:
+     * Returns all current low-stock warnings, combining two sources:
      *
      * <ol>
      *   <li>Rule-based: {@link StockWarningRule} rows set via the separate,
      *       non-contracted {@code POST .../warnings/rule} endpoint. Kept working
      *       as-is — additive, not replaced.</li>
      *   <li>Column-based: each {@link InventoryStock} row's own
-     *       {@code warningThreshold} (design-docs/附录C inventory_stock.warning_threshold),
-     *       which is defaulted at inbound time (see {@link InventoryService#inbound}),
-     *       so warnings are reachable through the frozen inbound+warnings endpoints
-     *       alone, without first calling the rule endpoint.</li>
+     *       {@code warningThreshold} (design-docs/附录C inventory_stock.warning_threshold).
+     *       Nothing in the frozen contract writes this column and inbound leaves it
+     *       at the schema default 0, so this branch is naturally dormant (guarded by
+     *       {@code > 0} below) unless data sets the column directly. With no rules
+     *       and no column values, the endpoint correctly returns an empty list.</li>
      * </ol>
      *
      * <p>A given (warehouseId, skuId) row is only reported once even if it
