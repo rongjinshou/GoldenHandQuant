@@ -7,7 +7,8 @@
 第四轮契约复核（wave-1B）3 张（ORD-A18/A19/A20，覆盖 5 处独立修复，全部已通过公开 24 例逐项门禁），
 再加 round-15 的 ORD-A23（时钟成套 + orderNo 日期段 + 兑换率接配置 + ORDER_CREATED receiver，
 附 payable 钳位决策留档，已实施并逐项门禁 24/0/0），
-合计 **31 张卡片**（含后补的取消释放接线卡 ORD-A17/ORD-A21——两张的「执行时机」都随 B05 落地、
+合计 **31 张卡片**（含后补的取消释放接线卡 ORD-A17/ORD-A21——两张的完整正文已内嵌到 `promotion.md`
+PROMO-16，本文件原位只留墓碑；它们随 B05 落地、
 经 promotion.md PROMO-16 指针触达——和指向 loyalty.md LOY-12 的积分退还指针卡 ORD-A22，其实体
 随 B15 落地），分两个执行批次：
 
@@ -751,104 +752,11 @@
 
 ### ORD-A17 | 订单取消成功路径只释放库存，从不归还优惠券/秒杀名额（接线卡）
 
-- 风险: low · 置信度: definite
-- **执行时机（先读这条再动手）**: 本卡调用的 `couponService.releaseForOrder(...)` /
-  `seckillService.releaseForOrder(...)` 是 `promotion.md` PROMO-14/PROMO-15（批次 B05）新增的方法。
-  按批次表顺序（B03 早于 B05）执行到本文件时**这两个方法还不存在，先跳过本卡**，等执行 B05 批次时
-  把本卡与 PROMO-14/15 **同批一起落地、一起 verify**（若 B03 阶段就单独应用本卡，
-  `ecommerce-order` 编译不过、`mvn install -DskipTests` 失败，黑盒 0/24）。本卡编号留在 §A 只因
-  它改的是 order 模块文件；其产物断言在 `artifacts.tsv` 里也登记为 B05。
-- **文件**:
-  1. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java`
-  2. （同步测试）`code/ecommerce-order/src/test/java/com/ecommerce/order/service/OrderCancelServiceTest.java`
-- **现状**: 基线 `OrderCancelService` 的取消成功路径——`cancelCreatedOrder(...)`（基线第 110 行起，
-  内有 `inventoryReservationService.release(order.getId())`）、`cancelPayingOrder(...)`（基线第
-  143 行起）、`reviewCancel(...)` 审核通过分支（基线第 201 行起，内有
-  `inventoryReservationService.release(orderId)`）——只释放**库存**，从不通知 promotion 模块归还
-  券/秒杀名额；构造函数注入的 5 个协作者里没有任何 promotion 服务。ORD-A5/ORD-A7 落地后该文件的
-  PAID 分支改走 `requestPaidOrderCancelReview`（只进 `CANCEL_REVIEWING`，不释放任何资源——那是
-  对的，本卡不碰它）、5 处状态冲突换成了 `ConflictException`，但三条成功路径依旧没有券/名额释放。
-  于是（配合 PROMO-4/8/13 的消费侧）出现单向棘轮：下单即消费券和秒杀名额，取消却永不归还。
-- **期望**: 每条**真正到达 `CANCELLED`** 的路径（CREATED 直接取消、PAYING 取消、CANCEL_REVIEWING
-  审核通过）都调用 PROMO-14/15 的 `releaseForOrder(orderId)` 归还券与秒杀名额；释放是 best-effort
-  ——失败只记日志，绝不阻断取消本身（与同方法里既有的库存释放 try/catch 模式一致；精神同
-  design-docs/03 §8"监听器失败……不得回滚主事务"）。依据: design-docs/08 §6（取消规则表：取消
-  须释放订单占用的资源）+ PROMO-14/15 卡「期望」引用的 10 §2/§4 条款。来源：`findings.md`
-  「已识别但因时间/风险预算未实施」条目"优惠券/秒杀名额在订单取消后从未释放"的 order 侧接线。
-- **改法**:
-  1. 加 import（order 模块 pom 已依赖 ecommerce-promotion，`OrderService` 里早有同款注入，
-     不需要动任何 pom）：
-     ```java
-     import com.ecommerce.promotion.service.CouponService;
-     import com.ecommerce.promotion.service.SeckillService;
-     ```
-  2. 构造注入两个 promotion 领域服务（字段区加两个 `private final`，构造函数参数列表末尾追加
-     `CouponService couponService, SeckillService seckillService` 并赋值——增量追加，别整段替换
-     覆盖既有参数）。
-  3. 类末尾（`reviewCancel` 之后）新增私有帮助方法，两段**独立** try/catch：
-     ```java
-     /**
-      * Give back the coupons and the seckill allocation consumed by an order
-      * once its cancellation has succeeded (mirrors the consumption side,
-      * {@code OrderService} Step 10b). Both calls are best-effort: a release
-      * failure is logged and swallowed — it must never block the cancellation
-      * itself (design-docs/03: post-actions must not fail the main flow),
-      * exactly like the inventory release above. Only invoked on paths that
-      * actually reach CANCELLED — a PAID order entering CANCEL_REVIEWING keeps
-      * its coupons/allocation until the review is approved.
-      */
-     private void releasePromotions(Long orderId) {
-         try {
-             couponService.releaseForOrder(orderId);
-         } catch (Exception e) {
-             log.warn("Failed to release coupons for cancelled order {}: {}", orderId, e.getMessage());
-         }
-         try {
-             seckillService.releaseForOrder(orderId);
-         } catch (Exception e) {
-             log.warn("Failed to release seckill allocation for cancelled order {}: {}",
-                     orderId, e.getMessage());
-         }
-     }
-     ```
-  4. 三个调用点（都在订单已持久化为目标状态之后）：
-     - `cancelCreatedOrder(...)`：库存释放 try/catch 之后、`orderService.recordEvent(...)` 之前，加
-       ```java
-       // Give back coupons and seckill allocation consumed by this order
-       releasePromotions(order.getId());
-       ```
-     - `cancelPayingOrder(...)`：`orderRepository.save(order)` 之后、`recordEvent` 之前，加同样两行；
-     - `reviewCancel(...)` 的 `approved` 分支：库存释放 try/catch 之后、`recordEvent` 之前，加
-       `releasePromotions(orderId);`（形参本来就叫 `orderId`）。
-     `requestPaidOrderCancelReview` 与 `reviewCancel` 的驳回分支**不加**。
-  5. **`OrderCancelServiceTest.java`** 同步：
-     - 加 import `com.ecommerce.promotion.service.CouponService`/`SeckillService` 与
-       `static org.mockito.Mockito.doThrow`；`@Mock` 字段区加
-       `@Mock private CouponService couponService;`、`@Mock private SeckillService seckillService;`
-       （`@InjectMocks` 构造注入自动接上，缺了这两个 mock 会注入 null）；
-     - 既有 `testCancel_paidOrder_movesToCancelReviewing` 末尾加
-       `verify(couponService, never()).releaseForOrder(anyLong());` 与 seckill 同款断言
-       （审核前不许释放）；既有 `testReviewCancel_approve` 末尾加
-       `verify(couponService).releaseForOrder(10L);`、`verify(seckillService).releaseForOrder(10L);`；
-     - 新增三个用例：CREATED 取消 → 两个 `releaseForOrder(1L)` 各被调用一次；PAYING 取消（内联
-       fixture，`status=PAYING`）→ 响应 `CANCELLED` 且两个 `releaseForOrder(5L)` 被调用；
-       `doThrow(new RuntimeException("release boom")).when(couponService).releaseForOrder(1L)` 时
-       取消 CREATED 单**仍然成功**（响应 `CANCELLED`），且 `verify(seckillService).releaseForOrder(1L)`
-       （前一段失败不影响后一段）。
-- **验收**:
-  - 单测：`OrderCancelServiceTest` 全绿，覆盖"三条成功路径都释放、CANCEL_REVIEWING 阶段不释放、
-    释放失败不阻断取消"。
-  - 端到端：见 PROMO-14/15 的端到端验收（券回 `AVAILABLE`、`soldQuantity` 回落）；对 PAID 单仅发起
-    取消申请（进入 `CANCEL_REVIEWING`）后查券，状态仍是 `USED`；管理员审核**驳回**后券仍是 `USED`
-    （订单回到 PAID，资源保留）。
-  - 公开 24 例回归全绿。
-- **勿犯**: 不要在 `requestPaidOrderCancelReview`（PAID→CANCEL_REVIEWING）里释放——券/名额和库存
-  一样要等审核通过才归还，驳回时订单回到 PAID、资源必须原样保留（ORD-A5「勿犯」的镜像）。不要把
-  `releasePromotions` 的 try/catch 去掉或把异常往外抛——释放失败只 `log.warn`，绝不能让取消接口
-  500。不要把两段 try/catch 合并成一段——券释放失败不应连累秒杀释放。超时自动取消路径**不在本卡范围**（本卡只覆盖
-  `OrderCancelService` 的三条路径）——`OrderTimeoutService` 的同款释放由后补的 **ORD-A21** 单独
-  落卡（与本卡同批 B05 执行，见该卡），不要在本卡里顺手改它；`OrderLifecycleService` 依旧是
-  头部红线里的死服务，任何卡都不得接线。
+- **本卡不在 B03 执行，完整内容已内嵌于 `promotion.md` 的 PROMO-16（批次 B05）。**
+  它调用的 `couponService.releaseForOrder(...)` / `seckillService.releaseForOrder(...)` 是
+  PROMO-14/15（B05）新增的方法，B03 阶段这两个方法还不存在——**执行 B03 时直接跳过本卡**
+  （若在 B03 单独应用，`ecommerce-order` 编译不过、黑盒 0/24）。其产物断言在 artifacts.tsv
+  里登记为 B05，由 B05 的 PROMO-16 落地并核验。本条目仅保留卡号供其他卡片引用定位。
 
 ---
 
@@ -1018,107 +926,10 @@
 
 ### ORD-A21 | 超时取消只释放库存，从不归还优惠券/秒杀名额（接线卡）
 
-- 风险: low · 置信度: definite
-- **执行时机（先读这条再动手）**: 同 ORD-A17——本卡调用的 `couponService.releaseForOrder(...)` /
-  `seckillService.releaseForOrder(...)` 是 `promotion.md` PROMO-14/PROMO-15（批次 B05）新增的方法。
-  按批次表顺序（B03 早于 B05）执行到本文件时**这两个方法还不存在，先跳过本卡**，等执行 B05 批次时
-  经 PROMO-16 指针把本卡与 ORD-A17、PROMO-14/15 **同批一起落地、一起 verify**（若 B03 阶段就单独
-  应用本卡，`ecommerce-order` 编译不过、黑盒 0/24）。本卡编号留在 §A 只因它改的是 order 模块文件；
-  其产物断言在 `artifacts.tsv` 里也登记为 B05。
-- **文件**:
-  1. `code/ecommerce-order/src/main/java/com/ecommerce/order/service/OrderTimeoutService.java`
-  2. （同步测试）`code/ecommerce-order/src/test/java/com/ecommerce/order/service/OrderTimeoutServiceTest.java`
-- **现状**: ORD-A10 落地后 `OrderTimeoutService.cancelExpiredOrder(...)` 已经会
-  `inventoryReservationService.release(order.getId())` 释放预占库存，但与 ORD-A17 修复前的
-  `OrderCancelService` 一样从不通知 promotion 模块。超时取消是**第四条真正到达 CANCELLED 的路径**
-  （前三条见 ORD-A17），漏掉它就是资源单向棘轮的最后一个缺口：用户下单占住券/秒杀名额后弃单不付，
-  60 分钟后系统自动取消，库存回来了，券和名额永远回不来。
-- **期望**: 超时取消与用户取消同样归还订单占用的资源。依据: design-docs/08 §5（超时"系统自动取消
-  订单并释放预占库存"）+ 08 §6 取消释放资源原则 + PROMO-14/15「期望」引用的 10 §2/§4 条款（与
-  ORD-A17 完全同源）。释放 best-effort：失败只记日志，绝不阻断取消本身。
-- **改法**:
-  1. 加 import（order 模块 pom 已依赖 ecommerce-promotion，不用动 pom）：
-     ```java
-     import com.ecommerce.promotion.service.CouponService;
-     import com.ecommerce.promotion.service.SeckillService;
-     ```
-  2. 字段区加两个 `private final`（`CouponService couponService;`、`SeckillService seckillService;`），
-     构造函数参数列表末尾**增量追加**同名参数并赋值——别整段替换覆盖既有参数。
-  3. `cancelExpiredOrder(...)` 里，`inventoryReservationService.release(order.getId());` 之后、
-     `orderService.recordEvent(...)` 之前，插入：
-     ```java
-     // Give back coupons and seckill allocation consumed by this order —
-     // a timeout cancellation returns the order's resources exactly like a
-     // user-requested cancellation (OrderCancelService) does.
-     releasePromotions(order.getId());
-     ```
-  4. 类末尾新增私有帮助方法（与 ORD-A17 的同名方法仅 javadoc/日志文案不同，两段**独立** try/catch）：
-     ```java
-     /**
-      * Give back the coupons and the seckill allocation consumed by an expired
-      * order once its timeout cancellation has succeeded (mirrors the
-      * consumption side, {@code OrderService} Step 10b, and the same helper in
-      * {@code OrderCancelService}). Both calls are best-effort: a release
-      * failure is logged and swallowed — it must never block the cancellation
-      * itself (design-docs/03: post-actions must not fail the main flow).
-      */
-     private void releasePromotions(Long orderId) {
-         try {
-             couponService.releaseForOrder(orderId);
-         } catch (Exception e) {
-             log.warn("Failed to release coupons for expired order {}: {}", orderId, e.getMessage());
-         }
-         try {
-             seckillService.releaseForOrder(orderId);
-         } catch (Exception e) {
-             log.warn("Failed to release seckill allocation for expired order {}: {}",
-                     orderId, e.getMessage());
-         }
-     }
-     ```
-  5. **`OrderTimeoutServiceTest.java`** 同步：
-     - 加 import `com.ecommerce.promotion.service.CouponService`/`SeckillService` 与
-       `static org.mockito.Mockito.doThrow`；`@Mock` 字段区加
-       `@Mock private CouponService couponService;`、`@Mock private SeckillService seckillService;`
-       （`@InjectMocks` 构造注入自动接上；缺了这两个 mock 会注入 `null`，helper 里的 NPE 会被
-       try/catch 吞掉，测试静默变弱）。
-     - 新增两个用例（B15 的 LOY-12 之后会把它们扩成含积分退还断言的终态，见该卡；本批先按下面写）：
-       ```java
-       @Test
-       @DisplayName("timeout gives back coupons and seckill allocation")
-       void testCancelExpiredOrder_releasesPromotionsAndRefundsPoints() {
-           orderTimeoutService.cancelExpiredOrder(expiredOrder);
-
-           verify(couponService).releaseForOrder(1L);
-           verify(seckillService).releaseForOrder(1L);
-       }
-
-       @Test
-       @DisplayName("timeout release failures are swallowed and never block the cancellation")
-       void testCancelExpiredOrder_releaseFailureDoesNotBlockCancel() {
-           doThrow(new RuntimeException("release boom")).when(couponService).releaseForOrder(1L);
-
-           orderTimeoutService.cancelExpiredOrder(expiredOrder);
-
-           assertThat(expiredOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
-           verify(seckillService).releaseForOrder(1L);
-           verify(orderService).recordEvent(eq(1L), eq(OrderStatus.CREATED), eq(OrderStatus.CANCELLED),
-                   eq("TIMEOUT_CANCEL"), eq("SYSTEM"), anyString());
-           verify(eventPublisher).publish(any(com.ecommerce.order.event.OrderCancelledEvent.class));
-       }
-       ```
-- **验收**:
-  - 单测：`OrderTimeoutServiceTest` 全绿——超时取消调用两个 `releaseForOrder(1L)`；券释放抛异常时
-    取消仍完成（状态 CANCELLED、事件照记照发、秒杀释放照跑）。
-  - `grep -n "releasePromotions" OrderTimeoutService.java` 命中 ≥2 处（1 定义 + 1 调用）。
-  - 端到端：用券+秒杀下单后不支付，`POST /api/v1/admin/orders/timeout-cancel`（时钟拨过期后）触发
-    超时取消 → 券回 `AVAILABLE`、`soldQuantity` 回落（同 PROMO-14/15 的端到端验收）。
-  - 公开 24 例回归全绿。
-- **勿犯**: 不要把 try/catch 去掉或把异常往外抛——`cancelExpiredOrders` 的循环虽有外层 catch，但
-  释放失败若中断本方法，事件记录/发布会被跳过。不要把两段 try/catch 合并成一段——券释放失败不应
-  连累秒杀释放。**只做券/秒杀释放**：积分退还的两行是 B15 `loyalty.md` LOY-12 的事（本批 loyalty
-  侧 `refundPointsForOrder` 还不存在，现在接线必编译失败）。照旧不得接线 `OrderLifecycleService`
-  等头部红线死服务。
+- **本卡不在 B03 执行，完整内容已内嵌于 `promotion.md` 的 PROMO-16（批次 B05）。**
+  同 ORD-A17：依赖 PROMO-14/15（B05）新增的 `releaseForOrder(...)`，B03 阶段方法不存在
+  ——**执行 B03 时直接跳过本卡**。其产物断言在 artifacts.tsv 里登记为 B05，由 B05 的
+  PROMO-16 落地并核验。本条目仅保留卡号供其他卡片引用定位。
 
 ---
 

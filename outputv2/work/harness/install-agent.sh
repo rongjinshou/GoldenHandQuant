@@ -16,12 +16,14 @@ grep -q "$(printf '\r')" "$0" 2>/dev/null && { _t="${TMPDIR:-/tmp}/lf$$-$(basena
 # work/skills/bug-fixer/SKILL.md 的规范自行执行每批修复（该文件始终可读）。
 # 注意：OpenCode 只在启动时加载 agent 清单（不热加载），注册对之后新启动的会话生效。
 #
-# 用法：bash work/harness/install-agent.sh [ROOT]   # ROOT 省略 = 当前工作目录
+# 用法：bash work/harness/install-agent.sh [ROOT]   # ROOT 省略 = 从本脚本路径反推作品根
 set -uo pipefail
 
-ROOT="${1:-$PWD}"
 # 优先用 CRLF 自愈序言传下来的原目录（自愈后 $0 是临时副本，dirname 会指错地方）
 SCRIPT_DIR="${_SRC_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+# ROOT 省略时**不能**退回 $PWD：平台的工作目录是多作品共用的全局根，在那里建 .opencode/
+# 会踩第 ⓪ 步红线并与并发作品互相覆盖。本脚本恒在 <R>/work/harness/ 下，故上溯两级即 R。
+ROOT="${1:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 SRC="$SCRIPT_DIR/../skills/bug-fixer/SKILL.md"
 [ -f "$SRC" ] || { echo "错误：找不到 $SRC"; exit 2; }
 
