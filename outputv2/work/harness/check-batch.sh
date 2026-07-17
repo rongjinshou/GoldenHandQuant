@@ -45,7 +45,7 @@ while IFS=$'\t' read -r B T P A; do
     # 万一整包被转成 CRLF，行尾 \r 会黏在最后一个字段上）
     B="${B%$'\r'}"; T="${T%$'\r'}"; P="${P%$'\r'}"; A="${A%$'\r'}"
     case "$B" in ''|'#'*) continue ;; esac      # 跳过空行与注释行
-    [ "$B" = "$BATCH" ] || continue             # 只核验目标批次的条目
+    [ "${B^^}" = "$BATCH" ] || continue         # 只核验目标批次的条目（两侧归一大写：B05b 等带小写后缀的拆分批也能命中）
     TOTAL=$((TOTAL+1))
     F="$TARGET_ROOT/code/$P"
     OK=1

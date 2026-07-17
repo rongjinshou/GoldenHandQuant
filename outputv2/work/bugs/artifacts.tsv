@@ -165,12 +165,12 @@ B05	grep	ecommerce-promotion/pom.xml	spring-security-core
 # 后补·取消释放专项（PROMO-14/PROMO-15/ORD-A17，卡见 promotion.md 末尾 / order.md §A 末尾）：
 # ORD-A17 改的是 order 模块文件，但依赖 PROMO-14/15 新增的 releaseForOrder，按卡内「执行时机」
 # 随 B05 一并应用，故其断言登记在 B05 而非 B03。
-B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/CouponService.java	public void releaseForOrder(Long orderId)
-B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/SeckillService.java	public void releaseForOrder(Long orderId)
-B05	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java	releasePromotions(order.getId());
+B05b	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/CouponService.java	public void releaseForOrder(Long orderId)
+B05b	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/SeckillService.java	public void releaseForOrder(Long orderId)
+B05b	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java	releasePromotions(order.getId());
 B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/dto/FullReductionCreateRequest.java	@JsonAlias("threshold")
 B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/PromotionCalculationService.java	new PromotionCalculateResponse.ApplicableCoupon()
-B05	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderTimeoutService.java	releasePromotions
+B05b	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderTimeoutService.java	releasePromotions
 B05	exists	ecommerce-promotion/src/main/java/com/ecommerce/promotion/dto/SeckillActivityDto.java
 B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/service/SeckillService.java	public SeckillActivityDto validateSeckill(
 B05	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java	SeckillActivityDto

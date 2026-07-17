@@ -7,8 +7,8 @@
 第四轮契约复核（wave-1B）3 张（ORD-A18/A19/A20，覆盖 5 处独立修复，全部已通过公开 24 例逐项门禁），
 再加 round-15 的 ORD-A23（时钟成套 + orderNo 日期段 + 兑换率接配置 + ORDER_CREATED receiver，
 附 payable 钳位决策留档，已实施并逐项门禁 24/0/0），
-合计 **31 张卡片**（含后补的取消释放接线卡 ORD-A17/ORD-A21——两张的完整正文已内嵌到 `promotion.md`
-PROMO-16，本文件原位只留墓碑；它们随 B05 落地、
+合计 **31 张卡片**（含后补的取消释放接线卡 ORD-A17/ORD-A21——两张的完整正文已内嵌到 `promotion-release.md`
+PROMO-16，本文件原位只留墓碑；它们随 B05b 落地、
 经 promotion.md PROMO-16 指针触达——和指向 loyalty.md LOY-12 的积分退还指针卡 ORD-A22，其实体
 随 B15 落地），分两个执行批次：
 
@@ -42,7 +42,7 @@ PROMO-16，本文件原位只留墓碑；它们随 B05 落地、
   和这些代码不会插在同一行。
 - `OrderService.java` / `OrderCancelService.java` / `OrderTimeoutService.java`：订单取消（含超时）
   后的**积分退还**接线、以及 `redeemPoints(...)` 调用追加第 4 个实参 `orderId`，属于 `loyalty.md`
-  LOY-12（批次 B15，经本文件 ORD-A22 指针防漏）的范围。B03/B04/B05 改到这三个文件时若看到
+  LOY-12（批次 B15，经本文件 ORD-A22 指针防漏）的范围。B03/B04/B05/B05b 改到这三个文件时若看到
   `loyaltyCommandService.refundPointsForOrder(...)` / `refundLoyaltyPoints(...)` 相关代码已存在，
   不要因为卡片里没提到就删除；不存在也不用补——那是 B15 的事。
 - `OrderQueryServiceImpl.java`：真正往 logistics/loyalty 广播"订单已支付"这件事，需要在 `markAsPaid`
@@ -752,11 +752,11 @@ PROMO-16，本文件原位只留墓碑；它们随 B05 落地、
 
 ### ORD-A17 | 订单取消成功路径只释放库存，从不归还优惠券/秒杀名额（接线卡）
 
-- **本卡不在 B03 执行，完整内容已内嵌于 `promotion.md` 的 PROMO-16（批次 B05）。**
+- **本卡不在 B03 执行，完整内容已内嵌于 `promotion-release.md` 的 PROMO-16（批次 B05b）。**
   它调用的 `couponService.releaseForOrder(...)` / `seckillService.releaseForOrder(...)` 是
-  PROMO-14/15（B05）新增的方法，B03 阶段这两个方法还不存在——**执行 B03 时直接跳过本卡**
+  PROMO-14/15（B05b）新增的方法，B03 阶段这两个方法还不存在——**执行 B03 时直接跳过本卡**
   （若在 B03 单独应用，`ecommerce-order` 编译不过、黑盒 0/24）。其产物断言在 artifacts.tsv
-  里登记为 B05，由 B05 的 PROMO-16 落地并核验。本条目仅保留卡号供其他卡片引用定位。
+  里登记为 B05b，由 B05b 的 PROMO-16 落地并核验。本条目仅保留卡号供其他卡片引用定位。
 
 ---
 
@@ -926,9 +926,9 @@ PROMO-16，本文件原位只留墓碑；它们随 B05 落地、
 
 ### ORD-A21 | 超时取消只释放库存，从不归还优惠券/秒杀名额（接线卡）
 
-- **本卡不在 B03 执行，完整内容已内嵌于 `promotion.md` 的 PROMO-16（批次 B05）。**
-  同 ORD-A17：依赖 PROMO-14/15（B05）新增的 `releaseForOrder(...)`，B03 阶段方法不存在
-  ——**执行 B03 时直接跳过本卡**。其产物断言在 artifacts.tsv 里登记为 B05，由 B05 的
+- **本卡不在 B03 执行，完整内容已内嵌于 `promotion-release.md` 的 PROMO-16（批次 B05b）。**
+  同 ORD-A17：依赖 PROMO-14/15（B05b）新增的 `releaseForOrder(...)`，B03 阶段方法不存在
+  ——**执行 B03 时直接跳过本卡**。其产物断言在 artifacts.tsv 里登记为 B05b，由 B05b 的
   PROMO-16 落地并核验。本条目仅保留卡号供其他卡片引用定位。
 
 ---
@@ -939,7 +939,7 @@ PROMO-16，本文件原位只留墓碑；它们随 B05 落地、
 - **本卡不含改法**：订单取消（用户取消 CREATED/PAYING、商家审核通过、超时自动取消）后退还下单时
   已抵扣的积分，需要 loyalty 侧先新增 `LoyaltyCommandService.refundPointsForOrder(...)`（批次 B15
   才落地）。order 侧接线代码若在本批（B03）就应用，`ecommerce-order` 引用不存在的方法，编译不过、
-  黑盒 0/24——这与 ORD-A17/PROMO-16 的时序问题同型但方向相反（那次是 order 等 promotion 的 B05，
+  黑盒 0/24——这与 ORD-A17/PROMO-16 的时序问题同型但方向相反（那次是 order 等 promotion 的 B05b，
   这次是 order 等 loyalty 的 B15）。因此**全部改动（loyalty 新方法 + REFUND 流水 + order 侧
   `OrderService`/`OrderCancelService`/`OrderTimeoutService` 接线 + 三个测试文件同步）都写在
   `work/bugs/loyalty.md` 的 `### LOY-12`**，随 B15 批次整体执行。
