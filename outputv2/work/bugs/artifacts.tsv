@@ -196,6 +196,10 @@ B02	grep	ecommerce-user/src/main/java/com/ecommerce/user/service/UserRegisterSer
 # USER-8 随 B02、CART-6 随 B10。INV-6 round-15 撤销自造阈值不涉及任何既有断言（B09 三条均无关）。
 # 四条均已双向验证：终态命中、未修复基线（1b1e88f / 评测机 judge-assets code）不命中。
 B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderQueryServiceImpl.java	SystemClockService
+B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderCancelService.java	SystemClockService.now()
+B03	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java	SystemClockService.now().toLocalDate()
 B02	grep	ecommerce-user/src/main/java/com/ecommerce/user/repository/UserRepository.java	findFirstByNicknameOrderByIdAsc
 B10	grep	ecommerce-cart/src/main/java/com/ecommerce/cart/cache/CartCacheManager.java	cart.ttl-days
 B04	grep	ecommerce-order/src/main/java/com/ecommerce/order/service/OrderService.java	loyalty.redeem-rate
+B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/dto/PromotionCalculateResponse.java	getDiscountAmountAlias
+B05	grep	ecommerce-promotion/src/main/java/com/ecommerce/promotion/dto/PromotionCalculateResponse.java	getOriginalAmountAlias

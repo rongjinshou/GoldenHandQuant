@@ -1622,10 +1622,16 @@
        // Give back coupons and seckill allocation consumed by this order
        releasePromotions(order.getId());
        ```
-     - `cancelPayingOrder(...)`：`orderRepository.save(order)` 之后、`recordEvent` 之前，加同样两行；
+     - `cancelPayingOrder(...)`：`orderRepository.save(order)` 之后、`recordEvent` 之前，加（**此路径三判最易被漏，勿用"同上"略写，必须贴字面代码**）：
+       ```java
+       // Give back coupons and seckill allocation consumed by this order
+       releasePromotions(order.getId());
+       ```
      - `reviewCancel(...)` 的 `approved` 分支：库存释放 try/catch 之后、`recordEvent` 之前，加
        `releasePromotions(orderId);`（形参本来就叫 `orderId`）。
      `requestPaidOrderCancelReview` 与 `reviewCancel` 的驳回分支**不加**。
+     **落地自检**：`grep -c "releasePromotions(" OrderCancelService.java` 必须 == 4（1 处方法定义
+     + 3 处调用 cancelCreatedOrder/cancelPayingOrder/reviewCancel-approved）；< 4 说明漏了路径，补齐再 verify。
   5. **`OrderCancelServiceTest.java`** 同步：
      - 加 import `com.ecommerce.promotion.service.CouponService`/`SeckillService` 与
        `static org.mockito.Mockito.doThrow`；`@Mock` 字段区加
@@ -2014,3 +2020,23 @@
   必须带 `skuId != null` 保护；`ConflictException` 用**单参构造**（code 固定 `CONFLICT`），别传
   自定义 code。(b) 不要把 `AMOUNT_OFF` 的 `discountValue` 顺手改成必填——基线允许 null（折扣按 0
   处理），加必填会缩小既有可通过请求面，超出「防负值」的最小修复。
+
+
+### PROMO-20 | `calculate` 响应顶层缺 `discountAmount`/`originalAmount`，冻结夹具读到默认 0
+
+- 风险: low · 置信度: definite
+- **文件**: `code/ecommerce-promotion/src/main/java/com/ecommerce/promotion/dto/PromotionCalculateResponse.java`
+- **现状**: 顶层字段为 `itemTotal`/`fullReductionDiscount`/`couponDiscount`/`memberDiscount`/`totalDiscount`/`finalAmount`。优惠总额叫 `totalDiscount`、原价叫 `itemTotal`；顶层无 `discountAmount`/`originalAmount`（`discountAmount` 只存在于内部类 `ApplicableCoupon`）。
+- **期望**: 冻结评测夹具 `PromotionFixture.parsePromotionCalculationResult()`（`test-cases/.../fixture/PromotionFixture.java`）读响应顶层三个字段 `discountAmount`、`finalAmount`、`originalAmount`。`finalAmount` 已对；`discountAmount`/`originalAmount` 读到默认 `0`——任何走 `calculatePromotion(...)` 并断言这两字段的隐藏用例必失败。与 LOY-13（estimate 补 `deductedAmount`/`redeemPoints` 别名）、PROMO-18（补 `applicableCoupons`）同属"响应字段对齐冻结夹具"。
+- **改法**: 给 `PromotionCalculateResponse` 加两个 Jackson 别名 getter（保留原字段不动，响应体同时输出原名与别名）：
+  ```java
+  @com.fasterxml.jackson.annotation.JsonProperty("discountAmount")
+  public java.math.BigDecimal getDiscountAmountAlias() { return totalDiscount; }
+
+  @com.fasterxml.jackson.annotation.JsonProperty("originalAmount")
+  public java.math.BigDecimal getOriginalAmountAlias() { return itemTotal; }
+  ```
+- **验收**: `POST /api/v1/promotions/calculate` 响应顶层含 `discountAmount`（值 == `totalDiscount`）与 `originalAmount`（值 == `itemTotal`）；公开 24 例回归全绿。
+- **勿犯**: 不要重命名 `totalDiscount`/`itemTotal` 字段本身（cart 侧 `CartService` 依赖对象字段名）——只加别名 getter；不要动内部类 `ApplicableCoupon.getDiscountAmount()`。
+
+---

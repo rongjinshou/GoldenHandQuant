@@ -955,7 +955,7 @@ PROMO-16，本文件原位只留墓碑；它们随 B05 落地、
 
 ---
 
-### ORD-A23 | round-15（已实施）：order 侧时钟成套 + orderNo 日期段 + 兑换率接配置 + ORDER_CREATED 补 receiver（附 payable 钳位决策留档）
+### ORD-A23 | order 侧时钟成套（cancelledAt 三处 + orderNo 日期段务必逐处落地）+ 兑换率接配置 + ORDER_CREATED 补 receiver（附 payable 钳位决策留档）
 
 - 风险: low（8 处小步替换/补行，无契约变化） · 置信度: definite
 - **文件**:

@@ -1165,3 +1165,17 @@ PAY-B7 落地**（PAY-B7 的退款过滤条件引用 REFUNDED 现名）。本文
    状态码从 400 变 409，属于典型的"状态冲突=409"归类修正）。
    **（round-15 裁决留档：`REFUND_STATUS_INVALID` 定为 409 —— README §7 未冻结该码，按
    design-docs/03 §2 状态冲突语义归 `ConflictException`/409；本存疑点正式关闭，无需人工干预。）**
+
+
+### PAY-B8 | 仓库验收/拒收的状态冲突返回 400，应为 409（reviewRefund 的 409 裁决漏落 warehouse 两处）
+
+- 风险: low · 置信度: definite
+- **文件**:
+  1. `code/ecommerce-payment/src/main/java/com/ecommerce/payment/service/RefundService.java`
+  2. （同步测试）`code/ecommerce-payment/src/test/java/com/ecommerce/payment/service/RefundServiceTest.java`
+- **现状**: `reviewRefund` 的 `REFUND_STATUS_INVALID` 已按裁决改 `ConflictException`/409，但同文件 `warehouseAccept(...)` 与 `warehouseReject(...)` 对"退款单不处于 REVIEWED"仍抛 `BusinessException("REFUND_STATUS_INVALID", ...)` → 400。同一错误码在 reviewRefund 是 409、在 warehouse 两处是 400，自相矛盾——与 ORD-A23「时钟半落地」同型：裁决只落实了一处。
+- **期望**: design-docs/03 §2 + README §7「ConflictException=状态冲突→409」。对已完成/未审核退款单调 warehouse-accept/reject 是状态机冲突，须 409。
+- **改法**: `warehouseAccept` 与 `warehouseReject` 各自的 `throw new BusinessException("REFUND_STATUS_INVALID", ...)` 改为 `throw new ConflictException("REFUND_STATUS_INVALID", ...)`（消息文案原样保留；`ConflictException` 双参构造 B01 已引入、import 已在文件顶部）。
+  **落地自检**: `grep -c 'ConflictException("REFUND_STATUS_INVALID"' RefundService.java` 必须 == 3（reviewRefund + warehouseAccept + warehouseReject）；`grep -c 'BusinessException("REFUND_STATUS_INVALID"' RefundService.java` 必须 == 0。
+- **验收**: 对 APPLIED/未审核退款单调 `POST /api/v1/admin/refunds/{id}/warehouse-accept` 返回 409；对已 REFUNDED 单重复验收返回 409；公开 24 例回归全绿。
+- **勿犯**: 只改这两处状态守卫的异常类型；不碰 `warehouseAccept` 的 `accepted` 标志与财务退款逻辑（PAY-B4 范围）。
