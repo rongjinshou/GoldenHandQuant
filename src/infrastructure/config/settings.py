@@ -166,6 +166,11 @@ class AutoTradeSettings:
     strategy_params: dict = field(default_factory=dict)   # 截面策略参数(如 top_n), 覆盖 registry 默认
     mainboard_only: bool = False                           # 宇宙装配层主板过滤(check_symbol_scope 口径)
     per_order_notional_ceiling: float = 5000.0             # 单笔金额硬顶(默认保持 0611 安全值)
+    max_position_ratio: float = 0.30                       # M5: 买入后单票市值/总资产上限
+    max_total_position_ratio: float = 0.80                 # M5: 买入后总持仓市值/总资产上限
+    breaker_enabled: bool = True                           # T6: 熔断器(状态入 trading.db 跨进程)
+    breaker_max_daily_loss: float = 0.03                   # T6: 单日亏损熔断阈值(硬闸, 递进于 2% 软禁买)
+    breaker_max_total_drawdown: float = 0.20               # T6: 总回撤熔断阈值
     db_path: str = "data/trading.db"
 
 

@@ -1,4 +1,6 @@
 import logging
+import os
+import time
 
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
@@ -14,6 +16,15 @@ from .xtquant_client import StockAccount, XtQuantTrader, XtQuantTraderCallback, 
 logger = logging.getLogger(__name__)
 
 
+def derive_session_id(base: int, *, stamp: float | None = None, pid: int | None = None) -> int:
+    """派生进程唯一 session: 固定 session 会被 QMT 中上一进程的残留注册占用致
+    connect != 0(0713 watch / 0714 auto-trade 两日实证)。+300_000 频段与
+    sync_live_account 的 +500_000 频段错开; 时间×31+pid 使同秒双进程亦不撞。"""
+    t = int(stamp if stamp is not None else time.time())
+    p = pid if pid is not None else os.getpid()
+    return base + 300_000 + (t * 31 + p) % 100_000
+
+
 def _map_xt_order_status(status: int) -> str:
     """xtconstant 委托状态 → 引擎通用状态。"""
     if status == xtconstant.ORDER_SUCCEEDED:
@@ -25,6 +36,35 @@ def _map_xt_order_status(status: int) -> str:
     if status == xtconstant.ORDER_JUNK:
         return "REJECTED"
     return "ALIVE"  # 未报/待报/已报/待撤等中间态
+
+
+class GhqTraderCallback(XtQuantTraderCallback):
+    """交易回报回调（M3 保守版, 2026-07-10）。
+
+    断线: 置网关不可用标志(place_order 拒单)+高声告警; 不自动重连——
+    重连时序未经真实环境验证前, 显性失败优于隐性带病运行。
+    委托错误/回报: 只留日志(成交量回填 execution_records 属 M4 另立)。
+    """
+
+    def __init__(self, gateway: "QmtTradeGateway") -> None:
+        super().__init__()
+        self._gateway = gateway
+
+    def on_disconnected(self) -> None:
+        logger.error("QMT 交易连接断开(on_disconnected)! 网关已置不可用, "
+                     "新订单将被拒绝 — 请检查 QMT 客户端后重启进程")
+        self._gateway._connected = False
+
+    def on_order_error(self, order_error) -> None:
+        logger.error("QMT 委托错误回报: order_id=%s error_id=%s msg=%s",
+                     getattr(order_error, "order_id", "?"),
+                     getattr(order_error, "error_id", "?"),
+                     getattr(order_error, "error_msg", "?"))
+
+    def on_stock_order(self, order) -> None:
+        logger.info("QMT 委托状态回报: order_id=%s status=%s",
+                    getattr(order, "order_id", "?"),
+                    getattr(order, "order_status", "?"))
 
 
 class QmtTradeGateway(ITradeGateway, IAccountGateway):
@@ -41,33 +81,43 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
             account_type: 账号类型，默认 'STOCK' (股票)
         """
         self.path = path
-        self.session_id = session_id
+        self.session_id = derive_session_id(session_id)
         self.account_id = account_id
         self.account_type = account_type
 
         self._initialized = False
+        self._connected = False
         try:
-            self.xt_trader = XtQuantTrader(path, session_id)
+            self.xt_trader = XtQuantTrader(path, self.session_id)
             self.account = StockAccount(account_id, account_type)
-            self.callback = XtQuantTraderCallback()
+            self.callback = GhqTraderCallback(self)
             self.xt_trader.register_callback(self.callback)
             self.xt_trader.start()
 
             connect_result = self.xt_trader.connect()
-            if connect_result == 0:
-                logger.info(f"Connected to QMT trading gateway (session: {session_id})")
-            else:
-                logger.error(f"Failed to connect to QMT trading gateway: {connect_result}")
+            if connect_result != 0:
+                raise RuntimeError(
+                    f"QMT 交易连接失败(connect={connect_result}), "
+                    "检查 QMT 客户端是否已「极简模式」登录"
+                )
+            logger.info(
+                f"Connected to QMT trading gateway (session: {self.session_id}, base: {session_id})"
+            )
 
             subscribe_result = self.xt_trader.subscribe(self.account)
-            if subscribe_result == 0:
-                logger.info(f"Subscribed to account {account_id}")
-            else:
-                logger.error(f"Failed to subscribe to account {account_id}: {subscribe_result}")
+            if subscribe_result != 0:
+                raise RuntimeError(
+                    f"QMT 账户订阅失败(subscribe={subscribe_result}), account={account_id}"
+                )
+            logger.info(f"Subscribed to account {account_id}")
 
             self._initialized = True
+            self._connected = True
         except Exception as e:
+            # 半初始化的网关绝不能进入下单路径: get_asset 返 None 会触发下游
+            # 日亏闸 fail-open, 故 fail-fast 而非吞异常继续
             logger.error("QmtTradeGateway 初始化失败: %s", e, exc_info=True)
+            raise
 
     def _check_initialized(self) -> bool:
         """检查是否初始化成功。"""
@@ -173,6 +223,9 @@ class QmtTradeGateway(ITradeGateway, IAccountGateway):
         """提交订单。"""
         if not self._check_initialized():
             raise OrderSubmitError("QmtTradeGateway 未成功初始化")
+        if not self._connected:
+            raise OrderSubmitError(
+                "QMT 交易连接已断开(on_disconnected), 拒绝下单 — 检查客户端后重启进程")
         try:
             order_type = -1
             match order.direction:

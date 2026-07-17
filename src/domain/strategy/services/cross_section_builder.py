@@ -2,7 +2,9 @@ from datetime import datetime
 
 from src.domain.market.services.fundamental_registry import FundamentalRegistry
 from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.st_prefixes import correct_st_name
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
+from src.domain.market.value_objects.suspension import StockStatusRegistry
 
 
 class CrossSectionBuilder:
@@ -19,14 +21,26 @@ class CrossSectionBuilder:
         registry: FundamentalRegistry,
         bar_history: dict[str, list[Bar]] | None = None,
         precomputed_features: dict[str, dict[str, float]] | None = None,
+        fundamental_date: datetime | None = None,
+        status_registry: StockStatusRegistry | None = None,
     ) -> list[StockSnapshot]:
         """构建截面 StockSnapshot。
 
         技术指标来源(B7): 优先 `precomputed_features`(由 feature_engine 算好的统一口径,
         见 [SnapshotFeatureSource]); 否则回退 `bar_history` + 手写 `_compute_bar_metrics`
         (旧路径, return_20d 口径有偏, 仅遗留调用方用)。给了 precomputed_features 即不再手写重算。
+
+        fundamental_date: 基本面快照的取数日(as-of)。market_cap/PE/PB 由收盘价
+        派生, T 日值在 T 开盘执行时不可知 —— 回测决策核心须传 T-1(C1);
+        缺省 None 沿用 date(遗留调用方口径不变)。
+
+        status_registry: as-of ST 状态注册表(0711-st-honesty §4.4)。给定时按
+        决策日 date 修正名称前缀(名称仅作 ST 布尔语义载体, filter_st 消费):
+        摘帽股历史期恢复前缀/误标期去前缀。None = 沿用快照名称(实盘路径,
+        QMT 实时名称对当前时点本就正确)。
         """
-        fundamentals = {s.symbol: s for s in registry.get_all_at_date(date)}
+        fund_lookup = fundamental_date if fundamental_date is not None else date
+        fundamentals = {s.symbol: s for s in registry.get_all_at_date(fund_lookup)}
         snapshots: list[StockSnapshot] = []
 
         for symbol, bar in bars.items():
@@ -46,12 +60,20 @@ class CrossSectionBuilder:
             # 传递基本面指标
             CrossSectionBuilder._compute_fundamental_metrics(fund, kw)
 
+            name = fund.name
+            if status_registry is not None and status_registry.has_symbol(symbol):
+                # 只修正在册股票: 部分覆盖(如仅深市)时, 不在册 ≠ 非 ST——
+                # 剥掉不认识股票的 ST 前缀会把现状 ST 股错误放进选股池(比不修更糟)
+                status = status_registry.get_status(symbol, date)
+                st_now = status is not None and (status.is_st or status.is_star_st)
+                name = correct_st_name(name, is_st=st_now)
+
             snapshots.append(StockSnapshot(
                 symbol=symbol,
                 date=date,
                 open=bar.open, high=bar.high, low=bar.low,
                 close=bar.close, volume=bar.volume,
-                name=fund.name, list_date=fund.list_date,
+                name=name, list_date=fund.list_date,
                 market_cap=fund.market_cap,
                 roe_ttm=fund.roe_ttm, ocf_ttm=fund.ocf_ttm,
                 prev_close=bar.prev_close if bar.prev_close > 0 else None,

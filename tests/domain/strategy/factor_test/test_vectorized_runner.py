@@ -8,8 +8,8 @@ import pytest
 from src.application.factor_test_app import _compute_forward_returns
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.factor_test.panel import FactorPanel
-from src.infrastructure.factor_test.test_runner import FactorTestRunner
-from src.infrastructure.factor_test.vectorized_runner import VectorizedRunner
+from src.domain.strategy.factor_test.test_runner import FactorTestRunner
+from src.domain.strategy.factor_test.vectorized_runner import VectorizedRunner
 
 # date -> [(symbol, pe_ratio, pb_ratio, roe_ttm, exec_close), ...]
 _DATA: dict[str, list] = {

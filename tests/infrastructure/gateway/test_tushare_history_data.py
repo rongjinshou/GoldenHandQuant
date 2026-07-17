@@ -1,9 +1,11 @@
-import pytest
-from unittest.mock import MagicMock, patch
-import pandas as pd
 from datetime import datetime
-from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
+from unittest.mock import patch
+
+import pandas as pd
+import pytest
+
 from src.domain.market.value_objects.timeframe import Timeframe
+from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
 
 
 class TestTushareHistoryDataFetcher:
@@ -79,7 +81,7 @@ class TestTushareHistoryDataFetcher:
         # Arrange
         symbol = "000001.SZ"
         timeframe = Timeframe.DAY_1
-        
+
         # Mock empty DataFrame
         mock_ts.pro_bar.return_value = pd.DataFrame()
 

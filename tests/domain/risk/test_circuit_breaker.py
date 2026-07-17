@@ -1,5 +1,4 @@
 from datetime import datetime
-from unittest.mock import MagicMock
 
 from src.domain.account.entities.asset import Asset
 from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot

@@ -7,14 +7,14 @@ import pytest
 
 from src.application.factor_test_app import _compute_forward_returns
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
+from src.domain.strategy.factor_test.decay_analyzer import DecayAnalyzer
+from src.domain.strategy.factor_test.ic_calculator import ICCalculator
+from src.domain.strategy.factor_test.layer_backtest import LayerBacktester
 from src.domain.strategy.factor_test.lexer import tokenize
 from src.domain.strategy.factor_test.panel import FactorPanel
 from src.domain.strategy.factor_test.parser import FactorExpressionParser
 from src.domain.strategy.factor_test.vectorized_evaluator import VectorizedEvaluator
-from src.infrastructure.factor_test.decay_analyzer import DecayAnalyzer
-from src.infrastructure.factor_test.ic_calculator import ICCalculator
-from src.infrastructure.factor_test.layer_backtest import LayerBacktester
-from src.infrastructure.factor_test.vectorized_series import VectorizedSeriesBuilder
+from src.domain.strategy.factor_test.vectorized_series import VectorizedSeriesBuilder
 
 
 def _parse(expr_str: str):

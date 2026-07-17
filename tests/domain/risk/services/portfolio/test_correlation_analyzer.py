@@ -1,7 +1,5 @@
-from datetime import datetime
 
 from src.domain.risk.services.portfolio.correlation_analyzer import CorrelationAnalyzer
-from src.domain.risk.value_objects.correlation_matrix import CorrelationMatrix
 
 
 class TestCorrelationAnalyzer:

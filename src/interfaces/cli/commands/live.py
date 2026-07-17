@@ -113,6 +113,24 @@ def run_live(args: argparse.Namespace) -> None:
         bar_lookback=lt.bar_lookback,
     )
 
+    # rich 审核台(T1: 自 live_trade.py 旧入口迁入后该入口退役): 扫描/审核/下单/
+    # ReviewStore 留痕一体; 盘前闸输入与 plain 路径同源(M6)
+    if getattr(args, "review_mode", "plain") == "rich":
+        from src.infrastructure.gateway.qmt_realtime_quote import (
+            QmtRealtimeQuoteFetcher,
+        )
+        from src.interfaces.cli.signal_review.review_store import ReviewStore
+        from src.interfaces.cli.signal_review.review_ui import SignalReviewUI
+
+        ui = SignalReviewUI(
+            service=service, store=ReviewStore(),
+            quote_fetcher=QmtRealtimeQuoteFetcher(),
+            max_notional=settings.auto_trade.per_order_notional_cap,
+            notional_ceiling=settings.auto_trade.per_order_notional_ceiling,
+        )
+        ui.run(strategy_name, symbols)
+        return
+
     asset = account_gw.get_asset()
     positions = account_gw.get_positions()
 
@@ -172,7 +190,14 @@ def run_live(args: argparse.Namespace) -> None:
         return
 
     print(f"\n{BOLD}正在下单...{RESET}")
-    results = service.place_confirmed_orders(confirmed)
+    # M6: 与 auto-trade/ticket 统一盘前闸(时段/新鲜度/价格带/金额/ST/资金持仓)
+    from src.infrastructure.gateway.qmt_realtime_quote import QmtRealtimeQuoteFetcher
+    results = service.place_confirmed_orders(
+        confirmed,
+        quote_fetcher=QmtRealtimeQuoteFetcher(),
+        max_notional=settings.auto_trade.per_order_notional_cap,
+        notional_ceiling=settings.auto_trade.per_order_notional_ceiling,
+    )
     print(f"\n{BOLD}{'─' * 40}{RESET}")
     for r in results:
         if r.success:

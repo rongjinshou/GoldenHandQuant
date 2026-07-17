@@ -1,11 +1,13 @@
 
 from datetime import datetime
-from src.domain.strategy.services.filters.filter_st import filter_st
+
+from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.services.filters.filter_new_listing import filter_new_listing
 from src.domain.strategy.services.filters.filter_penny_stock import filter_penny_stock
-from src.domain.strategy.services.filters.filter_trading_status import filter_trading_status
 from src.domain.strategy.services.filters.filter_quality import filter_quality
-from src.domain.market.value_objects.stock_snapshot import StockSnapshot
+from src.domain.strategy.services.filters.filter_st import filter_st
+from src.domain.strategy.services.filters.filter_trading_status import filter_trading_status
+
 
 def _snap(symbol, **kwargs):
     defaults = dict(

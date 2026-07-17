@@ -1,9 +1,11 @@
-from datetime import datetime, timedelta
-from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
-from src.domain.market.value_objects.bar import Bar
-from src.domain.market.value_objects.timeframe import Timeframe
-from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
+from datetime import datetime
+
 from src.domain.market.services.fundamental_registry import FundamentalRegistry
+from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
+from src.domain.market.value_objects.timeframe import Timeframe
+from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
+
 
 def _bar(symbol, dt, close, volume=1000):
     return Bar(

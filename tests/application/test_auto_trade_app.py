@@ -98,7 +98,10 @@ class FakeTradeGateway:
 
     def place_order(self, order):
         self.placed.append(order)
-        return self._place_id
+        # 券商单号唯一(真实语义, H1 rename 依赖): 首单保持原值兼容既有断言, 后续递增
+        if len(self.placed) == 1:
+            return self._place_id
+        return f"{self._place_id}-{len(self.placed)}"
 
     def query_order_status(self, order_id):
         if self._statuses is None:
@@ -495,3 +498,340 @@ class TestScanSnapshotPersistence:
 
         assert summary.orders_submitted == 1
         assert store.load_cycles()[0]["orders_submitted"] == 1
+
+
+class ExplodingAudit:
+    """place_order 动作时抛异常的审计替身(模拟下单后审计写库故障)。"""
+
+    def __init__(self, real):
+        self._real = real
+
+    def log_action(self, **kwargs):
+        if kwargs.get("action") == "place_order":
+            raise RuntimeError("database is locked")
+        return self._real.log_action(**kwargs)
+
+
+class TestAuditFailureIsolation:
+    def test_audit_failure_after_place_does_not_mark_order_failed(self, tmp_path):
+        """confirmed-bug(2026-07-10 六西格玛体检 L10): place_order 成功后审计写库
+        异常曾沿 _execute_one 的 except 把真单误标 FAILED、并跳过撤单轮询——
+        账本与券商真实状态背离。审计是观测面, 不得改写交易控制流。"""
+        store = TradingStore(str(tmp_path / "t.db"))
+        gw = FakeTradeGateway()
+        svc = AutoTradeAppService(
+            signal_service=FakeSignalService([_display()]),
+            quote_fetcher=FakeQuotes(),
+            trade_gateway=gw,
+            account_gateway=FakeAccount(),
+            store=store,
+            audit=ExplodingAudit(AuditService(SqliteAuditLogRepository(store.db))),
+            config=AutoTradeConfig(mode="dry_run"),
+            clock=lambda: NOW,
+            sleep=lambda s: None,
+        )
+
+        summary = svc.run_cycle()
+
+        execs = store.load_executions()
+        assert len(gw.placed) == 1
+        assert execs[0]["status"] == "DRY_RUN"  # 真实终态, 而非 FAILED
+        assert summary.orders_submitted == 1
+
+
+class SpyGateway(FakeTradeGateway):
+    """place_order 时回查 store 的网关替身（钉死「先落账后下单」事务顺序）。"""
+
+    def __init__(self, store, **kw):
+        super().__init__(**kw)
+        self._spy_store = store
+        self.pending_seen_at_place: list[dict] = []
+
+    def place_order(self, order):
+        rows = [r for r in self._spy_store.load_executions()
+                if r["symbol"] == order.ticker and r["status"] == "PENDING"]
+        self.pending_seen_at_place.extend(rows)
+        return super().place_order(order)
+
+
+class TestIdempotencyH1:
+    """H1 下单幂等（2026-07-10 六西格玛体检, 决策项 Q1 获批）。
+
+    旧时序: place_order → (最长30s轮询) → save_execution。窗口内崩溃 =
+    券商有真单而账本无行, 重启后当日去重查不到 → 重复下单。
+    新时序: 预算闸通过后先落 PENDING 行, place 后改写真单号, 终态再覆盖;
+    run_cycle 开头对账非终态残留并告警。
+    """
+
+    def test_pending_row_persisted_before_place_order(self, tmp_path):
+        store = TradingStore(str(tmp_path / "t.db"))
+        gw = SpyGateway(store)
+        svc = AutoTradeAppService(
+            signal_service=FakeSignalService([_display()]),
+            quote_fetcher=FakeQuotes(), trade_gateway=gw,
+            account_gateway=FakeAccount(), store=store,
+            audit=AuditService(SqliteAuditLogRepository(store.db)),
+            config=AutoTradeConfig(mode="dry_run"),
+            clock=lambda: NOW, sleep=lambda s: None,
+        )
+
+        svc.run_cycle()
+
+        assert len(gw.pending_seen_at_place) == 1  # 下单那一刻账本里已有 PENDING
+        assert gw.pending_seen_at_place[0]["symbol"] == "601006.SH"
+        # 终态覆盖 PENDING(order_id 已换成真单号)
+        execs = store.load_executions()
+        assert len(execs) == 1
+        assert execs[0]["status"] == "DRY_RUN"
+        assert execs[0]["order_id"] == "gw-1"
+
+    def test_stale_pending_dedupes_next_cycle_and_alerts(self, tmp_path):
+        """崩溃残留(PENDING 非终态)必须: ① 占当日去重(不重复下单) ② 对账告警。"""
+        store = TradingStore(str(tmp_path / "t.db"))
+        store.save_execution({
+            "order_id": "gw-orphan", "cycle_id": "crashed-cycle",
+            "mode": "dry_run", "symbol": "601006.SH", "direction": "BUY",
+            "signal_price": 5.0, "exec_price": 5.0, "volume": 100,
+            "notional": 500.0, "status": "PENDING", "reject_reason": None,
+            "strategy_name": "dual_ma", "confidence": 0.9,
+            "submitted_at": NOW.isoformat(), "final_status_at": None,
+            "status_trail": "[]",
+        })
+        gw = FakeTradeGateway()
+        svc = AutoTradeAppService(
+            signal_service=FakeSignalService([_display()]),  # 同标的同方向
+            quote_fetcher=FakeQuotes(), trade_gateway=gw,
+            account_gateway=FakeAccount(), store=store,
+            audit=AuditService(SqliteAuditLogRepository(store.db)),
+            config=AutoTradeConfig(mode="dry_run"),
+            clock=lambda: NOW, sleep=lambda s: None,
+        )
+
+        summary = svc.run_cycle()
+
+        assert len(gw.placed) == 0          # 残留 PENDING 占去重 → 不再下单
+        assert summary.orders_submitted == 0
+        audits = store.db.execute(
+            "SELECT action FROM audit_logs WHERE action='reconcile_stale_execution'"
+        ).fetchall()
+        assert len(audits) == 1             # 对账告警已留痕
+
+    def test_poll_exception_after_submit_keeps_budget_occupancy(self, tmp_path, monkeypatch):
+        """place 已发出后轮询异常(进程未死): 不得标 FAILED(不占预算/去重) →
+        改标 FAILED_AFTER_SUBMIT(占用), 防同标的立刻追单重复。"""
+        store = TradingStore(str(tmp_path / "t.db"))
+        gw = FakeTradeGateway()
+        svc = AutoTradeAppService(
+            signal_service=FakeSignalService([_display()]),
+            quote_fetcher=FakeQuotes(), trade_gateway=gw,
+            account_gateway=FakeAccount(), store=store,
+            audit=AuditService(SqliteAuditLogRepository(store.db)),
+            config=AutoTradeConfig(mode="dry_run"),
+            clock=lambda: NOW, sleep=lambda s: None,
+        )
+        monkeypatch.setattr(svc, "_poll",
+                            lambda oid: (_ for _ in ()).throw(RuntimeError("poll boom")))
+
+        svc.run_cycle()
+
+        execs = store.load_executions()
+        assert execs[0]["status"] == "FAILED_AFTER_SUBMIT"
+        assert store.today_traded_keys(today="2026-06-10", mode="dry_run") == {"601006.SH:BUY"}
+
+
+class TestRiskPolicyGateM5:
+    """M5 正式风控接线（2026-07-10 六西格玛体检, 决策项 Q2 获批）。
+
+    PositionLimit(单票≤30%)/TotalPosition(总仓≤80%)此前生产零实例化——
+    实盘仓位约束只剩 sizer 目标权重 + notional cap。接入执行期硬闸:
+    无状态、每单即时计算, --once 与守护模式同等有效。
+    """
+
+    def _svc(self, tmp_path, *, displays, positions=(), total=146000.0,
+             cash=100000.0):
+        store = TradingStore(str(tmp_path / "t.db"))
+        gw = FakeTradeGateway()
+        svc = AutoTradeAppService(
+            signal_service=FakeSignalService(displays),
+            quote_fetcher=FakeQuotes(), trade_gateway=gw,
+            account_gateway=FakeAccount(cash=cash, total=total,
+                                        positions=list(positions)),
+            store=store,
+            audit=AuditService(SqliteAuditLogRepository(store.db)),
+            config=AutoTradeConfig(mode="dry_run", per_order_notional_cap=99999,
+                                   per_order_notional_ceiling=99999,
+                                   daily_notional_cap=999999),
+            clock=lambda: NOW, sleep=lambda s: None,
+        )
+        return svc, store, gw
+
+    def test_buy_exceeding_single_position_limit_rejected(self, tmp_path):
+        # 总资产 146000 → 单票上限 30% = 43800; 已持仓成本市值 40000,
+        # 再买 1000 股×5.0=5000 → 45000 > 43800 拒
+        pos = Position(account_id="t", ticker="601006.SH",
+                       total_volume=8000, available_volume=8000, average_cost=5.0)
+        svc, store, gw = self._svc(
+            tmp_path, displays=[_display(volume=1000)], positions=[pos])
+
+        summary = svc.run_cycle()
+
+        assert summary.orders_rejected == 1
+        assert len(gw.placed) == 0
+        execs = store.load_executions()
+        assert "Position limit" in execs[0]["reject_reason"]
+
+    def test_buy_within_single_position_limit_passes(self, tmp_path):
+        pos = Position(account_id="t", ticker="601006.SH",
+                       total_volume=8000, available_volume=8000, average_cost=5.0)
+        svc, _, gw = self._svc(
+            tmp_path, displays=[_display(volume=100)], positions=[pos])
+
+        summary = svc.run_cycle()
+
+        assert summary.orders_submitted == 1
+        assert len(gw.placed) == 1
+
+    def test_buy_exceeding_total_position_limit_rejected(self, tmp_path):
+        # 总仓上限 80% = 116800; 其他持仓按报价 last=5.0 估值 23300 股 = 116500,
+        # 再买 100 股×5.0=500 → 117000 > 116800 拒(单票 601006 本身不超 30%)
+        other = Position(account_id="t", ticker="605589.SH",
+                         total_volume=23300, available_volume=23300, average_cost=5.0)
+        svc, store, gw = self._svc(
+            tmp_path, displays=[_display(volume=100)], positions=[other])
+
+        summary = svc.run_cycle()
+
+        assert summary.orders_rejected == 1
+        assert len(gw.placed) == 0
+        execs = store.load_executions()
+        assert "Total position" in execs[0]["reject_reason"]
+
+    def test_sell_not_limited_by_position_caps(self, tmp_path):
+        # 超总仓状态下卖出必须放行(减仓是风控希望发生的方向)
+        pos = Position(account_id="t", ticker="601006.SH",
+                       total_volume=30000, available_volume=30000, average_cost=5.0)
+        svc, _, gw = self._svc(
+            tmp_path,
+            displays=[_display(direction=SignalDirection.SELL, volume=100)],
+            positions=[pos])
+
+        summary = svc.run_cycle()
+
+        assert summary.orders_submitted == 1
+        assert len(gw.placed) == 1
+
+
+def _breaker_service(tmp_path, store, *, displays, total=146000.0,
+                     positions=(), now=None):
+    """带熔断器的服务工厂（T6）。报价时间戳跟随注入时钟(过新鲜度闸)。"""
+    from src.domain.risk.services.circuit_breaker import CircuitBreaker
+
+    effective_now = now or NOW
+    quote = Quote(symbol="601006.SH", last=5.0, bid1=4.99, ask1=5.0,
+                  prev_close=5.0, timestamp=effective_now)
+    gw = FakeTradeGateway()
+    svc = AutoTradeAppService(
+        signal_service=FakeSignalService(displays),
+        quote_fetcher=FakeQuotes(quote), trade_gateway=gw,
+        account_gateway=FakeAccount(total=total, positions=list(positions)),
+        store=store,
+        audit=AuditService(SqliteAuditLogRepository(store.db)),
+        config=AutoTradeConfig(mode="dry_run"),
+        clock=lambda: effective_now,
+        sleep=lambda s: None,
+        circuit_breaker=CircuitBreaker(max_daily_loss=0.03),
+    )
+    return svc, gw
+
+
+class TestCircuitBreakerT6:
+    """熔断器持久化+接线（2026-07-11 六西格玛 T6, M5 遗留专项）。
+
+    语义: 熔断保护账户而非进程。当日亏损 >3% → TRIGGERED(禁全部, 含卖出,
+    与 2% 软禁买构成递进防线) → 次日 COOLDOWN(仅卖) → 再次日 NORMAL。
+    状态入 trading.db, --once 每次新进程也能续上状态机。
+    """
+
+    def _seed_baseline(self, store, day: str, equity: float):
+        store.save_account_snapshot(
+            snapshot_time=f"{day}T09:00:00", mode="dry_run",
+            total_asset=equity, available_cash=equity, frozen_cash=0.0,
+            market_value=0.0)
+
+    def test_daily_loss_triggers_and_persists(self, tmp_path):
+        store = TradingStore(str(tmp_path / "t.db"))
+        self._seed_baseline(store, "2026-06-10", 152000.0)  # 盘前基准
+        # 当前资产 146000 → 当日 -3.95% > 3% → 熔断; SELL 候选证明"禁全部"
+        pos = Position(account_id="t", ticker="601006.SH",
+                       total_volume=100, available_volume=100, average_cost=5.0)
+        svc, gw = _breaker_service(
+            tmp_path, store,
+            displays=[_display(direction=SignalDirection.SELL)],
+            positions=[pos])
+
+        summary = svc.run_cycle()
+
+        assert len(gw.placed) == 0
+        assert summary.orders_rejected == 1
+        execs = store.load_executions()
+        assert "熔断" in execs[0]["reject_reason"]
+        saved, last_reset = store.load_breaker_state(mode="dry_run")
+        assert saved is not None and saved.blocks_all_trading
+        assert last_reset == "2026-06-10"
+
+    def test_triggered_state_survives_process_restart(self, tmp_path):
+        store = TradingStore(str(tmp_path / "t.db"))
+        self._seed_baseline(store, "2026-06-10", 152000.0)
+        svc1, _ = _breaker_service(tmp_path, store, displays=[_display()])
+        svc1.run_cycle()  # 触发并落库
+
+        # "重启": 全新 service + 全新 CircuitBreaker 实例, 同一 store
+        svc2, gw2 = _breaker_service(tmp_path, store, displays=[_display()])
+        summary2 = svc2.run_cycle()
+
+        assert len(gw2.placed) == 0            # 恢复 TRIGGERED → 依然全拒
+        assert summary2.orders_rejected == 1
+
+    def test_next_day_cooldown_allows_sell_only(self, tmp_path):
+        from datetime import datetime
+
+        store = TradingStore(str(tmp_path / "t.db"))
+        self._seed_baseline(store, "2026-06-10", 152000.0)
+        svc1, _ = _breaker_service(tmp_path, store, displays=[_display()])
+        svc1.run_cycle()  # D0 触发
+
+        day2 = datetime(2026, 6, 11, 9, 35)    # 周四
+        pos = Position(account_id="t", ticker="601006.SH",
+                       total_volume=100, available_volume=100, average_cost=5.0)
+        # D1: 买单被拒(冷却仅卖)
+        svc_buy, gw_buy = _breaker_service(
+            tmp_path, store, displays=[_display()], now=day2)
+        svc_buy.run_cycle()
+        assert len(gw_buy.placed) == 0
+
+        # D1: 卖单放行
+        svc_sell, gw_sell = _breaker_service(
+            tmp_path, store,
+            displays=[_display(direction=SignalDirection.SELL)],
+            positions=[pos], now=day2)
+        summary = svc_sell.run_cycle()
+        assert len(gw_sell.placed) == 1
+        assert summary.orders_submitted == 1
+
+    def test_third_day_recovers_normal(self, tmp_path):
+        from datetime import datetime
+
+        store = TradingStore(str(tmp_path / "t.db"))
+        self._seed_baseline(store, "2026-06-10", 152000.0)
+        svc1, _ = _breaker_service(tmp_path, store, displays=[_display()])
+        svc1.run_cycle()                                        # D0 触发
+        svc2, _ = _breaker_service(tmp_path, store, displays=[_display()],
+                                   now=datetime(2026, 6, 11, 9, 35))
+        svc2.run_cycle()                                        # D1 冷却
+
+        svc3, gw3 = _breaker_service(tmp_path, store, displays=[_display()],
+                                     now=datetime(2026, 6, 12, 9, 35))
+        summary3 = svc3.run_cycle()                             # D2 恢复
+
+        assert len(gw3.placed) == 1
+        assert summary3.orders_submitted == 1

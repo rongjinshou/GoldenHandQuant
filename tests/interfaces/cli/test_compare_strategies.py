@@ -1,11 +1,10 @@
 """CLI compare_strategies 集成测试。"""
-import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
+from src.application.strategy_comparison_app import StrategyComparisonAppService
 from src.domain.backtest.entities.backtest_report import BacktestReport
 from src.domain.backtest.services.comparison_report_service import ComparisonReportService
-from src.application.strategy_comparison_app import StrategyComparisonAppService
 
 
 def _make_report(name: str) -> BacktestReport:

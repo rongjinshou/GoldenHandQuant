@@ -2,7 +2,7 @@
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.factor_test.expressions import Expr
-from src.infrastructure.factor_test.ic_calculator import ICCalculator
+from src.domain.strategy.factor_test.ic_calculator import ICCalculator
 
 
 class DecayAnalyzer:

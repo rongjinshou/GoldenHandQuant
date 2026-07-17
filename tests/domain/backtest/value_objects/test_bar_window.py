@@ -1,8 +1,8 @@
 from datetime import datetime
 
+from src.domain.backtest.value_objects.bar_window import make_bar_window
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
-from src.domain.backtest.value_objects.bar_window import BarWindow, make_bar_window
 
 
 def _bar(dt: datetime, open_: float, close: float) -> Bar:

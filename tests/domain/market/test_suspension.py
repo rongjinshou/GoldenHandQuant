@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from src.domain.market.value_objects.suspension import StockStatus, StockStatusRegistry
 
 
@@ -12,9 +13,11 @@ def test_suspended_stock_is_not_tradable():
     assert status.is_tradable() is False
 
 
-def test_star_st_stock_is_not_tradable():
+def test_star_st_stock_is_tradable_only_limit_narrowed():
+    """*ST 可正常交易(±5% 幅度), 不可交易的是停牌——旧语义把策略偏好错标成
+    市场事实, 注册表灌入后会静默吞掉 *ST 卖出信号(0711-st-honesty Task2)。"""
     status = StockStatus(symbol="000001.SZ", date=datetime(2024, 1, 3), is_star_st=True)
-    assert status.is_tradable() is False
+    assert status.is_tradable() is True
 
 
 def test_registry_returns_true_for_unknown_symbol():

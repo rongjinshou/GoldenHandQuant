@@ -1,5 +1,6 @@
-import pytest
 from datetime import datetime
+
+import pytest
 
 from src.domain.backtest.entities.backtest_report import BacktestReport
 from src.domain.strategy.pool.services.pool_manager import PoolManager

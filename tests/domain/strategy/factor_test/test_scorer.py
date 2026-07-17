@@ -3,7 +3,7 @@
 import pytest
 
 from src.domain.strategy.factor_test.report import FactorTestReport
-from src.domain.strategy.factor_test.scorer import FactorScorer, _linear_score, _grade
+from src.domain.strategy.factor_test.scorer import FactorScorer, _grade, _linear_score
 
 
 def _make_report(**kwargs) -> FactorTestReport:

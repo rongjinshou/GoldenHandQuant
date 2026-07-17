@@ -44,6 +44,7 @@ class TestLiveSignalService:
             market_gateway=market_gw,
             account_gateway=account_gw,
             trade_gateway=trade_gw,
+            clock=lambda: datetime(2026, 6, 10, 9, 35),  # 周三盘中(M6 盘前闸时段)
         )
         return service, market_gw, account_gw, trade_gw
 
@@ -98,7 +99,10 @@ class TestLiveSignalService:
             confidence_score=1.0,
         )
 
-        results = service.place_confirmed_orders([display])
+        # M6 新契约: 必须配置报价源方可下单(过全套盘前闸)
+        results = service.place_confirmed_orders(
+            [display], quote_fetcher=_FakeQuoteFetcher(),
+            max_notional=99999.0, notional_ceiling=99999.0)
 
         assert len(results) == 1
         assert results[0].success is True
@@ -117,7 +121,9 @@ class TestLiveSignalService:
             reason="test", strategy_name="test", confidence_score=1.0,
         )
 
-        results = service.place_confirmed_orders([display])
+        results = service.place_confirmed_orders(
+            [display], quote_fetcher=_FakeQuoteFetcher(),
+            max_notional=99999.0, notional_ceiling=99999.0)
 
         assert len(results) == 1
         assert results[0].success is False
@@ -531,3 +537,84 @@ def test_clock_injection():
     assert snap.snapshot_time == _FIXED_TUESDAY
     assert snap.selection == symbols  # 周二调仓日全 3 只入选(top_n 默认 9)
     assert len(displays) == 3
+
+
+class _FakeQuoteFetcher:
+    """有效实时报价替身(M6 盘前闸测试用)。"""
+
+    def __init__(self, last=12.50, ts=None):
+        from datetime import datetime
+        self._last = last
+        self._ts = ts or datetime(2026, 6, 10, 9, 35)  # 周三盘中
+
+    def get_quotes(self, symbols):
+        from src.domain.market.value_objects.quote import Quote
+        return {s: Quote(symbol=s, last=self._last, bid1=self._last - 0.01,
+                         ask1=self._last + 0.01, prev_close=self._last,
+                         timestamp=self._ts) for s in symbols}
+
+
+class TestPlaceConfirmedOrdersGateM6:
+    """M6（2026-07-10 六西格玛体检, 决策项 Q3 获批）: 半自动路径统一盘前闸。
+
+    place_confirmed_orders 此前完全不过 run_pre_trade_gates(无金额/价格带/
+    时段/ST/新鲜度闸), 安全仅靠交互式 y/N——三路下单(auto/ticket/live)唯一
+    的裸奔口。新契约: 未配置报价源一律拒单, 配置后逐单过全闸。
+    """
+
+    def _display(self, volume=500):
+        return SignalDisplay(
+            symbol="600000.SH", direction=SignalDirection.BUY,
+            current_price=12.50, suggested_price=12.52,
+            suggested_volume=volume, required_capital=12.52 * volume,
+            reason="test", strategy_name="test", confidence_score=1.0,
+        )
+
+    def _service(self):
+        from datetime import datetime
+        market_gw = MagicMock()
+        account_gw = MagicMock()
+        trade_gw = MagicMock()
+        account_gw.get_asset.return_value = Asset(
+            account_id="t", total_asset=1_000_000, available_cash=500_000)
+        account_gw.get_positions.return_value = []
+        service = LiveSignalService(
+            market_gateway=market_gw, account_gateway=account_gw,
+            trade_gateway=trade_gw,
+            clock=lambda: datetime(2026, 6, 10, 9, 35),
+        )
+        return service, trade_gw
+
+    def test_without_quote_fetcher_all_rejected(self):
+        service, trade_gw = self._service()
+
+        results = service.place_confirmed_orders([self._display()])
+
+        assert results[0].success is False
+        assert "报价源" in results[0].error_message
+        trade_gw.place_order.assert_not_called()
+
+    def test_gate_rejects_over_notional_cap(self):
+        service, trade_gw = self._service()
+
+        results = service.place_confirmed_orders(
+            [self._display(volume=500)],           # ≈6255 元
+            quote_fetcher=_FakeQuoteFetcher(),
+            max_notional=1500.0, notional_ceiling=5000.0)
+
+        assert results[0].success is False
+        assert "金额" in results[0].error_message or "notional" in results[0].error_message.lower()
+        trade_gw.place_order.assert_not_called()
+
+    def test_gate_passes_and_places_with_limit_price(self):
+        service, trade_gw = self._service()
+        trade_gw.place_order.return_value = "order_777"
+
+        results = service.place_confirmed_orders(
+            [self._display(volume=100)],           # ≈1251 元
+            quote_fetcher=_FakeQuoteFetcher(),
+            max_notional=5000.0, notional_ceiling=5000.0)
+
+        assert results[0].success is True
+        placed = trade_gw.place_order.call_args[0][0]
+        assert placed.price > 0                     # 限价由闸统一构造

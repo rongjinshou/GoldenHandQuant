@@ -1,10 +1,11 @@
 """BacktestAppService 回归测试 — Lookahead Bias 验证。"""
-import pytest
-from unittest.mock import MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock
+
 from src.application.backtest_app import BacktestAppService
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
+
 
 def test_run_backtest_strategy_should_not_see_current_bar_close():
     """策略生成信号时不应看到当前 Bar 的收盘价。"""

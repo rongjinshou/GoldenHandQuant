@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
-from src.infrastructure.factor_test.test_runner import FactorTestRunner
+from src.domain.strategy.factor_test.test_runner import FactorTestRunner
 
 
 def _make_snapshot(symbol: str, pe_ratio: float, earnings_growth: float = 0.0) -> StockSnapshot:

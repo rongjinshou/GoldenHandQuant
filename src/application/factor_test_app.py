@@ -11,15 +11,14 @@ from src.domain.market.services.fundamental_registry import FundamentalRegistry
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.strategy.factor_test.factor_catalog import FactorHypothesis
+from src.domain.strategy.factor_test.neutralizer import FactorNeutralizer
 from src.domain.strategy.factor_test.panel import FactorPanel
 from src.domain.strategy.factor_test.report import ScoredFactorTestReport
+from src.domain.strategy.factor_test.test_runner import FactorTestRunner
+from src.domain.strategy.factor_test.vectorized_neutralizer import VectorizedNeutralizer
+from src.domain.strategy.factor_test.vectorized_runner import VectorizedRunner
 from src.domain.strategy.factor_test.verdict import FactorVerdict, judge_factor
 from src.domain.strategy.services.cross_section_builder import CrossSectionBuilder
-from src.infrastructure.factor_test.neutralizer import FactorNeutralizer
-from src.infrastructure.factor_test.test_runner import FactorTestRunner
-from src.infrastructure.factor_test.vectorized_neutralizer import VectorizedNeutralizer
-from src.infrastructure.factor_test.vectorized_runner import VectorizedRunner
-from src.infrastructure.mock.mock_market import MockMarketGateway
 
 if TYPE_CHECKING:
     from src.application.market_data_app import MarketDataAppService
@@ -84,6 +83,8 @@ class FactorTestAppService:
         if self._market_data is not None:
             return self._market_data.prepare(symbols, start_date, end_date)
 
+        # 旧内存管道的行情容器(回测替身): 延迟导入, application 顶层零 infra 依赖(T4)
+        from src.infrastructure.mock.mock_market import MockMarketGateway
         market = MockMarketGateway()
         tf = Timeframe.DAY_1
 

@@ -1,9 +1,10 @@
 import pytest
+
 from src.domain.account.exceptions import (
     AccountError,
+    FrozenCashExceededError,
     InsufficientFundsError,
     PositionNotAvailableError,
-    FrozenCashExceededError,
 )
 
 

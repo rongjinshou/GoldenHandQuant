@@ -1,7 +1,6 @@
 """DuckDBFundamentalFetcher 测试 — 放 persistence/ 而非镜像目录 gateway/:
 gateway/ 因 QMT 文件导入失败被默认门 --ignore; 本 fetcher 纯 DuckDB 无 QMT, 须在门跑得到处。"""
 
-from datetime import datetime
 
 import duckdb
 

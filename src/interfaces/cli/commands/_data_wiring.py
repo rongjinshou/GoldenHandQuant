@@ -15,6 +15,18 @@ if TYPE_CHECKING:
 DEFAULT_DB_PATH = "data/market.duckdb"
 
 
+def resolve_fetcher_type(configured: str, *, force_online: bool = False) -> str:
+    """取数命令(data refresh)强制在线 fetcher。
+
+    2026-07-15 数据断流复盘: backtest.yaml 为 F01 离线回测切 DuckDBHistoryDataFetcher
+    后, 共用该配置的 data refresh 变成离线空跑(缺口按空返回、退出码 0), 个股日线
+    静默断流 3 个交易日。"补数"语义下离线读库桩是谎言 → refresh 一律还原 QMT。
+    """
+    if force_online and configured == "DuckDBHistoryDataFetcher":
+        return "QmtHistoryDataFetcher"
+    return configured
+
+
 @dataclass(slots=True, kw_only=True)
 class DataWiring:
     store: MarketDataStore
@@ -25,8 +37,14 @@ class DataWiring:
     config_symbols: list[str]
 
 
-def build_data_wiring(config_path: str, db_path: str = DEFAULT_DB_PATH) -> DataWiring:
-    """按配置组装 fetcher（QMT/Tushare）+ store + MarketDataAppService。"""
+def build_data_wiring(
+    config_path: str, db_path: str = DEFAULT_DB_PATH, *, force_online: bool = False
+) -> DataWiring:
+    """按配置组装 fetcher（QMT/Tushare）+ store + MarketDataAppService。
+
+    force_online: 取数路径(data refresh)置 True — 配置里的离线读库桩还原为 QMT,
+    无 xtquant 环境会在取数时显式报错, 而非静默空跑。
+    """
     from src.application.market_data_app import MarketDataAppService
     from src.infrastructure.persistence.market_data_store import MarketDataStore
 
@@ -42,6 +60,11 @@ def build_data_wiring(config_path: str, db_path: str = DEFAULT_DB_PATH) -> DataW
         fetcher_type = "TushareHistoryDataFetcher"
         tushare_token = None
 
+    resolved = resolve_fetcher_type(fetcher_type, force_online=force_online)
+    if resolved != fetcher_type:
+        print(f"(refresh 强制在线: {fetcher_type} → {resolved})")
+    fetcher_type = resolved
+
     if fetcher_type == "TushareHistoryDataFetcher":
         from src.infrastructure.gateway.tushare_fundamental_fetcher import TushareFundamentalFetcher
         from src.infrastructure.gateway.tushare_history_data import TushareHistoryDataFetcher
@@ -49,6 +72,26 @@ def build_data_wiring(config_path: str, db_path: str = DEFAULT_DB_PATH) -> DataW
         history_fetcher = TushareHistoryDataFetcher(token=tushare_token)
         fundamental_fetcher = TushareFundamentalFetcher(token=tushare_token)
         source = "tushare"
+    elif fetcher_type == "DuckDBHistoryDataFetcher":
+        # 离线读库模式(WSL 无 xtquant 也可跑 factor-test 等只读路径, 2026-07-12)。
+        # 不开第二个 duckdb 连接(同进程混合 read_only 配置会 ConnectionException)。
+        # 取数桩按"空返回"降级: ensure_bars 的 B1 履约诚实逻辑会把上市窗外缺口正常
+        # 履约、可疑缺口留警告不履约(下轮在线补)——离线判决以库内数据继续, 不中断。
+        class _OfflineNoFetch:
+            calls = 0
+
+            def fetch_history_bars(self, *args, **kwargs):
+                _OfflineNoFetch.calls += 1
+                return []
+
+            def fetch_by_range(self, *args, **kwargs):
+                _OfflineNoFetch.calls += 1
+                return []
+
+        print("(离线模式: DuckDB 只读, 缺口按空返回降级——如需补数在 Windows 侧 data refresh)")
+        history_fetcher = _OfflineNoFetch()
+        fundamental_fetcher = _OfflineNoFetch()
+        source = "qmt"  # 库内行按 qmt 源读取(离线复用既有数据)
     else:
         from src.infrastructure.gateway.qmt_fundamental_fetcher import QmtFundamentalFetcher
         from src.infrastructure.gateway.qmt_history_data import QmtHistoryDataFetcher

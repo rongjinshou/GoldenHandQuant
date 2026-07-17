@@ -33,6 +33,14 @@ _SCHEMA = [
         total_volume INTEGER, available_volume INTEGER,
         average_cost REAL, last_price REAL
     )""",
+    # 熔断状态(2026-07-11 T6): 熔断保护的是账户而非进程, 状态必须跨进程存续;
+    # 按 mode 隔离(DD-1 惯例: dry_run 熔断不得冻结 live, 反之亦然)。
+    """CREATE TABLE IF NOT EXISTS breaker_states (
+        mode TEXT PRIMARY KEY, status TEXT NOT NULL,
+        triggered_at TEXT, trigger_reason TEXT DEFAULT '',
+        daily_loss_rate REAL DEFAULT 0.0,
+        last_reset_date TEXT, updated_at TEXT
+    )""",
     # 截面决策快照(0626 阶段1 DD-7): 决策的完整输入+输出留痕, D2 离线比对同源。
     """CREATE TABLE IF NOT EXISTS signal_snapshots (
         cycle_id TEXT PRIMARY KEY, snapshot_time TEXT NOT NULL, mode TEXT NOT NULL,
@@ -48,8 +56,14 @@ _SCHEMA = [
 # 占用预算的状态(意向已发出): 拒单/失败不占。
 # CANCELED 必须占: QMT 部成部撤(ORDER_PART_CANCEL)也映射为 CANCELED,
 # 已成交部分是真实敞口, 不占预算会导致同日重复追单突破日上限。
+# PENDING(H1 幂等预写, 下单前落账)与 FAILED_AFTER_SUBMIT(place 已发出后轮询异常)
+# 必须占: 两者都意味着券商侧可能存在真单, 不占会导致崩溃/异常后重复下单。
 _BUDGET_STATUSES = ("DRY_RUN", "SUBMITTED", "FILLED", "PARTIAL", "CANCELED",
-                    "TIMEOUT_CANCELED", "TIMEOUT_UNCANCELED", "ALIVE")
+                    "TIMEOUT_CANCELED", "TIMEOUT_UNCANCELED", "ALIVE",
+                    "PENDING", "FAILED_AFTER_SUBMIT")
+
+# 非终态(启动对账扫描对象): 正常周期结束时必被终态覆盖, 残留即崩溃痕迹
+_STALE_STATUSES = ("PENDING", "ALIVE", "SUBMITTED", "PARTIAL")
 
 
 class TradingStore:
@@ -111,6 +125,24 @@ class TradingStore:
         )
         self._db.commit()
 
+    def replace_execution_order_id(self, old_order_id: str, new_order_id: str) -> None:
+        """H1 幂等: place_order 成功后把预写行的 pre-id 换成券商真单号。"""
+        self._db.execute(
+            "UPDATE execution_records SET order_id = ? WHERE order_id = ?",
+            (new_order_id, old_order_id),
+        )
+        self._db.commit()
+
+    def load_stale_executions(self, *, mode: str) -> list[dict]:
+        """非终态残留行(崩溃痕迹, H1 启动对账用)。"""
+        cur = self._db.execute(
+            f"""SELECT * FROM execution_records
+                WHERE mode = ? AND status IN ({', '.join('?' for _ in _STALE_STATUSES)})
+                ORDER BY submitted_at""",
+            (mode, *_STALE_STATUSES),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
     def load_executions(self, limit: int = 200) -> list[dict]:
         cur = self._db.execute(
             "SELECT * FROM execution_records ORDER BY submitted_at DESC LIMIT ?",
@@ -149,6 +181,54 @@ class TradingStore:
              market_value),
         )
         self._db.commit()
+
+    # ----------------------------------------------------- breaker state (T6)
+    def save_breaker_state(self, *, mode: str, state, last_reset_date: str | None) -> None:
+        """熔断状态落库(upsert, 每 mode 一行)。state: CircuitBreakerState。"""
+        from datetime import datetime as _dt
+        self._db.execute(
+            """INSERT OR REPLACE INTO breaker_states
+               (mode, status, triggered_at, trigger_reason, daily_loss_rate,
+                last_reset_date, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (mode, state.status.value,
+             state.triggered_at.isoformat() if state.triggered_at else None,
+             state.trigger_reason, state.daily_loss_rate,
+             last_reset_date, _dt.now().isoformat()),
+        )
+        self._db.commit()
+
+    def load_breaker_state(self, *, mode: str):
+        """返回 (CircuitBreakerState | None, last_reset_date | None)。"""
+        from datetime import datetime as _dt
+
+        from src.domain.risk.value_objects.circuit_breaker_state import (
+            BreakerStatus,
+            CircuitBreakerState,
+        )
+        cur = self._db.execute(
+            "SELECT * FROM breaker_states WHERE mode = ?", (mode,))
+        row = cur.fetchone()
+        if row is None:
+            return None, None
+        r = dict(row)
+        state = CircuitBreakerState(
+            status=BreakerStatus(r["status"]),
+            triggered_at=_dt.fromisoformat(r["triggered_at"]) if r["triggered_at"] else None,
+            trigger_reason=r["trigger_reason"] or "",
+            daily_loss_rate=r["daily_loss_rate"] or 0.0,
+        )
+        return state, r["last_reset_date"]
+
+    def daily_equity_closes(self, *, mode: str, limit: int = 500) -> list[tuple[str, float]]:
+        """每日末条权益 [(date, total_asset)](熔断总回撤序列用)。"""
+        cur = self._db.execute(
+            """SELECT date(snapshot_time) AS d, total_asset FROM account_snapshots
+               WHERE mode = ? GROUP BY d HAVING snapshot_time = MAX(snapshot_time)
+               ORDER BY d DESC LIMIT ?""",
+            (mode, limit),
+        )
+        return [(r[0], float(r[1])) for r in reversed(cur.fetchall())]
 
     def day_start_equity(self, *, today: str) -> float | None:
         """当日首个权益快照——跨 mode: 同一真实账户只有一条权益曲线。"""

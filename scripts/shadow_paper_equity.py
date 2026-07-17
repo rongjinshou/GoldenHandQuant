@@ -25,6 +25,9 @@ from src.infrastructure.mock.mock_market import MockMarketGateway  # noqa: E402
 from src.infrastructure.mock.mock_trade import MockTradeGateway  # noqa: E402
 from src.infrastructure.persistence.backtest_run_mapper import build_backtest_run_row  # noqa: E402
 from src.infrastructure.persistence.market_data_store import MarketDataStore  # noqa: E402
+from src.infrastructure.persistence.status_registry_loader import (  # noqa: E402
+    build_status_registry_from_db,
+)
 from src.interfaces.cli._backtest_wiring import build_backtest_cross_section  # noqa: E402
 
 SHADOW_START = "2026-07-04"   # 影子盘阶段1 上线日(0626 阶段1 report)
@@ -55,12 +58,15 @@ def main() -> None:
     mkt.load_bars(fetcher.fetch_history_bars(idx, tf, warmup_start, end))
     fetcher.close()
 
-    trade = MockTradeGateway(market_gateway=mkt, initial_capital=CAP)
+    status_registry = build_status_registry_from_db(DB, start=SHADOW_START, end=end)
+    trade = MockTradeGateway(market_gateway=mkt, initial_capital=CAP,
+                             stock_status_registry=status_registry)
     app = BacktestAppService(
         market_gateway=mkt, trade_gateway=trade,
         strategy=create_strategy("micro_value", {"top_n": TOP_N}),
         evaluator=PerformanceEvaluator(), sizer=EqualWeightSizer(n_symbols=TOP_N),
-        fundamental_registry=registry, risk_settings=s.risk)
+        fundamental_registry=registry, status_registry=status_registry,
+        risk_settings=s.risk)
     report = app.run_backtest(
         mb_universe, start_date=datetime.strptime(SHADOW_START, "%Y-%m-%d"),
         end_date=datetime.strptime(end, "%Y-%m-%d"), base_timeframe=tf)[0]

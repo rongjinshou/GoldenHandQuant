@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.infrastructure.ml_engine.factor_evaluator import FactorEvaluator, FactorEvalResult
+from src.infrastructure.ml_engine.factor_evaluator import FactorEvalResult, FactorEvaluator
 
 
 def _make_factor_and_returns(

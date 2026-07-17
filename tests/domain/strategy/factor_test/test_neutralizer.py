@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
-from src.infrastructure.factor_test.neutralizer import FactorNeutralizer
+from src.domain.strategy.factor_test.neutralizer import FactorNeutralizer
 
 
 def _snap(symbol: str, market_cap: float, return_20d: float) -> StockSnapshot:

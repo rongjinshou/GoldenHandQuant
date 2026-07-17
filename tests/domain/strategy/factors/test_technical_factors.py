@@ -6,10 +6,10 @@ from src.domain.strategy.factors.technical_factors import (
     GapFactor,
     High20dProximityFactor,
     Low20dProximityFactor,
-    MACDCrossFactor,
     MA5CrossFactor,
     MA20CrossFactor,
     MA60CrossFactor,
+    MACDCrossFactor,
     OBVSlope20dFactor,
     PriceRangeFactor,
 )

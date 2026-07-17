@@ -15,10 +15,18 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from src.application.live_signal_service import LiveSignalService, SignalDisplay
 from src.domain.common.services.audit_service import AuditService
 from src.domain.market.value_objects.quote import Quote
+from src.domain.risk.services.risk_chain import RiskChain
+from src.domain.risk.services.risk_policies.position_limit_policy import (
+    PositionLimitPolicy,
+)
+from src.domain.risk.services.risk_policies.total_position_policy import (
+    TotalPositionPolicy,
+)
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.domain.trade.entities.order import Order
 from src.domain.trade.exceptions import OrderSubmitError
@@ -29,7 +37,9 @@ from src.domain.trade.services.pre_trade_checks import (
 )
 from src.domain.trade.value_objects.order_direction import OrderDirection
 from src.domain.trade.value_objects.order_type import OrderType
-from src.infrastructure.persistence.trading_store import TradingStore
+
+if TYPE_CHECKING:
+    from src.infrastructure.persistence.trading_store import TradingStore
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +58,9 @@ class AutoTradeConfig:
     daily_notional_cap: float = 3000.0
     daily_loss_limit_ratio: float = 0.02
     poll_timeout_seconds: float = 30.0
+    # M5 执行期风控硬闸(2026-07-10): 买入后单票市值/总持仓市值占总资产上限
+    max_position_ratio: float = 0.30
+    max_total_position_ratio: float = 0.80
 
 
 @dataclass(slots=True, kw_only=True)
@@ -83,6 +96,8 @@ class AutoTradeAppService:
         clock: Callable[[], datetime] = datetime.now,
         sleep: Callable[[float], None] = time.sleep,
         notification_hub=None,
+        calendar=None,
+        circuit_breaker=None,
     ) -> None:
         if config.mode not in ("dry_run", "live"):
             raise ValueError(f"非法 mode: {config.mode!r} (仅 dry_run/live)")
@@ -101,6 +116,10 @@ class AutoTradeAppService:
         self._clock = clock
         self._sleep = sleep
         self._hub = notification_hub
+        # M7 交易日历(bars 推导, 可 None): 已知休市日拒单, 未来日 unknown 放行
+        self._calendar = calendar
+        # T6 熔断器(可 None): 状态经 store 跨进程存续, 每周期 _sync_breaker 恢复/评估/落库
+        self._breaker = circuit_breaker
 
     def _notify(self, title: str, body: str, level: str = "info") -> None:
         """通过 NotificationHub 发送通知 — 静默失败不阻塞交易。"""
@@ -123,6 +142,7 @@ class AutoTradeAppService:
         now = self._clock()
         cycle_id = f"{now:%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
         summary = CycleSummary(cycle_id=cycle_id, mode=self._cfg.mode)
+        self._reconcile_stale_executions()
         self._store.save_cycle_start(
             cycle_id=cycle_id, cycle_time=now.isoformat(),
             mode=self._cfg.mode, strategy=self._cfg.strategy,
@@ -148,6 +168,7 @@ class AutoTradeAppService:
             candidates = self._select(displays, now)
             block_buys, asset = self._prepare_baseline_and_loss_check(now)
             cash_available = asset.available_cash if asset else 0.0
+            breaker_state = self._sync_breaker(now, asset)
 
             # 债D4修复: 循环前一次性批量拉取候选行情快照(单次API调用)，
             # 替代逐候选串行 subscribe_first_tick(每单最坏3秒等待推送)。
@@ -160,7 +181,9 @@ class AutoTradeAppService:
                     logger.error("批量行情拉取失败(本循环全部候选按无报价处理): %s", e, exc_info=True)
 
             for d in candidates:
-                record = self._execute_one(d, cycle_id, now, block_buys, cash_available, quotes)
+                record = self._execute_one(d, cycle_id, now, block_buys,
+                                           cash_available, quotes, asset,
+                                           breaker_state)
                 self._store.save_execution(record)
                 match record["status"]:
                     case "REJECTED":
@@ -176,6 +199,14 @@ class AutoTradeAppService:
                             f"订单失败: {record['symbol']}",
                             f"方向: {record['direction']} | 异常: {record.get('reject_reason', '未知')}",
                             level="warning",
+                        )
+                    case "FAILED_AFTER_SUBMIT":
+                        summary.orders_failed += 1
+                        self._notify(
+                            f"订单状态未知(已发出): {record['symbol']}",
+                            f"方向: {record['direction']} | 单已提交券商但后续异常: "
+                            f"{record.get('reject_reason', '未知')} — 需人工核实委托状态",
+                            level="error",
                         )
                     case _:
                         summary.orders_submitted += 1
@@ -266,7 +297,8 @@ class AutoTradeAppService:
     # ------------------------------------------------------------- execution
     def _execute_one(self, d: SignalDisplay, cycle_id: str, now: datetime,
                      block_buys: bool, cash_available: float,
-                     quotes: dict[str, Quote]) -> dict:
+                     quotes: dict[str, Quote], asset=None,
+                     breaker_state=None) -> dict:
         """单笔执行(异常自隔离): 任何异常以 FAILED 留痕, 不波及循环内其他订单。"""
         direction = (OrderDirection.BUY if d.direction == SignalDirection.BUY
                      else OrderDirection.SELL)
@@ -282,16 +314,28 @@ class AutoTradeAppService:
         }
         try:
             return self._execute_guarded(d, record, now, direction,
-                                         block_buys, cash_available, quotes)
+                                         block_buys, cash_available, quotes,
+                                         asset, breaker_state)
         except Exception as e:
             logger.error("订单执行异常: %s - %s", d.symbol, e, exc_info=True)
-            record.update({"status": "FAILED", "reject_reason": f"执行异常: {e}"})
+            # H1: 单已发出后的异常(如轮询崩溃)不得标 FAILED——FAILED 不占预算/
+            # 去重, 会让同标的立刻追单重复; FAILED_AFTER_SUBMIT 保守占用
+            status = "FAILED_AFTER_SUBMIT" if record.get("_submitted") else "FAILED"
+            record.update({"status": status, "reject_reason": f"执行异常: {e}"})
             self._audit_order(record, "execute_failed")
             return record
 
     def _execute_guarded(self, d: SignalDisplay, record: dict, now: datetime,
                          direction: OrderDirection, block_buys: bool,
-                         cash_available: float, quotes: dict[str, Quote]) -> dict:
+                         cash_available: float, quotes: dict[str, Quote],
+                         asset=None, breaker_state=None) -> dict:
+        # T6 熔断硬闸(最先判): TRIGGERED 禁全部(含卖出), COOLDOWN 仅允许卖出
+        if breaker_state is not None:
+            if breaker_state.blocks_all_trading:
+                return self._reject(
+                    record, f"熔断器 TRIGGERED 禁止全部交易: {breaker_state.trigger_reason}")
+            if breaker_state.allows_sell_only and direction == OrderDirection.BUY:
+                return self._reject(record, "熔断冷却期(COOLDOWN) 仅允许卖出")
         if block_buys and direction == OrderDirection.BUY:
             return self._reject(record, "当日亏损超限禁买 (仅放行卖出)")
 
@@ -315,6 +359,7 @@ class AutoTradeAppService:
             notional_ceiling=self._cfg.per_order_notional_ceiling,
             available_cash=cash_available,
             available_volume=available_volume,
+            calendar=self._calendar,
         )
         if not gate.passed:
             return self._reject(record, gate.reject_reason)
@@ -327,6 +372,13 @@ class AutoTradeAppService:
                 f"当日预算耗尽: 已提交 {spent:.2f} + 本单 {gate.notional:.2f} "
                 f"> 上限 {self._cfg.daily_notional_cap:.2f}")
 
+        # M5 执行期风控硬闸(单票≤max_position_ratio / 总仓≤max_total_position_ratio):
+        # 无状态、每单即时计算; asset 拿不到时资金闸(available_cash=0)已兜底拒买
+        if direction == OrderDirection.BUY and asset is not None:
+            risk_reject = self._check_position_limits(d, gate, asset, quotes)
+            if risk_reject is not None:
+                return self._reject(record, risk_reject)
+
         order = Order(
             order_id=f"auto-{uuid.uuid4().hex[:8]}", account_id="",
             ticker=d.symbol, direction=direction, price=gate.limit_price,
@@ -334,6 +386,12 @@ class AutoTradeAppService:
             remark="auto-trade-v1",
         )
         record.update({"exec_price": gate.limit_price, "notional": gate.notional})
+
+        # H1 幂等: 下单前先落 PENDING 账(占预算/去重)。旧时序 place→30s轮询→落账
+        # 之间崩溃会造成券商有真单而账本无行, 重启后重复下单。
+        pre_order_id = record["order_id"]
+        record["status"] = "PENDING"
+        self._store.save_execution(record)
         try:
             order_id = str(self._trade.place_order(order))
         except OrderSubmitError as e:
@@ -342,6 +400,8 @@ class AutoTradeAppService:
             return record
 
         record["order_id"] = order_id
+        record["_submitted"] = True  # 供异常分支判定"单已发出"(不落库)
+        self._store.replace_execution_order_id(pre_order_id, order_id)
         self._audit_order(record, "place_order")
         final, trail = self._poll(order_id)
         record.update({
@@ -364,12 +424,118 @@ class AutoTradeAppService:
             cancel_on_timeout=True,  # auto-trade 超时撤单
         )
         if result.canceled:
-            self._audit.log_action(
-                user_id=_AUDIT_USER, action="cancel_order", resource_type="Order",
-                resource_id=order_id, details={"reason": "poll timeout"})
+            try:
+                self._audit.log_action(
+                    user_id=_AUDIT_USER, action="cancel_order", resource_type="Order",
+                    resource_id=order_id, details={"reason": "poll timeout"})
+            except Exception:
+                logger.exception("审计写入失败(cancel_order, order=%s), 不影响撤单结果",
+                                 order_id)
         elif result.final_status == "TIMEOUT_UNCANCELED":
             logger.error("订单 %s 超时且撤单未受理, 需人工处理!", order_id)
         return result.final_status, result.trail
+
+    def _check_position_limits(self, d: SignalDisplay, gate, asset,
+                               quotes: dict[str, Quote]) -> str | None:
+        """M5 风控接线: 单票/总仓上限(复用 domain 正式风控策略)。
+
+        Returns:
+            拒单原因; 通过返回 None。
+        """
+        positions = self._account.get_positions()
+        current_prices = {s: q.last for s, q in quotes.items()
+                          if q is not None and q.last > 0}
+        probe = Order(
+            order_id="risk-probe", account_id="", ticker=d.symbol,
+            direction=OrderDirection.BUY, price=gate.limit_price,
+            volume=d.suggested_volume, type=OrderType.LIMIT,
+        )
+        chain = RiskChain([
+            PositionLimitPolicy(positions, asset,
+                                max_ratio=self._cfg.max_position_ratio),
+            TotalPositionPolicy(positions, asset, current_prices,
+                                max_ratio=self._cfg.max_total_position_ratio),
+        ])
+        result = chain.check(probe)
+        return None if result.passed else f"风控拒单: {result.reason}"
+
+    def _sync_breaker(self, now: datetime, asset):
+        """T6 熔断器周期同步: 恢复持久态 → 新交易日重置 → 评估 → 落库。
+
+        同步失败按 fail-open 处理(返回 None, 其余闸不受影响)并高声告警——
+        熔断器故障若 fail-closed 会让数据库抖动演变成交易全面瘫痪。
+        """
+        if self._breaker is None:
+            return None
+        try:
+            saved, last_reset = self._store.load_breaker_state(mode=self._cfg.mode)
+            if saved is not None:
+                self._breaker.restore_state(saved)
+
+            today = now.date().isoformat()
+            if last_reset != today:
+                baseline = self._store.day_start_equity(today=today) or (
+                    asset.total_asset if asset else 0.0)
+                self._breaker.reset_daily(now, baseline)
+
+            if asset is not None:
+                from src.domain.backtest.value_objects.daily_snapshot import (
+                    DailySnapshot,
+                )
+                closes = self._store.daily_equity_closes(mode=self._cfg.mode)
+                snapshots = [
+                    DailySnapshot(date=datetime.fromisoformat(d), total_asset=v,
+                                  available_cash=0.0, market_value=0.0,
+                                  pnl=0.0, return_rate=0.0)
+                    for d, v in closes
+                ]
+                if closes:
+                    # 总回撤锚点 = 账户最早一日权益(实盘语义的"初始资金")
+                    self._breaker.set_initial_capital(closes[0][1])
+                state = self._breaker.evaluate(asset, snapshots)
+            else:
+                state = self._breaker.state
+
+            self._store.save_breaker_state(
+                mode=self._cfg.mode, state=state, last_reset_date=today)
+            if not state.is_normal:
+                logger.error("熔断器 %s: %s", state.status.value,
+                             state.trigger_reason or "冷却期")
+                self._notify(
+                    f"熔断器 {state.status.value}",
+                    state.trigger_reason or "冷却期仅允许卖出", level="error")
+            return state
+        except Exception:
+            logger.exception("熔断器同步失败(fail-open: 本周期无熔断保护, 其余闸不受影响)")
+            return None
+
+    def _reconcile_stale_executions(self) -> None:
+        """H1 启动对账: 非终态残留行 = 上次进程崩溃痕迹(券商侧可能有真单)。
+
+        只告警不自动处置(dry-run 阶段方针; 真单版本待实环境验证后再升级为
+        query_order_status 自动补终态)。残留行天然占预算/去重, 不会重复下单。
+        """
+        try:
+            stale = self._store.load_stale_executions(mode=self._cfg.mode)
+        except Exception:
+            logger.exception("启动对账扫描失败(不阻断周期)")
+            return
+        for row in stale:
+            logger.error(
+                "发现非终态残留单(疑似上次崩溃): %s %s %s status=%s submitted_at=%s"
+                " — 券商侧可能存在真实委托, 请人工核实",
+                row["order_id"], row["symbol"], row["direction"],
+                row["status"], row["submitted_at"],
+            )
+            try:
+                self._audit.log_action(
+                    user_id=_AUDIT_USER, action="reconcile_stale_execution",
+                    resource_type="Order", resource_id=row["order_id"],
+                    details={"symbol": row["symbol"], "direction": row["direction"],
+                             "status": row["status"], "mode": row["mode"],
+                             "submitted_at": row["submitted_at"]})
+            except Exception:
+                logger.exception("对账审计写入失败(order=%s)", row["order_id"])
 
     # ----------------------------------------------------------- persistence
     def _reject(self, record: dict, reason: str | None) -> dict:
@@ -378,12 +544,18 @@ class AutoTradeAppService:
         return record
 
     def _audit_order(self, record: dict, action: str) -> None:
-        self._audit.log_action(
-            user_id=_AUDIT_USER, action=action, resource_type="Order",
-            resource_id=record["order_id"],
-            details={"symbol": record["symbol"], "direction": record["direction"],
-                     "notional": record["notional"], "mode": record["mode"],
-                     "reason": record["reject_reason"]})
+        # 审计是观测面不是控制流: 下单已发生后审计写库失败若上抛, 会把真单
+        # 误标 FAILED 并跳过撤单轮询(账本与券商背离), 故吞异常、高声留日志
+        try:
+            self._audit.log_action(
+                user_id=_AUDIT_USER, action=action, resource_type="Order",
+                resource_id=record["order_id"],
+                details={"symbol": record["symbol"], "direction": record["direction"],
+                         "notional": record["notional"], "mode": record["mode"],
+                         "reason": record["reject_reason"]})
+        except Exception:
+            logger.exception("审计写入失败(action=%s, order=%s), 不影响交易状态留痕",
+                             action, record["order_id"])
 
     def _write_account_snapshot(self, now: datetime, asset) -> None:
         self._store.save_account_snapshot(

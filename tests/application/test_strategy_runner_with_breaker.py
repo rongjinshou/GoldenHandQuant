@@ -4,9 +4,7 @@ from unittest.mock import MagicMock
 from src.application.strategy_runner import SingleStrategyRunner
 from src.domain.risk.services.circuit_breaker import CircuitBreaker
 from src.domain.risk.value_objects.circuit_breaker_state import BreakerStatus, CircuitBreakerState
-from src.domain.strategy.value_objects.signal import Signal
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
-from src.domain.trade.value_objects.order_direction import OrderDirection
 
 
 def _make_runner(circuit_breaker=None):
@@ -44,9 +42,10 @@ def test_normal_breaker_allows_signals():
     breaker = CircuitBreaker()
     runner, strategy, sizer, market, trade = _make_runner(circuit_breaker=breaker)
 
+    from datetime import datetime
+
     from src.domain.market.value_objects.bar import Bar
     from src.domain.market.value_objects.timeframe import Timeframe
-    from datetime import datetime
 
     bar_t1 = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1,
                  timestamp=datetime(2024, 1, 2),
@@ -78,9 +77,10 @@ def test_normal_breaker_allows_signals():
 def test_no_breaker_allows_signals():
     runner, strategy, sizer, market, trade = _make_runner(circuit_breaker=None)
 
+    from datetime import datetime
+
     from src.domain.market.value_objects.bar import Bar
     from src.domain.market.value_objects.timeframe import Timeframe
-    from datetime import datetime
 
     bar_t1 = Bar(symbol="000001.SZ", timeframe=Timeframe.DAY_1,
                  timestamp=datetime(2024, 1, 2),

@@ -10,11 +10,11 @@ import bisect
 import numpy as np
 import pandas as pd
 
+from src.domain.strategy.factor_test.ic_calculator import ICCalculator
 from src.domain.strategy.factor_test.lexer import tokenize
 from src.domain.strategy.factor_test.panel import FactorPanel
 from src.domain.strategy.factor_test.parser import FactorExpressionParser
 from src.domain.strategy.factor_test.vectorized_evaluator import VectorizedEvaluator
-from src.infrastructure.factor_test.ic_calculator import ICCalculator
 
 
 class VectorizedNeutralizer:
@@ -24,13 +24,20 @@ class VectorizedNeutralizer:
         self._parser = FactorExpressionParser()
         self._evaluator = VectorizedEvaluator()
 
-    def mean_neutralized_ic(self, expression_str: str, panel: FactorPanel) -> float:
-        """剥离市值/反转后的平均 IC。控制变量缺失或残差退化的日期跳过。"""
-        expr = self._parser.parse(tokenize(expression_str))
+    def mean_neutralized_ic(
+        self, expression_str: str, panel: FactorPanel, precomputed_series=None
+    ) -> float:
+        """剥离市值/反转后的平均 IC。控制变量缺失或残差退化的日期跳过。
+
+        precomputed_series: 同 VectorizedRunner.run 的研究口子(0712 E9)。"""
         df = panel.df
         if df.empty:
             return 0.0
-        factor_series = self._evaluator.evaluate(expr, df)
+        if precomputed_series is not None:
+            factor_series = precomputed_series
+        else:
+            expr = self._parser.parse(tokenize(expression_str))
+            factor_series = self._evaluator.evaluate(expr, df)
 
         work = pd.DataFrame({
             "date_str": pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d").to_numpy(),

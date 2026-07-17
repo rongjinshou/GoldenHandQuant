@@ -1,4 +1,3 @@
-from datetime import datetime
 
 from src.application.notification_hub import NotificationHub, RateLimiter
 from src.domain.notification.value_objects.notification_message import (
@@ -6,8 +5,8 @@ from src.domain.notification.value_objects.notification_message import (
     NotificationMessage,
 )
 from src.domain.trade.value_objects.execution_record import ExecutionRecord
-from src.domain.trade.value_objects.execution_status import ExecutionStatus
 from src.domain.trade.value_objects.execution_stats import ExecutionStats
+from src.domain.trade.value_objects.execution_status import ExecutionStatus
 from src.domain.trade.value_objects.order_direction import OrderDirection
 
 

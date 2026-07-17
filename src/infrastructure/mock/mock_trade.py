@@ -363,18 +363,3 @@ class MockTradeGateway(ITradeGateway, IAccountGateway):
         )
         self.trade_records.append(record)
 
-    def cancel_all_open_orders(self) -> None:
-        """撤销所有未成交订单 (用于收盘清算)。"""
-        for order in self.orders.values():
-            if order.status in [OrderStatus.SUBMITTED, OrderStatus.PARTIAL_FILLED]:
-                 # 模拟回测中通常是立即成交，但在 limit 单或部分成交场景下会有残留
-                 # 这里主要是配合架构规范 4.4
-                 order.status = OrderStatus.CANCELED
-                 # 如果有冻结资金需解冻 (本实现中买入立即成交或拒绝，不存在挂单，但为了接口完整性)
-                 pass
-
-    def daily_settlement(self) -> None:
-        """日终结算: T+1 持仓可用化。"""
-        self.cancel_all_open_orders()
-        for pos in self.positions.values():
-            pos.settle_t_plus_1()

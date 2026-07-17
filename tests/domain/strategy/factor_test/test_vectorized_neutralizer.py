@@ -7,9 +7,9 @@ import pytest
 
 from src.application.factor_test_app import _compute_forward_returns
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
+from src.domain.strategy.factor_test.neutralizer import FactorNeutralizer
 from src.domain.strategy.factor_test.panel import FactorPanel
-from src.infrastructure.factor_test.neutralizer import FactorNeutralizer
-from src.infrastructure.factor_test.vectorized_neutralizer import VectorizedNeutralizer
+from src.domain.strategy.factor_test.vectorized_neutralizer import VectorizedNeutralizer
 
 # date -> [(symbol, pe, market_cap, return_20d, exec_close), ...]
 _DATA: dict[str, list] = {

@@ -1,7 +1,8 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
 import pandas as pd
-from datetime import datetime
+import pytest
+
 from src.infrastructure.gateway.tushare_fundamental_fetcher import TushareFundamentalFetcher
 
 

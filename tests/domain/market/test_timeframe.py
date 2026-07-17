@@ -1,5 +1,6 @@
 from src.domain.market.value_objects.timeframe import Timeframe
 
+
 class TestTimeframe:
     def test_enum_values(self):
         assert Timeframe.MIN_1 == "1m"

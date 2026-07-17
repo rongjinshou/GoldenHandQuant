@@ -11,8 +11,9 @@
 
 from __future__ import annotations
 
+import logging
 import math
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from src.domain.market.services.feature_engine import (
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from src.domain.market.interfaces.gateways.history_fetcher import IHistoryDataFetcher
     from src.infrastructure.persistence.market_data_store import MarketDataStore
 
+logger = logging.getLogger(__name__)
+
 _SYMBOL_CHUNK = 500  # 特征重算/批量装载的分块大小
 
 
@@ -44,6 +47,50 @@ def _nn(value: float | None) -> float | None:
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return None
     return value
+
+
+def _empty_gap_is_legitimate(
+    gap_start: str, gap_end: str, listing: tuple[date | None, date | None] | None
+) -> bool:
+    """空返回是否可判为「窗口外合法无数据」: 缺口整体在上市前或退市后。
+
+    只有合法空才允许标履约; 瞬时失败(断线/抖动)的空返回若被标履约,
+    missing_ranges 从此为空 → 永不重试 → 数据洞固化(P2, 与特征 NULL
+    固化事故同族)。instruments 无登记时无从判定, 保守按可疑处理。
+    """
+    if listing is None:
+        return False
+    list_date, delist_date = listing
+    gs = datetime.strptime(gap_start, "%Y-%m-%d").date()
+    ge = datetime.strptime(gap_end, "%Y-%m-%d").date()
+    if list_date is not None and ge < list_date:
+        return True
+    if delist_date is not None and gs > delist_date:
+        return True
+    return False
+
+
+def _defective_feature_symbols(features, first_bar_by_symbol: dict[str, date]) -> set[str]:
+    """预热充足区(库内首根 bar + WARMUP_DAYS 之后)仍有 NULL ma_20 的 symbol。
+
+    冷启动 NaN 只在数据史前 WARMUP 窗内合法(次新股); 史深足够处的 NaN
+    说明重算被喂了截断的 bars —— 2025-11-25→2026-02-26 的 103,466 行
+    NULL 固化事故即此模式(P1)。
+    """
+    import pandas as pd
+
+    if features.empty:
+        return set()
+    defective: set[str] = set()
+    for symbol, group in features.groupby("symbol", sort=False):
+        first = first_bar_by_symbol.get(symbol)
+        if first is None:
+            continue
+        mature_from = pd.Timestamp(first) + pd.Timedelta(days=WARMUP_DAYS)
+        mature = group[pd.to_datetime(group["date"]) >= mature_from]
+        if mature["ma_20"].isna().any():
+            defective.add(symbol)
+    return defective
 
 
 class MarketDataAppService:
@@ -67,37 +114,72 @@ class MarketDataAppService:
     # ------------------------------------------------------------------ #
 
     def ensure_bars(self, symbols: list[str], start_date: str, end_date: str) -> set[str]:
-        """补齐 [start-warmup, end] 的日线缺口。返回本次实际取过数的 symbol 集。"""
+        """补齐 [start-warmup, end] 的日线缺口。返回本次实际拉到数据的 symbol 集。
+
+        履约诚实(B1): 空返回只有整体落在上市前/退市后才记履约(防重拉风暴);
+        上市窗口内的空返回视为可疑(瞬时失败), 不履约、留待下轮重试。
+        """
         ws = _warmup_start(start_date)
         refreshed: set[str] = set()
+        listing_windows: dict | None = None  # 首次遇到空返回才查一次
         for symbol in symbols:
             gaps = self._store.missing_ranges(self._source, "bars", symbol, ws, end_date)
             if not gaps:
                 continue
+            got_data = False
+            all_empty_legit = True
             for gap_start, gap_end in gaps:
                 bars = self._history_fetcher.fetch_history_bars(
                     symbol, Timeframe.DAY_1, gap_start, gap_end
                 )
                 if bars:
                     self._store.upsert_bars(bars, self._source)
-            # 无数据也记履约（未上市/退市区间），防重拉风暴 — 与 csv meta 同口径
-            self._store.mark_fulfilled(self._source, "bars", symbol, ws, end_date)
-            refreshed.add(symbol)
+                    got_data = True
+                else:
+                    if listing_windows is None:
+                        listing_windows = self._store.instrument_windows(symbols)
+                    if not _empty_gap_is_legitimate(
+                        gap_start, gap_end, listing_windows.get(symbol)
+                    ):
+                        all_empty_legit = False
+            if got_data:
+                refreshed.add(symbol)
+            if all_empty_legit:
+                self._store.mark_fulfilled(self._source, "bars", symbol, ws, end_date)
+            else:
+                logger.warning(
+                    "bars 缺口空返回且不在上市窗外(%s %s~%s), 不标履约、下轮重试",
+                    symbol, ws, end_date,
+                )
         return refreshed
 
     def ensure_fundamentals(self, start_date: str, end_date: str) -> None:
-        """补齐基本面缺口（QMT 为整批接口，meta 以 '*' 记一行）。"""
+        """补齐基本面缺口（QMT 为整批接口，meta 以 '*' 记一行）。
+
+        履约诚实(B1 同款, 2026-07-15 断流复盘): 任一缺口空返回即不标履约、
+        留待下轮重试——离线桩/瞬时失败的空返回若标履约, 缺口从此固化
+        (本次事故: 离线空跑把 '*' 水位假标到 07-15, 在线重跑视作无缺口)。
+        """
         ws = _warmup_start(start_date)
         gaps = self._store.missing_ranges(
             self._source, "fundamental_snapshots", "*", ws, end_date
         )
+        if not gaps:
+            return
+        all_got_data = True
         for gap_start, gap_end in gaps:
             snaps = self._fundamental_fetcher.fetch_by_range(gap_start, gap_end)
             if snaps:
                 self._store.upsert_fundamentals(snaps, self._source)
-        if gaps:
+            else:
+                all_got_data = False
+        if all_got_data:
             self._store.mark_fulfilled(
                 self._source, "fundamental_snapshots", "*", ws, end_date
+            )
+        else:
+            logger.warning(
+                "fundamentals 缺口空返回(%s~%s), 不标履约、下轮重试", ws, end_date
             )
 
     def ensure_features(
@@ -123,8 +205,21 @@ class MarketDataAppService:
             chunk = stale[i: i + _SYMBOL_CHUNK]
             bars_df = self._store.load_bars_df(chunk, ws, end_date, self._source)
             features = compute_features(bars_df)
+            # 履约诚实(B2): 预热充足区仍有 NULL ma_20 = 重算被喂了截断 bars,
+            # 该 symbol 不入库(防 NaN 覆盖好数据)也不履约(留待重试)
+            defective = _defective_feature_symbols(
+                features, self._store.first_bar_dates(chunk, self._source)
+            )
+            if defective:
+                logger.error(
+                    "特征产出校验未过 %s: 预热充足区仍有 NULL ma_20, 本轮不入库不履约",
+                    sorted(defective),
+                )
+                features = features[~features["symbol"].isin(defective)]
             self._store.upsert_features_df(features, FEATURE_VERSION)
             for s in chunk:
+                if s in defective:
+                    continue
                 self._store.mark_fulfilled(
                     self._source, self._feature_table, s, start_date, end_date
                 )

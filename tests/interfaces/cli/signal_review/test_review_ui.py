@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock
 
-from src.application.live_signal_service import SignalDisplay
-from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.interfaces.cli.signal_review.review_ui import SignalReviewUI, _parse_indices
 
 

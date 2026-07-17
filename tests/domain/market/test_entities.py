@@ -1,12 +1,14 @@
 from datetime import datetime
+
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
+
 
 class TestBar:
     def test_init_should_store_values_correctly(self):
         # Arrange
         now = datetime(2026, 1, 1)
-        
+
         # Act
         bar = Bar(
             symbol="600000.SH",
@@ -18,7 +20,7 @@ class TestBar:
             close=10.5,
             volume=1000.0
         )
-        
+
         # Assert
         assert bar.symbol == "600000.SH"
         assert bar.timeframe == Timeframe.DAY_1

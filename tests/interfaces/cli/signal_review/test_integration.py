@@ -5,14 +5,23 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from src.application.live_signal_service import LiveSignalService, SignalDisplay
+from src.application.live_signal_service import LiveSignalService
 from src.domain.account.entities.asset import Asset
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.strategy.value_objects.review_action import ReviewAction
-from src.domain.strategy.value_objects.signal_direction import SignalDirection
 from src.interfaces.cli.signal_review.review_store import ReviewStore
 from src.interfaces.cli.signal_review.review_ui import SignalReviewUI
+
+
+class _FakeQuoteFetcher:
+    """有效实时报价替身(M6: place_confirmed_orders 需报价源过盘前闸)。"""
+
+    def get_quotes(self, symbols):
+        from src.domain.market.value_objects.quote import Quote
+        now = datetime(2026, 6, 10, 9, 35)  # 周三盘中
+        return {s: Quote(symbol=s, last=20.0, bid1=19.99, ask1=20.01,
+                         prev_close=20.0, timestamp=now) for s in symbols}
 
 
 def _make_bars(symbol: str, prices: list[float]) -> list[Bar]:
@@ -47,10 +56,13 @@ class TestEndToEndFlow:
                 market_gateway=market_gw,
                 account_gateway=account_gw,
                 trade_gateway=trade_gw,
+                clock=lambda: datetime(2026, 6, 10, 9, 35),
             )
 
             store = ReviewStore(Path(tmpdir))
-            ui = SignalReviewUI(service=service, store=store)
+            ui = SignalReviewUI(service=service, store=store,
+                                quote_fetcher=_FakeQuoteFetcher(),
+                                max_notional=999999.0, notional_ceiling=999999.0)
 
             # Mock input to approve all
             with patch("builtins.input", return_value="a"):

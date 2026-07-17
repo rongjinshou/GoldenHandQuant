@@ -19,6 +19,9 @@ from src.domain.strategy.registry import create_strategy, get_strategy
 from src.infrastructure.config.settings import load_backtest_config
 from src.infrastructure.mock.mock_market import MockMarketGateway
 from src.infrastructure.mock.mock_trade import MockTradeGateway
+from src.infrastructure.persistence.status_registry_loader import (
+    build_status_registry_from_db,
+)
 
 
 def main():
@@ -63,7 +66,10 @@ def main():
     # MockTradeGateway 需要 market_gateway 来查询价格 (假设构造函数如此设计)
     # 如果 MockTradeGateway 不需要 market_gateway，则只需传入 initial_capital
     # 检查之前的 run_backtest.py: trade_gateway = MockTradeGateway(market_gateway, initial_capital=1_000_000.0)
-    trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital)
+    # 0711-st-honesty: as-of ST 状态 → 撮合 ±5%/涨停破板/选股过滤(表空自动回退旧口径)
+    status_registry = build_status_registry_from_db(start=start_date, end=end_date)
+    trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital,
+                                     stock_status_registry=status_registry)
 
     # 3. 初始化策略与应用
     print("Initializing strategy and app service...")
@@ -109,6 +115,7 @@ def main():
         evaluator=evaluator,
         history_fetcher=fetcher,
         fundamental_registry=fundamental_registry,
+        status_registry=status_registry,
         risk_settings=settings.risk if 'settings' in locals() else None
     )
 
@@ -202,8 +209,48 @@ def build_history_fetcher(fetcher_type: str, tushare_token: str | None = None):
     return QmtHistoryDataFetcher()
 
 
+def _reproducibility_metadata() -> dict:
+    """代码版本指纹（C2 可复现审计）: 取不到 git 时降级为 unknown, 不阻断入库。"""
+    import subprocess
+    from pathlib import Path
+
+    from src.domain.market.services.feature_engine import FEATURE_VERSION
+
+    meta: dict = {"feature_version": FEATURE_VERSION,
+                  "git_sha": "unknown", "git_dirty": None}
+    repo_root = Path(__file__).resolve().parents[3]
+    try:
+        sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=10,
+                             cwd=repo_root)
+        if sha.returncode == 0:
+            meta["git_sha"] = sha.stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain"],
+                               capture_output=True, text=True, timeout=10,
+                               cwd=repo_root)
+        if dirty.returncode == 0:
+            meta["git_dirty"] = bool(dirty.stdout.strip())
+    except Exception:
+        pass
+    return meta
+
+
+def _data_fingerprint(store) -> dict:
+    """数据版本指纹: bars 行数+最新日, 区分「同参不同数据版本」的两次跑。"""
+    try:
+        rows, max_date = store._conn.execute(  # noqa: SLF001 — 同为持久层协作
+            "SELECT COUNT(*), MAX(date) FROM bars").fetchone()
+        return {"bars_rows": rows, "bars_max_date": str(max_date)}
+    except Exception:
+        return {"bars_rows": None, "bars_max_date": None}
+
+
 def store_backtest_reports(reports, *, params: dict) -> None:
-    """回测结果写入 market.duckdb backtest_runs (闭环 v1 DD-5)。失败不影响回测。"""
+    """回测结果写入 market.duckdb backtest_runs (闭环 v1 DD-5)。失败不影响回测。
+
+    C2 可复现审计: 统一注入 repro 块(git_sha/数据指纹/特征版本)与 survivorship
+    宇宙口径(调用方未标注时显式记 unspecified, 让「没标」本身可见)。
+    """
     if os.environ.get("GHQ_NO_STORE") == "1":
         return
     try:
@@ -211,10 +258,15 @@ def store_backtest_reports(reports, *, params: dict) -> None:
         from src.infrastructure.persistence.market_data_store import MarketDataStore
 
         run_id = f"{datetime.now():%Y%m%d-%H%M%S}"
-        rows = [build_backtest_run_row(r, run_id=run_id, params=params)
-                for r in reports]
         store = MarketDataStore(os.environ.get("GHQ_MARKET_DB", "data/market.duckdb"))
         try:
+            full_params = {
+                "survivorship": "unspecified",
+                **params,
+                "repro": {**_reproducibility_metadata(), **_data_fingerprint(store)},
+            }
+            rows = [build_backtest_run_row(r, run_id=run_id, params=full_params)
+                    for r in reports]
             store.insert_backtest_runs(rows)
         finally:
             store.close()

@@ -1,8 +1,10 @@
 from datetime import datetime
+
 from src.domain.account.entities.position import Position
+from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.services.strategies.micro_value_strategy import MicroValueStrategy
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
-from src.domain.market.value_objects.stock_snapshot import StockSnapshot
+
 
 def _snap(symbol, mcap, close=10.2, **kwargs):
     return StockSnapshot(

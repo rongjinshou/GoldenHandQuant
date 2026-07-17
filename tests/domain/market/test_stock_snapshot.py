@@ -1,5 +1,7 @@
 from datetime import datetime
+
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
+
 
 def test_stock_snapshot_creation():
     snap = StockSnapshot(

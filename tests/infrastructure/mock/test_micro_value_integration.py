@@ -1,15 +1,16 @@
-import pytest
 from datetime import datetime, timedelta
+
 from src.application.backtest_app import BacktestAppService
-from src.domain.strategy.services.strategies.micro_value_strategy import MicroValueStrategy
 from src.domain.backtest.services.performance_evaluator import PerformanceEvaluator
+from src.domain.market.services.fundamental_registry import FundamentalRegistry
+from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
+from src.domain.market.value_objects.timeframe import Timeframe
+from src.domain.portfolio.services.equal_weight_sizer import EqualWeightSizer
+from src.domain.strategy.services.strategies.micro_value_strategy import MicroValueStrategy
 from src.infrastructure.mock.mock_market import MockMarketGateway
 from src.infrastructure.mock.mock_trade import MockTradeGateway
-from src.domain.portfolio.services.equal_weight_sizer import EqualWeightSizer
-from src.domain.market.value_objects.bar import Bar
-from src.domain.market.value_objects.timeframe import Timeframe
-from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
-from src.domain.market.services.fundamental_registry import FundamentalRegistry
+
 
 def _make_bar(symbol, dt, close, volume=1e6, prev_close=None):
     return Bar(

@@ -136,9 +136,11 @@ def equity(limit: int = Query(default=500, ge=1, le=2000), mode: str = "",
 # ---- 交互驾驶舱扩展: 审计/预算/配置只读视角（设计 0612 §3.4）----
 
 # 镜像 src/infrastructure/persistence/trading_store.py::_BUDGET_STATUSES —
-# 预算口径跨 mode 统计(dry/live 同一真实账户), REJECTED/FAILED 不计
+# 预算口径跨 mode 统计(dry/live 同一真实账户), REJECTED/FAILED 不计;
+# PENDING/FAILED_AFTER_SUBMIT 为 H1 幂等新增(2026-07-10), 券商侧可能有真单故计入
 _BUDGET_STATUSES = ("DRY_RUN", "SUBMITTED", "FILLED", "PARTIAL", "CANCELED",
-                    "TIMEOUT_CANCELED", "TIMEOUT_UNCANCELED", "ALIVE")
+                    "TIMEOUT_CANCELED", "TIMEOUT_UNCANCELED", "ALIVE",
+                    "PENDING", "FAILED_AFTER_SUBMIT")
 
 
 def get_trading_config_path() -> str:

@@ -1,17 +1,17 @@
-import pytest
 from datetime import datetime
-from src.infrastructure.mock.mock_trade import MockTradeGateway
-from src.infrastructure.mock.mock_market import MockMarketGateway
+
+import pytest
+
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
 from src.domain.trade.entities.order import Order
-from src.domain.trade.value_objects.order_direction import OrderDirection
-from src.domain.trade.value_objects.order_type import OrderType
-from src.domain.trade.value_objects.order_status import OrderStatus
-from src.domain.account.entities.asset import Asset
-from src.domain.account.entities.position import Position
-
 from src.domain.trade.exceptions import OrderSubmitError
+from src.domain.trade.value_objects.order_direction import OrderDirection
+from src.domain.trade.value_objects.order_status import OrderStatus
+from src.domain.trade.value_objects.order_type import OrderType
+from src.infrastructure.mock.mock_market import MockMarketGateway
+from src.infrastructure.mock.mock_trade import MockTradeGateway
+
 
 class TestMockTradeGatewayNewRules:
 
@@ -47,7 +47,7 @@ class TestMockTradeGatewayNewRules:
         # Commission = max(1001 * 0.00025, 5.0) = 5.0
         # Transfer Fee = 1001 * 0.00001 = 0.01001
         # Total Cost = 1001 + 5.0 + 0.01001 = 1006.01001
-        
+
         order = Order(
             order_id="buy_1",
             account_id="test",
@@ -57,10 +57,10 @@ class TestMockTradeGatewayNewRules:
             volume=100,
             price=10.0  # Reference price
         )
-        
+
         # Act
         gateway.place_order(order)
-        
+
         # Assert
         assert order.status == OrderStatus.FILLED
         assert gateway.asset.available_cash < 1_000_000 - 1000
@@ -82,12 +82,14 @@ class TestMockTradeGatewayNewRules:
             price=10.0
         )
         gateway.place_order(buy_order)
-        
-        # Settle T+1 to make it available
-        gateway.daily_settlement()
-        
+
+        # Settle T+1 to make it available(桩方法已删, 生产走 DailySettlementService;
+        # 此处直接对持仓做 T+1 释放, 语义等价)
+        for pos in gateway.positions.values():
+            pos.settle_t_plus_1()
+
         initial_cash = gateway.asset.available_cash
-        
+
         # Sell 100 shares
         # Price 10.0 -> Exec Price 9.99
         # Amount = 999.0
@@ -95,7 +97,7 @@ class TestMockTradeGatewayNewRules:
         # Transfer Fee = 999 * 0.00001 = 0.00999
         # Stamp Duty = 999 * 0.0005 = 0.4995
         # Net Income = 999 - 5.0 - 0.00999 - 0.4995 = 993.49051
-        
+
         sell_order = Order(
             order_id="sell_1",
             account_id="test",
@@ -105,10 +107,10 @@ class TestMockTradeGatewayNewRules:
             volume=100,
             price=10.0
         )
-        
+
         # Act
         gateway.place_order(sell_order)
-        
+
         # Assert
         assert sell_order.status == OrderStatus.FILLED
         expected_income = (10.0 * 0.999 * 100) - 5.0 - (10.0 * 0.999 * 100 * 0.00001) - (10.0 * 0.999 * 100 * 0.0005)
@@ -118,7 +120,7 @@ class TestMockTradeGatewayNewRules:
         """Test volume limit: max 10% of bar volume"""
         # Bar volume is 10000. Max order volume = 1000.
         # Order 1500 -> Should fill 1000, cancel 500
-        
+
         order = Order(
             order_id="buy_cap",
             account_id="test",
@@ -128,17 +130,18 @@ class TestMockTradeGatewayNewRules:
             volume=1500,
             price=10.0
         )
-        
+
         # Act
         gateway.place_order(order)
-        
+
         # Assert
         assert order.status == OrderStatus.PARTIAL_CANCELED
-        # Actually my logic might mark it as PARTIAL_CANCELED if I implement it that way, or just PARTIAL_FILLED and let the rest hang?
+        # Actually my logic might mark it as PARTIAL_CANCELED if I implement it that way,
+        # or just PARTIAL_FILLED and let the rest hang?
         # The rule says "mark as PARTIAL_CANCELED" for the excess.
         # So status should be PARTIAL_CANCELED (if supported) or PARTIAL_FILLED with remaining canceled?
         # The enum has PARTIAL_CANCELED.
-        
+
         assert order.traded_volume == 1000
         # Check position
         pos = gateway.get_position("600000.SH")
@@ -165,7 +168,7 @@ class TestMockTradeGatewayNewRules:
             price=10.0
         )
         gateway.place_order(buy_order)
-        
+
         # Try to Sell immediately (without settlement)
         sell_order = Order(
             order_id="sell_t1",
@@ -176,23 +179,24 @@ class TestMockTradeGatewayNewRules:
             volume=100,
             price=10.0
         )
-        
+
         # Act & Assert
         # Should raise OrderSubmitError
         with pytest.raises(OrderSubmitError):
             gateway.place_order(sell_order)
-        
+
         assert sell_order.status == OrderStatus.REJECTED
 
     def test_buy_with_extreme_slippage_should_not_overdraw_cash(self):
         """极端滑点导致实际成本超过冻结资金时，不应导致可用资金为负。"""
         from datetime import datetime
+
         from src.domain.market.value_objects.bar import Bar
         from src.domain.market.value_objects.timeframe import Timeframe
         from src.domain.trade.entities.order import Order
+        from src.domain.trade.exceptions import OrderSubmitError
         from src.domain.trade.value_objects.order_direction import OrderDirection
         from src.domain.trade.value_objects.order_type import OrderType
-        from src.domain.trade.exceptions import OrderSubmitError
         from src.infrastructure.mock.mock_market import MockMarketGateway
         from src.infrastructure.mock.mock_trade import MockTradeGateway
 
@@ -235,12 +239,13 @@ class TestMockTradeGatewayNewRules:
         这个熔断分支在容量限制路径上已不可能触发(可用资金检查已在冻结前的 line 198 做过)。
         """
         from datetime import datetime
+
         from src.domain.market.value_objects.bar import Bar
         from src.domain.market.value_objects.timeframe import Timeframe
         from src.domain.trade.entities.order import Order
         from src.domain.trade.value_objects.order_direction import OrderDirection
-        from src.domain.trade.value_objects.order_type import OrderType
         from src.domain.trade.value_objects.order_status import OrderStatus
+        from src.domain.trade.value_objects.order_type import OrderType
         from src.infrastructure.mock.mock_market import MockMarketGateway
         from src.infrastructure.mock.mock_trade import MockTradeGateway
 
@@ -279,13 +284,13 @@ class TestMockTradeGatewayNewRules:
     def test_limit_buy_below_low_should_be_rejected(self):
         """限价买单委托价低于当日最低价时，不应成交（市场从未交易到该价位）。"""
         from datetime import datetime
+
         from src.domain.market.value_objects.bar import Bar
         from src.domain.market.value_objects.timeframe import Timeframe
         from src.domain.trade.entities.order import Order
+        from src.domain.trade.exceptions import OrderSubmitError
         from src.domain.trade.value_objects.order_direction import OrderDirection
         from src.domain.trade.value_objects.order_type import OrderType
-        from src.domain.trade.value_objects.order_status import OrderStatus
-        from src.domain.trade.exceptions import OrderSubmitError
         from src.infrastructure.mock.mock_market import MockMarketGateway
         from src.infrastructure.mock.mock_trade import MockTradeGateway
 
@@ -309,12 +314,13 @@ class TestMockTradeGatewayNewRules:
     def test_limit_sell_below_low_should_be_rejected(self):
         """限价卖单委托价低于当日最低价时，不应成交。"""
         from datetime import datetime
+
         from src.domain.market.value_objects.bar import Bar
         from src.domain.market.value_objects.timeframe import Timeframe
         from src.domain.trade.entities.order import Order
+        from src.domain.trade.exceptions import OrderSubmitError
         from src.domain.trade.value_objects.order_direction import OrderDirection
         from src.domain.trade.value_objects.order_type import OrderType
-        from src.domain.trade.exceptions import OrderSubmitError
         from src.infrastructure.mock.mock_market import MockMarketGateway
         from src.infrastructure.mock.mock_trade import MockTradeGateway
 

@@ -20,6 +20,9 @@ from src.infrastructure.config.settings import load_backtest_config  # noqa: E40
 from src.infrastructure.gateway.duckdb_history_data import DuckDBHistoryDataFetcher  # noqa: E402
 from src.infrastructure.mock.mock_market import MockMarketGateway  # noqa: E402
 from src.infrastructure.mock.mock_trade import MockTradeGateway  # noqa: E402
+from src.infrastructure.persistence.status_registry_loader import (  # noqa: E402
+    build_status_registry_from_db,
+)
 from src.interfaces.cli._backtest_wiring import build_backtest_cross_section  # noqa: E402
 
 CONFIG, TOP_N, SPLIT = "resources/backtest.yaml", 20, "2024-06-30"
@@ -41,12 +44,15 @@ def main() -> None:
         mkt.load_bars(fetcher.fetch_history_bars(sym, tf, start, end))
 
     def run(w_start: str, w_end: str) -> object:
-        trade = MockTradeGateway(market_gateway=mkt, initial_capital=cap)
+        status_registry = build_status_registry_from_db(start=w_start, end=w_end)
+        trade = MockTradeGateway(market_gateway=mkt, initial_capital=cap,
+                                 stock_status_registry=status_registry)
         app = BacktestAppService(
             market_gateway=mkt, trade_gateway=trade,
             strategy=create_strategy("micro_value", {"top_n": TOP_N}),
             evaluator=PerformanceEvaluator(), sizer=EqualWeightSizer(n_symbols=TOP_N),
-            fundamental_registry=registry, risk_settings=s.risk)
+            fundamental_registry=registry, status_registry=status_registry,
+            risk_settings=s.risk)
         return app.run_backtest(
             universe, start_date=datetime.strptime(w_start, "%Y-%m-%d"),
             end_date=datetime.strptime(w_end, "%Y-%m-%d"), base_timeframe=tf)[0]
@@ -57,16 +63,20 @@ def main() -> None:
 
     # OFF (无指数)
     is_off, oos_off = run(start, SPLIT), run(SPLIT, end)
-    show("IS  OFF", is_off); show("OOS OFF", oos_off)
+    show("IS  OFF", is_off)
+    show("OOS OFF", oos_off)
     # ON (加指数)
     mkt.load_bars(fetcher.fetch_history_bars(idx, tf, start, end))
     is_on, oos_on = run(start, SPLIT), run(SPLIT, end)
     fetcher.close()
-    show("IS  ON ", is_on); show("OOS ON ", oos_on)
+    show("IS  ON ", is_on)
+    show("OOS ON ", oos_on)
 
     print("\n=== 趋势闸净效应 (ON − OFF) ===")
-    print(f"  IS : 收益 {is_on.total_return - is_off.total_return:+.2%} | 回撤 {is_on.max_drawdown - is_off.max_drawdown:+.2%}")
-    print(f"  OOS: 收益 {oos_on.total_return - oos_off.total_return:+.2%} | 回撤 {oos_on.max_drawdown - oos_off.max_drawdown:+.2%}")
+    print(f"  IS : 收益 {is_on.total_return - is_off.total_return:+.2%} | "
+          f"回撤 {is_on.max_drawdown - is_off.max_drawdown:+.2%}")
+    print(f"  OOS: 收益 {oos_on.total_return - oos_off.total_return:+.2%} | "
+          f"回撤 {oos_on.max_drawdown - oos_off.max_drawdown:+.2%}")
 
 
 if __name__ == "__main__":

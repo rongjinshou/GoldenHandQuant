@@ -32,7 +32,17 @@ def _save_fetch_meta(data_dir: Path, meta: dict[str, str]) -> None:
 
 
 class QmtHistoryDataFetcher(IHistoryDataFetcher):
-    """QMT 历史数据获取器实现 (基于 xtquant.xtdata)。"""
+    """QMT 历史数据获取器实现 (基于 xtquant.xtdata)。
+
+    T2(2026-07-11, 台账 P6): CSV 透明缓存**默认退役**——QMT 客户端本地行情库
+    (download_history_data 幂等)与 market.duckdb(fetch_meta 表)已是两级存储,
+    中间 CSV 层是第三份冗余, 且其 `_fetch_meta.json` 与 DuckDB `fetch_meta`
+    形成两套各说各话的履约账本。无 DuckDB 的轻量用途可显式 `csv_cache=True`。
+    """
+
+    def __init__(self, csv_cache: bool = False, data_dir: str = "data") -> None:
+        self._csv_cache = csv_cache
+        self._data_dir = Path(data_dir)
 
     def fetch_history_bars(
         self,
@@ -43,7 +53,7 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
     ) -> list[Bar]:
         """获取历史 K 线数据。
 
-        优先从本地 CSV 读取，若不存在或数据缺失则调用 xtdata 下载并保存。
+        默认直连 xtdata(QMT 本地库幂等下载); csv_cache=True 时优先读本地 CSV。
         遵循 QMT 实盘接口规范：
         1. 时间格式转换 (YYYY-MM-DD -> YYYYMMDD)
         2. 使用 get_market_data_ex 获取标准数据结构
@@ -52,8 +62,9 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
         5. 确保复权准确：预先下载财务数据
         """
         # 1. 构造缓存路径
-        data_dir = Path("data")
-        data_dir.mkdir(parents=True, exist_ok=True)
+        data_dir = self._data_dir
+        if self._csv_cache:
+            data_dir.mkdir(parents=True, exist_ok=True)
 
         meta_key = f"{symbol}_{timeframe.value}"
         csv_path = data_dir / f"{meta_key}.csv"
@@ -70,8 +81,8 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
 
         df = None
 
-        # 2. 尝试读取本地缓存
-        if csv_path.exists():
+        # 2. 尝试读取本地缓存(仅显式开启时)
+        if self._csv_cache and csv_path.exists():
             try:
                 # 读取 CSV，解析 datetime 列
                 cached_df = pd.read_csv(csv_path)
@@ -162,12 +173,13 @@ class QmtHistoryDataFetcher(IHistoryDataFetcher):
 
             df = raw_df.reset_index()
 
-            # 3.4 写入缓存 + 记录本次履约的 requested start (防止下次重拉)
-            df.to_csv(csv_path, index=False)
-            meta = _load_fetch_meta(data_dir)
-            if start_date < meta.get(meta_key, "9999-99-99"):
-                meta[meta_key] = start_date
-                _save_fetch_meta(data_dir, meta)
+            # 3.4 写入缓存 + 记录本次履约的 requested start (仅显式开启时)
+            if self._csv_cache:
+                df.to_csv(csv_path, index=False)
+                meta = _load_fetch_meta(data_dir)
+                if start_date < meta.get(meta_key, "9999-99-99"):
+                    meta[meta_key] = start_date
+                    _save_fetch_meta(data_dir, meta)
 
         # 4. 转换为实体对象列表
         bars = []

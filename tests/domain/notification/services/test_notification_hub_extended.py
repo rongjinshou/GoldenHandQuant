@@ -8,7 +8,6 @@ from src.domain.notification.services.notification_deduplicator import (
 )
 from src.domain.notification.services.notification_priority_queue import (
     NotificationPriorityQueue,
-    SendAction,
 )
 from src.domain.notification.value_objects.notification_history import (
     NotificationHistory,
@@ -19,9 +18,6 @@ from src.domain.notification.value_objects.notification_message import (
 )
 from src.domain.notification.value_objects.notification_priority import (
     NotificationPriority,
-)
-from src.domain.notification.value_objects.notification_receipt import (
-    NotificationReceipt,
 )
 
 

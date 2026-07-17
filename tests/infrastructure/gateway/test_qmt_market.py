@@ -3,12 +3,14 @@
 测试 get_market_data_ex 接口（新版API）的正确性。
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
 from datetime import datetime
+from unittest.mock import patch
+
 import pandas as pd
-from src.infrastructure.gateway.qmt_market import QmtMarketGateway
+import pytest
+
 from src.domain.market.value_objects.timeframe import Timeframe
+from src.infrastructure.gateway.qmt_market import QmtMarketGateway
 
 
 class TestQmtMarketGateway:

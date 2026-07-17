@@ -48,9 +48,17 @@ class SignalReviewUI:
         self,
         service: LiveSignalService,
         store: ReviewStore | None = None,
+        *,
+        quote_fetcher=None,
+        max_notional: float = 1500.0,
+        notional_ceiling: float = 5000.0,
     ) -> None:
         self.service = service
         self.store = store or ReviewStore()
+        # M6: 盘前闸输入(未配置报价源时 place_confirmed_orders 一律拒单)
+        self.quote_fetcher = quote_fetcher
+        self.max_notional = max_notional
+        self.notional_ceiling = notional_ceiling
         self.console = Console() if HAS_RICH else None
 
     def run(self, strategy_name: str, symbols: list[str]) -> list[OrderResult]:
@@ -159,7 +167,10 @@ class SignalReviewUI:
         results: list[OrderResult] = []
         if approved:
             self._print_plain(f"\n{BOLD}正在下单 ({len(approved)} 条)...{RESET}")
-            results = self.service.place_confirmed_orders(approved)
+            results = self.service.place_confirmed_orders(
+                approved, quote_fetcher=self.quote_fetcher,
+                max_notional=self.max_notional,
+                notional_ceiling=self.notional_ceiling)
 
         # 持久化审核记录
         self._save_records(approved, rejected, notes, results, strategy_name)

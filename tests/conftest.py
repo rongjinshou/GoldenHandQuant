@@ -1,9 +1,11 @@
-import pytest
 from datetime import datetime
-from src.domain.market.value_objects.bar import Bar
-from src.domain.market.value_objects.timeframe import Timeframe
+
+import pytest
+
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
+from src.domain.market.value_objects.bar import Bar
+from src.domain.market.value_objects.timeframe import Timeframe
 
 
 @pytest.fixture

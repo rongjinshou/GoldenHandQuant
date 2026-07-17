@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from src.domain.market.value_objects.quote import Quote
+from src.domain.market.value_objects.st_prefixes import is_st_name
 from src.domain.trade.services.trading_sessions import CONTINUOUS_SESSIONS
 from src.domain.trade.value_objects.order_direction import OrderDirection
 
@@ -45,18 +46,22 @@ def check_st_name(name: str | None) -> str | None:
     """实时 ST 名称闸(0704 真单前置 DD-3): 当日刚戴帽的股 T-1 数据不知情。
 
     name 为 None/空 = 名称不可得 → 放行(不误拦; 停牌/断连由报价新鲜度闸兜底)。
-    前缀口径同 domain/strategy 的 filter_st(ST/*ST/SST/S*ST)。
+    前缀口径 = st_prefixes 单一事实源(与 filter_st 同源)。
     """
     if not name:
         return None
-    if name.upper().startswith(("ST", "*ST", "SST", "S*ST")):
+    if is_st_name(name):
         return f"实时名称含风险警示: {name} (当日戴帽? T-1 数据不知情)"
     return None
 
 
-def check_trading_session(now: datetime) -> str | None:
+def check_trading_session(now: datetime, calendar=None) -> str | None:
     if now.weekday() >= 5:
         return f"非交易日: {now:%Y-%m-%d} (周{now.weekday() + 1})"
+    # M7 交易日历(bars 推导): 已知休市(工作日节假日)拒单; 未来日 unknown 放行,
+    # 由报价新鲜度闸(180s)兜底 —— 节假日 QMT 无新报价, 间接防线仍在
+    if calendar is not None and calendar.is_trading_day(now.date()) is False:
+        return f"非交易日: {now:%Y-%m-%d} (交易日历休市)"
     t = now.time()
     if any(start <= t <= end for start, end in _SESSIONS):
         return None
@@ -124,19 +129,22 @@ def run_pre_trade_gates(
     available_cash: float | None = None,
     available_volume: int | None = None,
     instrument_name: str | None = None,
+    calendar=None,
 ) -> GateResult:
-    """七道闸逐序检查（自动循环用的聚合入口）。"""
+    """盘前闸逐序检查（自动循环/半自动/ticket 三路共用的聚合入口）。"""
     if volume <= 0:
         return GateResult(passed=False, reject_reason=f"数量非法: {volume}")
     # 买入须 100 整数倍; 卖出允许零股(送配产生的不足一手持仓可一次性卖出)
     if direction == OrderDirection.BUY and volume % 100 != 0:
         return GateResult(passed=False, reject_reason=f"数量非法: {volume} (买入须为 100 整数倍)")
-    if reason := check_symbol_scope(symbol):
+    # 白名单只约束开仓方向(0713 彩排实证: 趋势闸清仓单被拦, 防御退出失效)——
+    # 已持有的板外仓位(如 dual_ma 遗留 002x)必须能卖; 卖出量仍受 T+1 可用量闸约束
+    if direction == OrderDirection.BUY and (reason := check_symbol_scope(symbol)):
         return GateResult(passed=False, reject_reason=reason)
     # 实时 ST 闸只拦买入: 退出持仓(卖出)不得被自身风险警示阻断
     if direction == OrderDirection.BUY and (reason := check_st_name(instrument_name)):
         return GateResult(passed=False, reject_reason=reason)
-    if reason := check_trading_session(now):
+    if reason := check_trading_session(now, calendar):
         return GateResult(passed=False, reject_reason=reason)
     if quote is None or quote.last <= 0 or quote.prev_close <= 0:
         return GateResult(passed=False, reject_reason="拿不到有效实时报价 (停牌/退市/行情断连?)")
@@ -152,7 +160,11 @@ def run_pre_trade_gates(
         return GateResult(passed=False, reject_reason=reason)
 
     notional = price * volume
-    if reason := check_notional_cap(notional, cap=max_notional, ceiling=notional_ceiling):
+    # 单笔金额闸为"防胖手指错买"而设, 只约束 BUY(0713): 卖出减险不得被钱数卡死;
+    # SELL 仍受 同标的当日一次/日总额度/时段/新鲜度/价格带 等双向闸约束
+    if direction == OrderDirection.BUY and (
+        reason := check_notional_cap(notional, cap=max_notional, ceiling=notional_ceiling)
+    ):
         return GateResult(passed=False, reject_reason=reason)
 
     if direction == OrderDirection.BUY:

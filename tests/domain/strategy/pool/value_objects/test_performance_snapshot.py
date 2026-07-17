@@ -1,5 +1,6 @@
-import pytest
 from datetime import datetime
+
+import pytest
 
 from src.domain.strategy.pool.value_objects.performance_snapshot import PerformanceSnapshot
 from src.domain.strategy.pool.value_objects.strategy_rating import StrategyRating

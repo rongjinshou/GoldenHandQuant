@@ -222,3 +222,66 @@ class TestSnapshots:
 
         assert len(latest) == 1
         assert latest[0]["available_volume"] == 100
+
+
+class TestBreakerStatePersistence:
+    """熔断状态持久化（2026-07-11 六西格玛 T6）。
+
+    CircuitBreaker 此前是进程内存态——保护的却是账户(不随进程重启归零),
+    --once 模式下每次重建即失忆。状态入库(按 mode 隔离, DD-1 惯例)。
+    """
+
+    def test_roundtrip_state(self, tmp_path):
+        from datetime import datetime
+
+        from src.domain.risk.value_objects.circuit_breaker_state import (
+            BreakerStatus,
+            CircuitBreakerState,
+        )
+        from src.infrastructure.persistence.trading_store import TradingStore
+
+        store = TradingStore(str(tmp_path / "t.db"))
+        state = CircuitBreakerState(
+            status=BreakerStatus.TRIGGERED,
+            triggered_at=datetime(2026, 7, 11, 10, 0),
+            trigger_reason="Daily loss 3.90% exceeds limit 3.00%",
+            daily_loss_rate=0.039,
+        )
+
+        store.save_breaker_state(mode="dry_run", state=state,
+                                 last_reset_date="2026-07-11")
+        loaded, last_reset = store.load_breaker_state(mode="dry_run")
+
+        assert loaded is not None
+        assert loaded.status == BreakerStatus.TRIGGERED
+        assert loaded.trigger_reason.startswith("Daily loss")
+        assert abs(loaded.daily_loss_rate - 0.039) < 1e-12
+        assert loaded.triggered_at == datetime(2026, 7, 11, 10, 0)
+        assert last_reset == "2026-07-11"
+
+    def test_load_missing_returns_none(self, tmp_path):
+        from src.infrastructure.persistence.trading_store import TradingStore
+
+        store = TradingStore(str(tmp_path / "t.db"))
+
+        loaded, last_reset = store.load_breaker_state(mode="live")
+
+        assert loaded is None and last_reset is None
+
+    def test_modes_isolated(self, tmp_path):
+        from src.domain.risk.value_objects.circuit_breaker_state import (
+            BreakerStatus,
+            CircuitBreakerState,
+        )
+        from src.infrastructure.persistence.trading_store import TradingStore
+
+        store = TradingStore(str(tmp_path / "t.db"))
+        store.save_breaker_state(
+            mode="dry_run",
+            state=CircuitBreakerState(status=BreakerStatus.TRIGGERED,
+                                      trigger_reason="x"),
+            last_reset_date="2026-07-11")
+
+        live_state, _ = store.load_breaker_state(mode="live")
+
+        assert live_state is None  # dry_run 熔断不得波及 live(分 mode 惯例)

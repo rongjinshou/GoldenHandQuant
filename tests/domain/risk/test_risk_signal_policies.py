@@ -1,14 +1,16 @@
 from datetime import datetime, timedelta
+
+from src.domain.account.entities.position import Position
 from src.domain.market.value_objects.bar import Bar
 from src.domain.market.value_objects.timeframe import Timeframe
-from src.domain.risk.services.system_risk_gate import SystemRiskGate, GateResult
-from src.domain.risk.services.risk_policies.limit_up_break_policy import LimitUpBreakPolicy
-from src.domain.account.entities.position import Position
-from src.domain.strategy.value_objects.signal_direction import SignalDirection
-from src.domain.risk.services.risk_policies.hard_stop_loss_policy import HardStopLossPolicy
-from src.domain.risk.services.risk_signal_generator import RiskSignalGenerator
 from src.domain.risk.services.base_risk_signal_policy import BaseRiskSignalPolicy
+from src.domain.risk.services.risk_policies.hard_stop_loss_policy import HardStopLossPolicy
+from src.domain.risk.services.risk_policies.limit_up_break_policy import LimitUpBreakPolicy
+from src.domain.risk.services.risk_signal_generator import RiskSignalGenerator
+from src.domain.risk.services.system_risk_gate import SystemRiskGate
 from src.domain.strategy.value_objects.signal import Signal
+from src.domain.strategy.value_objects.signal_direction import SignalDirection
+
 
 def _index_bar(dt, close):
     return Bar(symbol="000852.SH", timeframe=Timeframe.DAY_1, timestamp=dt,

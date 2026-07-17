@@ -4,6 +4,7 @@
 评分复用对象式同一实现(ICCalculator.calculate_ir / FactorScorer), 保证报告逐位一致。
 """
 
+from src.domain.strategy.factor_test.ic_calculator import ICCalculator
 from src.domain.strategy.factor_test.lexer import tokenize
 from src.domain.strategy.factor_test.panel import FactorPanel
 from src.domain.strategy.factor_test.parser import FactorExpressionParser
@@ -13,8 +14,7 @@ from src.domain.strategy.factor_test.report import (
 )
 from src.domain.strategy.factor_test.scorer import FactorScorer
 from src.domain.strategy.factor_test.vectorized_evaluator import VectorizedEvaluator
-from src.infrastructure.factor_test.ic_calculator import ICCalculator
-from src.infrastructure.factor_test.vectorized_series import VectorizedSeriesBuilder
+from src.domain.strategy.factor_test.vectorized_series import VectorizedSeriesBuilder
 
 
 class VectorizedRunner:
@@ -36,11 +36,16 @@ class VectorizedRunner:
         rebalance_days: int = 1,
         objective: str = "long_short",
         cost_rate: float = 0.003,
+        precomputed_series=None,
     ) -> ScoredFactorTestReport:
-        expression = self._parser.parse(tokenize(expression_str))
-
-        # 因子值: 整张面板一次性向量化求值(IC/分层/衰减共用)
-        factor_series = self._evaluator.evaluate(expression, panel.df)
+        # 因子值: 整张面板一次性向量化求值(IC/分层/衰减共用)。
+        # precomputed_series(0712 E9 研究口子): 新数据域列绕过 DSL 白名单,
+        # expression_str 仅作留痕标签; 晋升生产时再入 factor_catalog/KNOWN_FIELDS。
+        if precomputed_series is not None:
+            factor_series = precomputed_series
+        else:
+            expression = self._parser.parse(tokenize(expression_str))
+            factor_series = self._evaluator.evaluate(expression, panel.df)
 
         # IC/IR
         ic_series = self._series.ic_series(panel, factor_series)

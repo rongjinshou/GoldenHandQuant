@@ -70,18 +70,20 @@ $WIN_PY -m src.interfaces.cli.run_backtest        # 跑完自动入库 backtest_
 > `docs/feat/0626-mainboard-f01-shadow/2026-07-03-phase1-shadow-*.md`。
 
 ```bash
-# 周二 09:30 后（其余交易日不需跑；1/4 月为空仓月，跑则预期全清仓信号=合法）
-# ① QMT 极简端登录，确认「行情」面板有跳动数据（不只交易登录——两条独立链路！）
-# ② 数据新鲜（把 fundamental as-of 滞后压到 ≤1 交易日）
-$WIN_PYTHON -m src.interfaces.cli.quant data refresh --start-date <上次末日> --end-date <今日>
-$WIN_PYTHON scripts/fetch_index_bars.py          # 指数 000852.SH 不在 refresh 宇宙内, 需单独刷
-# ③ 影子盘单循环（决策快照自动落 signal_snapshots）
-$WIN_PYTHON -m src.interfaces.cli.quant auto-trade --once --enable
-# ④ 收盘后：再 refresh（含当日）→ 一致性比对（QMT 实时决策 vs DuckDB 离线同输入重放）
-$WIN_PYTHON scripts/shadow_consistency_check.py                  # exit 0=逐位一致
-# ⑤ 纸面净值周度更新（"跟着 F01 做到哪了", 入 backtest_runs, 驾驶舱回测页可见）
-$WIN_PYTHON scripts/shadow_paper_equity.py
+# 周二全链一条命令(推荐注册任务计划后全自动: scripts/windows/register_shadow_tasks.ps1)
+$WIN_PYTHON scripts/shadow_tuesday.py                # 上午段: QMT 看护提醒→refresh→采样
+$WIN_PYTHON scripts/shadow_tuesday.py --post-close   # 收盘段: refresh→比对→净值→台账摘要
+# 过程仪表: 采样台账(07-07 起逐周二)/有效样本 n/6/过闸判据; MISSED/分歧/UNKNOWN 时退出码 1
+$WIN_PYTHON -m src.interfaces.cli.quant shadow status --gate
 ```
+
+> 2026-07-11 起流程收敛为编排器（设计 `docs/feat/0711-shadow-control/`）：QMT 未上线会
+> 通知提醒并每分钟重试至 14:30，超时按 MISSED 高声告警——人唯一的职责是周二开 QMT。
+> 原手动命令仍可用（编排器上午段内部顺序：refresh → fetch_index_bars →
+> **sync_market_cap（MC-1，把最新交易日市值覆写为时点总市值，双源兜底双败即停链）** →
+> auto-trade --once --enable；收盘段：refresh → shadow_consistency_check →
+> shadow_paper_equity → shadow status 摘要）。
+> 1/4 月为空仓月，跑则预期全清仓信号=合法；非周二运行编排器会直接退出（--force 可越过冒烟）。
 
 **数据健康守卫（fail-fast，宁可停一周期不误清仓）**：装配/scan 期任一命中 →
 本周期不买不卖，`trading_cycles.note` 记 `scan failed: ...`，`signal_snapshots.data_health='fault'`：

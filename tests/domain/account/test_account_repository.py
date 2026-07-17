@@ -1,5 +1,5 @@
-from src.domain.account.interfaces.account_repository import AccountRepository
 from src.domain.account.entities.position import Position
+from src.domain.account.interfaces.account_repository import AccountRepository
 
 
 def test_create_account_initializes_asset_and_empty_positions():

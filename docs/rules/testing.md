@@ -54,7 +54,11 @@
 
 ## 7. 本机环境注记 (Windows + WSL)
 
-- 运行命令：`python -m pytest tests/ --ignore=tests/infrastructure/gateway/`。
+- 运行命令：`python -m pytest tests/`（2026-07-10 起 gateway 测试回归标准命令：
+  这些测试本就 mock 掉 SDK，历史 `--ignore` 是 xtquant 导入即崩的连坐；现由
+  `tests/infrastructure/gateway/conftest.py` 守卫——Windows 全跑、WSL 优雅跳过）。
+- 一键验收链：`$WIN_PYTHON scripts/verify_all.py`（ruff 全仓 + pytest 全量 +
+  前端产物哈希 + 数据质量门禁；`--frontend` 附加 vitest/typecheck）。
 - `pyproject.toml` 已配置 `--basetemp=.pytest_tmp`（系统 Temp 下 pytest-of-* 目录
   ACL 损坏不可用，**勿改回**；`.pytest_tmp/` 已 gitignore）。
 - pytest 末尾汇总行偶被终端吞掉，以 **exit code** 为准。

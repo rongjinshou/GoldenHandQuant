@@ -6,12 +6,6 @@ import pytest
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.factor_test.evaluator import FactorExpressionEvaluator
-from src.domain.strategy.factor_test.expressions import (
-    BinOpExpr,
-    FactorRefExpr,
-    LiteralExpr,
-    UnaryFuncExpr,
-)
 from src.domain.strategy.factor_test.lexer import tokenize
 from src.domain.strategy.factor_test.parser import FactorExpressionParser
 

@@ -337,3 +337,34 @@ class TestSearchInstruments:
                     symbol="600000.SH", date=date, name=name,
                     list_date=datetime(2010, 1, 1), market_cap=1e9)], source="qmt")
         assert store.search_instruments("600000")[0]["name"] == "新名"
+
+
+class TestInstrumentWindows:
+    """instrument_windows / first_bar_dates（2026-07-10 六西格玛体检 B1/B2 依赖）。"""
+
+    def test_windows_widest_across_sources(self, store):
+        from datetime import date
+        store.upsert_instruments(
+            [{"symbol": "000001.SZ", "name": "n", "list_date": "2020-01-02",
+              "delist_date": "2024-06-30"}], "qmt")
+        store.upsert_instruments(
+            [{"symbol": "000001.SZ", "name": "n", "list_date": "2019-06-01",
+              "delist_date": None}], "akshare")
+
+        win = store.instrument_windows(["000001.SZ"])["000001.SZ"]
+
+        assert win[0] == date(2019, 6, 1)   # list 取最早
+        assert win[1] is None               # 任一 source 未退市 → 未退市
+
+    def test_windows_missing_symbol_absent(self, store):
+        assert store.instrument_windows(["NOPE.SZ"]) == {}
+        assert store.instrument_windows([]) == {}
+
+    def test_first_bar_dates(self, store):
+        from datetime import date
+        store.upsert_bars([_bar("000001.SZ", "2024-01-05", 10.0),
+                           _bar("000001.SZ", "2024-01-08", 10.5)], "qmt")
+
+        firsts = store.first_bar_dates(["000001.SZ", "NOPE.SZ"], "qmt")
+
+        assert firsts == {"000001.SZ": date(2024, 1, 5)}

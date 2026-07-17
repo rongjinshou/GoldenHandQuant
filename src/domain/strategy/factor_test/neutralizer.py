@@ -9,9 +9,9 @@ import numpy as np
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.factor_test.evaluator import FactorExpressionEvaluator
+from src.domain.strategy.factor_test.ic_calculator import ICCalculator
 from src.domain.strategy.factor_test.lexer import tokenize
 from src.domain.strategy.factor_test.parser import FactorExpressionParser
-from src.infrastructure.factor_test.ic_calculator import ICCalculator
 
 
 class FactorNeutralizer:

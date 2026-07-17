@@ -97,6 +97,8 @@ def _build_service(settings, mode: str):
         daily_notional_cap=at.daily_notional_cap,
         daily_loss_limit_ratio=at.daily_loss_limit_ratio,
         poll_timeout_seconds=at.poll_timeout_seconds,
+        max_position_ratio=at.max_position_ratio,
+        max_total_position_ratio=at.max_total_position_ratio,
     )
     return AutoTradeAppService(
         signal_service=signal_service,
@@ -107,7 +109,50 @@ def _build_service(settings, mode: str):
         audit=AuditService(SqliteAuditLogRepository(store.db)),
         config=config,
         notification_hub=_build_notification_hub(settings),
+        calendar=_build_trading_calendar(),
+        circuit_breaker=_build_circuit_breaker(at),
     )
+
+
+def _build_circuit_breaker(at):
+    """T6: 熔断器装配(状态由 service 经 TradingStore 跨进程存续)。"""
+    if not at.breaker_enabled:
+        logger.warning("熔断器已按配置禁用(breaker_enabled: false)")
+        return None
+    from src.domain.risk.services.circuit_breaker import CircuitBreaker
+
+    return CircuitBreaker(
+        max_daily_loss=at.breaker_max_daily_loss,
+        max_total_drawdown=at.breaker_max_total_drawdown,
+    )
+
+
+def _build_trading_calendar():
+    """M7: 交易日历装配。优先交易所日历表(trade_calendar, 含未来节假日,
+    0711 tushare 沉淀·兑现①); 表空回退 bars 推导; 库不可用降级 None(仅告警)。"""
+    from src.domain.trade.services.trading_calendar import TradingCalendar
+
+    try:
+        from src.infrastructure.persistence.market_data_store import MarketDataStore
+
+        store = MarketDataStore(read_only=True)
+        try:
+            exchange_cal = store.load_trade_calendar()
+            if exchange_cal is not None:
+                open_days, known_until = exchange_cal
+                calendar = TradingCalendar(trading_days=open_days, known_until=known_until)
+            else:
+                calendar = TradingCalendar.from_dates(store.trading_dates())
+        finally:
+            store.close()
+        if calendar is not None:
+            logger.info("交易日历已装配(%s): %d 个交易日, 已知至 %s",
+                        "交易所日历" if exchange_cal is not None else "bars推导",
+                        len(calendar.trading_days), calendar.known_until)
+        return calendar
+    except Exception as e:
+        logger.warning("交易日历装配失败(降级为无日历, 时段闸退回周末判定): %s", e)
+        return None
 
 
 def main(args: argparse.Namespace | None = None) -> None:
@@ -159,6 +204,7 @@ def main(args: argparse.Namespace | None = None) -> None:
     scheduler = TradingScheduler(
         check_interval_seconds=at.check_interval_seconds,
         execution_times=at.execution_times,
+        calendar=_build_trading_calendar(),
     )
     scheduler.register_cycle_callback(lambda now: service.run_cycle())
     scheduler.start()

@@ -354,9 +354,33 @@ class LiveSignalService:
 
         return displays
 
-    def place_confirmed_orders(self, displays: list[SignalDisplay]) -> list[OrderResult]:
-        """对用户确认的信号执行下单。"""
+    def place_confirmed_orders(
+        self,
+        displays: list[SignalDisplay],
+        *,
+        quote_fetcher=None,
+        max_notional: float = 1500.0,
+        notional_ceiling: float = 5000.0,
+    ) -> list[OrderResult]:
+        """对用户确认的信号执行下单。
+
+        M6(2026-07-10 六西格玛体检): 与 auto-trade/ticket 统一走
+        run_pre_trade_gates 盘前闸(时段/报价新鲜度/价格带/金额/ST/资金持仓)。
+        未配置 quote_fetcher 一律拒单——交互确认(y/N)不能替代程序化安全闸。
+        """
+        from src.domain.trade.services.pre_trade_checks import run_pre_trade_gates
+
         results: list[OrderResult] = []
+        quotes: dict = {}
+        if quote_fetcher is not None:
+            try:
+                quotes = quote_fetcher.get_quotes([d.symbol for d in displays])
+            except Exception as e:
+                logger.error("批量行情拉取失败(全部候选按无报价拒单): %s", e, exc_info=True)
+
+        now = self.clock()
+        asset = self.account_gateway.get_asset()
+        position_map = {p.ticker: p for p in self.account_gateway.get_positions()}
 
         for display in displays:
             order_direction = (
@@ -365,12 +389,45 @@ class LiveSignalService:
                 else OrderDirection.SELL
             )
 
+            if quote_fetcher is None:
+                results.append(OrderResult(
+                    symbol=display.symbol, direction=display.direction,
+                    success=False,
+                    error_message="未配置报价源, 盘前闸无法执行(M6), 拒单",
+                ))
+                continue
+
+            instrument_name: str | None = None
+            if order_direction == OrderDirection.BUY:
+                name_of = getattr(quote_fetcher, "get_instrument_name", None)
+                if callable(name_of):
+                    raw = name_of(display.symbol)
+                    instrument_name = raw if isinstance(raw, str) else None
+            pos = position_map.get(display.symbol)
+            gate = run_pre_trade_gates(
+                symbol=display.symbol, direction=order_direction,
+                volume=display.suggested_volume,
+                quote=quotes.get(display.symbol), now=now,
+                max_notional=max_notional,
+                instrument_name=instrument_name,
+                notional_ceiling=notional_ceiling,
+                available_cash=asset.available_cash if asset else 0.0,
+                available_volume=pos.available_volume if pos else 0,
+            )
+            if not gate.passed:
+                results.append(OrderResult(
+                    symbol=display.symbol, direction=display.direction,
+                    success=False,
+                    error_message=f"盘前闸拒单: {gate.reject_reason}",
+                ))
+                continue
+
             order = Order(
                 order_id=str(uuid4()),
                 account_id="",
                 ticker=display.symbol,
                 direction=order_direction,
-                price=display.suggested_price,
+                price=gate.limit_price,
                 volume=display.suggested_volume,
                 type=OrderType.LIMIT,
                 status=OrderStatus.CREATED,

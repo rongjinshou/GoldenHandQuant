@@ -1,5 +1,5 @@
+
 import pytest
-from datetime import datetime
 
 from src.domain.strategy.pool.services.rating_engine import RatingEngine
 from src.domain.strategy.pool.value_objects.strategy_rating import StrategyRating

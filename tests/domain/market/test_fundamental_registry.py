@@ -1,6 +1,8 @@
 from datetime import datetime
+
 from src.domain.market.services.fundamental_registry import FundamentalRegistry
 from src.domain.market.value_objects.fundamental_snapshot import FundamentalSnapshot
+
 
 def _snap(symbol, date_str, name="Test", mcap=1e10):
     return FundamentalSnapshot(

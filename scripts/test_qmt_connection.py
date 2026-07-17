@@ -80,8 +80,8 @@ def test_trader_login():
     if connect_result != 0:
         raise RuntimeError(f"Trader 连接失败, code={connect_result}")
 
-    ACCOUNT_ID = "50570555"
-    account = xttype.StockAccount(ACCOUNT_ID, "STOCK")
+    account_id = "50570555"
+    account = xttype.StockAccount(account_id, "STOCK")
 
     # 查询资产
     asset = trader.query_stock_asset(account)

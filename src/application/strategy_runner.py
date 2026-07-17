@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from src.domain.backtest.value_objects.bar_window import make_bar_window
@@ -152,6 +152,7 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         risk_settings: RiskSettings | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         feature_source=None,
+        status_registry: StockStatusRegistry | None = None,
     ):
         self.strategy = strategy
         self.sizer = sizer
@@ -159,6 +160,8 @@ class CrossSectionalStrategyRunner(StrategyRunner):
         self.trade_gateway = trade_gateway
         self.fundamental_registry = fundamental_registry
         self.circuit_breaker = circuit_breaker
+        # 0711-st-honesty: as-of ST 状态(回测装配传入; 实盘装配 None = 行为不变)
+        self.status_registry = status_registry
         # B7: 技术指标统一到 feature_engine(纠错); 默认当场算, 离线回测可注入 StoredFeatureSource 复用
         if feature_source is None:
             from src.domain.market.services.snapshot_feature_source import (
@@ -174,8 +177,13 @@ class CrossSectionalStrategyRunner(StrategyRunner):
 
         max_loss = risk_settings.stop_loss.max_loss_ratio if risk_settings else 0.03
 
+        is_st_fn = None
+        if status_registry is not None:
+            def is_st_fn(symbol, ts, _reg=status_registry):
+                s = _reg.get_status(symbol, ts)
+                return s is not None and (s.is_st or s.is_star_st)
         self.risk_signal_gen = RiskSignalGenerator([
-            LimitUpBreakPolicy(),
+            LimitUpBreakPolicy(is_st_fn=is_st_fn),
             HardStopLossPolicy(max_loss_ratio=max_loss),
         ])
 
@@ -212,6 +220,12 @@ class CrossSectionalStrategyRunner(StrategyRunner):
 
         universe = []
         if self.fundamental_registry:
+            # 基本面 as-of T-1(C1): market_cap/PE/PB 由 T 收盘派生, T 开盘执行时
+            # 不可知; 就近回退还使单日基本面缺口不再产生空宇宙(空宇宙会触发
+            # sizer 的防御性清仓)。实盘装配 alias T-1→now, 此取法两侧同值。
+            fund_date = self.fundamental_registry.latest_date_at_or_before(
+                context.current_time - timedelta(days=1)
+            )
             if self.strategy.uses_bar_history:
                 # B7: 技术指标走 feature_source(feature_engine 统一口径), 替手写 _compute_bar_metrics
                 precomputed = self.feature_source.features_for(
@@ -220,11 +234,15 @@ class CrossSectionalStrategyRunner(StrategyRunner):
                 universe = CrossSectionBuilder.build_cross_section(
                     context.current_time, bars, self.fundamental_registry,
                     precomputed_features=precomputed,
+                    fundamental_date=fund_date,
+                    status_registry=self.status_registry,
                 )
             else:
                 # 策略不需技术指标 → 不算特征(性能, 见 uses_bar_history)
                 universe = CrossSectionBuilder.build_cross_section(
                     context.current_time, bars, self.fundamental_registry,
+                    fundamental_date=fund_date,
+                    status_registry=self.status_registry,
                 )
 
         gate = self.system_gate.check_gate(context.current_time)

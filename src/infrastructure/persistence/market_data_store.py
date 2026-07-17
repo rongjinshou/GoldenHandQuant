@@ -8,7 +8,7 @@ docs/feat/0611-market-data-store/2026-06-11-market-data-store-design.md
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -91,6 +91,22 @@ _DDL_STATEMENTS = (
         equity_curve VARCHAR, trades VARCHAR,
         PRIMARY KEY (run_id, strategy)
     )""",
+    """CREATE TABLE IF NOT EXISTS trade_calendar (
+        cal_date    DATE    NOT NULL PRIMARY KEY,
+        is_open     BOOLEAN NOT NULL,
+        source      VARCHAR NOT NULL,
+        fetched_at  TIMESTAMP NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS st_status_periods (
+        symbol      VARCHAR NOT NULL,
+        start_date  DATE    NOT NULL,
+        end_date    DATE,
+        label       VARCHAR NOT NULL,
+        source      VARCHAR NOT NULL,
+        evidence    VARCHAR,
+        fetched_at  TIMESTAMP NOT NULL,
+        PRIMARY KEY (symbol, start_date, source)
+    )""",
 )
 
 _BACKTEST_COLS = (
@@ -171,12 +187,19 @@ class MarketDataStore:
         df["source"] = source
         df["updated_at"] = datetime.now()
         self._conn.register("_inst_in", df)
+        # 防降级覆写(MC-1 连环, 2026-07-12): 宇宙解析路径以代码占位 name upsert,
+        # 曾把 5203 只真名冲成代码——占位名(=symbol)不得覆盖库内已有真名
         self._conn.execute(
             """INSERT OR REPLACE INTO instruments
                (symbol, source, name, list_date, delist_date, updated_at)
-               SELECT symbol, source, name,
-                      CAST(list_date AS DATE), CAST(delist_date AS DATE), updated_at
-               FROM _inst_in"""
+               SELECT i.symbol, i.source,
+                      CASE WHEN i.name IS NULL OR i.name = i.symbol
+                           THEN COALESCE(old.name, i.symbol)
+                           ELSE i.name END,
+                      CAST(i.list_date AS DATE), CAST(i.delist_date AS DATE), i.updated_at
+               FROM _inst_in i
+               LEFT JOIN instruments old
+                 ON old.symbol = i.symbol AND old.source = i.source"""
         )
         self._conn.unregister("_inst_in")
 
@@ -191,6 +214,25 @@ class MarketDataStore:
             list(sources),
         ).fetchall()
         return [r[0] for r in rows]
+
+    def instrument_windows(
+        self, symbols: list[str]
+    ) -> dict[str, tuple[date | None, date | None]]:
+        """每标的 (list_date, delist_date)。多 source 并存取最宽窗口:
+        list 取最早; 任一 source 认为未退市(delist NULL)则视为未退市。"""
+        if not symbols:
+            return {}
+        placeholders = ", ".join("?" for _ in symbols)
+        rows = self._conn.execute(
+            f"""SELECT symbol,
+                       MIN(list_date),
+                       CASE WHEN COUNT(*) - COUNT(delist_date) > 0
+                            THEN NULL ELSE MAX(delist_date) END
+                FROM instruments WHERE symbol IN ({placeholders})
+                GROUP BY symbol""",
+            list(symbols),
+        ).fetchall()
+        return {r[0]: (r[1], r[2]) for r in rows}
 
     def search_instruments(self, query: str, limit: int = 50) -> list[dict]:
         """按 symbol 前缀或名称模糊搜索（dashboard 选股框/回测 chips 联想用）。
@@ -259,6 +301,27 @@ class MarketDataStore:
         df = self._conn.execute(sql + " ORDER BY symbol, date", params).df()
         df["date"] = pd.to_datetime(df["date"])
         return df
+
+    def trading_dates(self, source: str = "qmt") -> list[date]:
+        """全市场 bars 的 distinct 交易日（M7 交易日历推导用, 列存扫描毫秒级）。"""
+        rows = self._conn.execute(
+            "SELECT DISTINCT date FROM bars WHERE source = ? ORDER BY date",
+            [source],
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def first_bar_dates(self, symbols: list[str], source: str) -> dict[str, date]:
+        """每标的在库内的最早 bar 日期（特征预热充足性校验用）。"""
+        if not symbols:
+            return {}
+        placeholders = ", ".join("?" for _ in symbols)
+        rows = self._conn.execute(
+            f"""SELECT symbol, MIN(date) FROM bars
+                WHERE source = ? AND symbol IN ({placeholders})
+                GROUP BY symbol""",
+            [source, *symbols],
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
 
     # ------------------------------------------------------------------ #
     # fundamentals
@@ -379,7 +442,7 @@ class MarketDataStore:
     ) -> list[tuple[str, str]]:
         """请求 [start, end] 相对已履约区间的缺口（0/1/2 段）。
 
-        区间并集语义假设请求相邻或重叠（与 csv _fetch_meta.json 同口径），
+        区间并集语义假设请求相邻或重叠（T2 后本表为唯一履约真相源），
         跳跃式请求会产生虚假覆盖，明示不支持。
         """
         fulfilled = self.get_fulfilled(source, table_name, symbol)
@@ -571,3 +634,51 @@ class MarketDataStore:
         return f"{sql} AND {column} IN ({placeholders})", params + list(symbols)
     # 注: symbols 走 SQL 占位符 (全市场 ~5200 只在 DuckDB 参数上限内);
     # 若未来超限可改为 register 临时表 JOIN。
+
+    # ---- 交易所日历(0711 tushare 沉淀·兑现①: 未来已知) ----------------- #
+
+    def save_trade_calendar(self, rows, source: str) -> int:
+        """全删全建; rows: list[(cal_date, is_open)]。含未来节假日安排。"""
+        self._conn.execute("DELETE FROM trade_calendar")
+        for cal_date, is_open in rows:
+            self._conn.execute(
+                "INSERT INTO trade_calendar VALUES (?, ?, ?, now())",
+                [cal_date, bool(is_open), source],
+            )
+        return len(rows)
+
+    def load_trade_calendar(self):
+        """-> (开市日 frozenset, 已知边界=表末端 date) | None(表空)。
+
+        known_until 取表 max(含闭市日): 交易所已公布的日历边界, 而非最后开市日。"""
+        rows = self._conn.execute(
+            "SELECT cal_date, is_open FROM trade_calendar").fetchall()
+        if not rows:
+            return None
+        open_days = frozenset(r[0] for r in rows if r[1])
+        return open_days, max(r[0] for r in rows)
+
+    # ---- ST 状态区间(0711-st-honesty §3.1) ---------------------------- #
+
+    def save_st_periods(self, periods) -> int:
+        """全删全建(千行级, 幂等), 区间全史入库不裁剪; periods: list[StPeriod]。"""
+        self._conn.execute("DELETE FROM st_status_periods")
+        for p in periods:
+            self._conn.execute(
+                """INSERT INTO st_status_periods
+                   (symbol, start_date, end_date, label, source, evidence, fetched_at)
+                   VALUES (?, ?, ?, ?, ?, ?, now())""",
+                [p.symbol, p.start, p.end, p.label, p.source, p.evidence],
+            )
+        return len(periods)
+
+    def load_st_periods(self):
+        """-> list[StPeriod]; 消费方: status_registry_loader / 回填脚本抽查。"""
+        from src.infrastructure.gateway.st_status_source import StPeriod
+
+        rows = self._conn.execute(
+            """SELECT symbol, start_date, end_date, label, source, COALESCE(evidence, '')
+               FROM st_status_periods ORDER BY symbol, start_date"""
+        ).fetchall()
+        return [StPeriod(symbol=r[0], start=r[1], end=r[2], label=r[3],
+                         source=r[4], evidence=r[5]) for r in rows]

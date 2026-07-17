@@ -30,6 +30,9 @@ from src.infrastructure.config.settings import load_backtest_config  # noqa: E40
 from src.infrastructure.gateway.duckdb_history_data import DuckDBHistoryDataFetcher  # noqa: E402
 from src.infrastructure.mock.mock_market import MockMarketGateway  # noqa: E402
 from src.infrastructure.mock.mock_trade import MockTradeGateway  # noqa: E402
+from src.infrastructure.persistence.status_registry_loader import (  # noqa: E402
+    build_status_registry_from_db,
+)
 from src.interfaces.cli._backtest_wiring import build_backtest_cross_section  # noqa: E402
 from src.interfaces.cli.run_backtest import store_backtest_reports  # noqa: E402
 
@@ -50,8 +53,11 @@ def main() -> None:
     top_ns = [20] if args.quick else [20, 10, 30]   # headline=20 先跑先存
     tf = Timeframe.DAY_1
 
+    # 决策项 Q6(2026-07-10 获批): 主跑切含退市宇宙(qmt+akshare), 消除幸存者偏差
+    # 的默认口径; B1 敏感性(scripts/b1_delisted_sensitivity.py)先前已证影响可控
     registry, universe = build_backtest_cross_section(
-        "DuckDBHistoryDataFetcher", start, end, config_symbols=s.backtest.symbols)
+        "DuckDBHistoryDataFetcher", start, end, config_symbols=s.backtest.symbols,
+        include_sources=("qmt", "akshare"))
     print(f"宇宙 {len(universe)} 只 | 区间 {start}..{end} | 资金 ¥{cap:,.0f} | top_n {top_ns}")
 
     # 一次性把 bars 装入共享行情网关(避免 N 次重载 6M 行)
@@ -68,15 +74,19 @@ def main() -> None:
     if idx and not mkt.get_recent_bars(idx, tf, 5):
         print(f"⚠ 指数 {idx} 无 bars(离线) → 中证1000 趋势闸 inert(设计 DD-4)。")
 
+    status_registry = build_status_registry_from_db(start=start, end=end)
+
     for top_n in top_ns:
         print(f"\n=== MicroValue top_n={top_n} ===")
-        trade = MockTradeGateway(market_gateway=mkt, initial_capital=cap)
+        trade = MockTradeGateway(market_gateway=mkt, initial_capital=cap,
+                                 stock_status_registry=status_registry)
         app = BacktestAppService(
             market_gateway=mkt, trade_gateway=trade,
             strategy=create_strategy("micro_value", {"top_n": top_n}),
             evaluator=PerformanceEvaluator(),
             sizer=EqualWeightSizer(n_symbols=top_n),       # 显式等权, 否则默认 FixedRatio
-            fundamental_registry=registry, risk_settings=s.risk)
+            fundamental_registry=registry, status_registry=status_registry,
+            risk_settings=s.risk)
         reports = app.run_backtest(
             universe, start_date=datetime.strptime(start, "%Y-%m-%d"),
             end_date=datetime.strptime(end, "%Y-%m-%d"), base_timeframe=tf)
@@ -86,7 +96,12 @@ def main() -> None:
         store_backtest_reports(reports, params={
             "source": "f01_investability", "strategy": "micro_value", "top_n": top_n,
             "universe": len(universe), "window": f"{start}..{end}", "quick": args.quick,
-            "hold_fix": True})  # MicroValue 非调仓日维持持仓的 churn 修复后
+            "hold_fix": True,  # MicroValue 非调仓日维持持仓的 churn 修复后
+            # Q6 已切含退市宇宙 + C1 基本面 as-of T-1 修复后的新基线,
+            # 与旧 qmt_only/T 日口径的历史入库结果不可直接对比
+            "survivorship": "qmt+akshare(含退市)",
+            "cap": "total_mv",  # MC-1(0712): 市值口径=时点总市值, 与旧 QMT 股本口径不可比
+            "baseline": "post-MC1(cap=total_mv)"})
 
 
 if __name__ == "__main__":

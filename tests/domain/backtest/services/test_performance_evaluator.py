@@ -1,8 +1,8 @@
-import pytest
 from datetime import datetime
+
 from src.domain.backtest.services.performance_evaluator import PerformanceEvaluator
 from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot
-from src.domain.backtest.value_objects.trade_record import TradeRecord
+
 
 class TestPerformanceEvaluator:
     def test_evaluate_should_populate_curve_data(self):
@@ -11,7 +11,7 @@ class TestPerformanceEvaluator:
         start_date = datetime(2023, 1, 1)
         end_date = datetime(2023, 1, 5)
         initial_capital = 100000.0
-        
+
         snapshots = [
             DailySnapshot(
                 date=datetime(2023, 1, 1),
@@ -30,7 +30,7 @@ class TestPerformanceEvaluator:
                 return_rate=0.0099
             ),
         ]
-        
+
         trades = []
 
         # Act
@@ -46,19 +46,20 @@ class TestPerformanceEvaluator:
         assert len(report.dates) == 2
         assert report.dates[0] == datetime(2023, 1, 1)
         assert report.dates[1] == datetime(2023, 1, 2)
-        
+
         assert len(report.equity_curve) == 2
         assert report.equity_curve[0] == 101000.0
         assert report.equity_curve[1] == 102000.0
-        
+
         assert len(report.daily_returns) == 2
         assert report.daily_returns[0] == 0.01
         assert report.daily_returns[1] == 0.0099
 
 
 def test_backtest_report_sharpe_ratio():
-    from src.domain.backtest.entities.backtest_report import BacktestReport
     from datetime import datetime
+
+    from src.domain.backtest.entities.backtest_report import BacktestReport
 
     report = BacktestReport(
         start_date=datetime(2024, 1, 2),
@@ -78,8 +79,9 @@ def test_backtest_report_sharpe_ratio():
 
 
 def test_backtest_report_sortino_excludes_upside_volatility():
-    from src.domain.backtest.entities.backtest_report import BacktestReport
     from datetime import datetime
+
+    from src.domain.backtest.entities.backtest_report import BacktestReport
 
     report = BacktestReport(
         start_date=datetime(2024, 1, 2),
@@ -98,8 +100,9 @@ def test_backtest_report_sortino_excludes_upside_volatility():
 
 
 def test_backtest_report_calmar_ratio_zero_drawdown():
-    from src.domain.backtest.entities.backtest_report import BacktestReport
     from datetime import datetime
+
+    from src.domain.backtest.entities.backtest_report import BacktestReport
 
     report = BacktestReport(
         start_date=datetime(2024, 1, 2),
@@ -118,8 +121,9 @@ def test_backtest_report_calmar_ratio_zero_drawdown():
 
 
 def test_backtest_report_sharpe_empty_returns():
-    from src.domain.backtest.entities.backtest_report import BacktestReport
     from datetime import datetime
+
+    from src.domain.backtest.entities.backtest_report import BacktestReport
 
     report = BacktestReport(
         start_date=datetime(2024, 1, 2),

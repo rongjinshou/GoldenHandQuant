@@ -106,7 +106,7 @@ GoldenHandQuant/
 | 研究 | factor_test_app.py | 因子判决编排（入库 factor_verdicts） |
 | | market_data_app.py | 研究库刷新编排 |
 | | dashboard_app.py | 旧 Web 监控数据编排 |
-| 旧编排链（不再接线，归档候选 D9） | auto_trading_engine.py / trading_orchestrator.py / signal_pipeline.py / order_executor.py / order_service.py / strategy_runner.py | 闭环 v1 决策 DD-1 弃用 |
+| 旧编排链（不再接线，归档候选 D9） | auto_trading_engine.py / trading_orchestrator.py / signal_pipeline.py / strategy_runner.py | 闭环 v1 决策 DD-1 弃用；order_executor.py / order_service.py / cli/main.py 已于 2026-07-11 误单防线审计删除（REVIVAL §七） |
 
 ## infrastructure/ — 外部依赖实现
 
@@ -134,9 +134,12 @@ GoldenHandQuant/
 
 ## interfaces/ — 系统入口
 
-- **api/**（FastAPI，驾驶舱）: app.py 挂载 `/ui` 静态站；routes: research（因子判决、
-  回测列表）/ live（实盘留痕五端点，ro）/ backtest_routes / account_routes / dashboard；
-  static/: index.html + app.js + style.css + vendor/echarts（零构建前端）
+- **api/**（FastAPI，驾驶舱）: app.py 挂载 `/ui` 静态站 + `/api/{research,live,jobs,meta}`
+  四路由（29 端点 = 21 只读 + 6 任务 POST + 2 研究留痕 DELETE，交易写端点 0）；
+  任务系统 = 单守护线程串行队列复用 CLI 子进程（infrastructure/jobs/job_manager）；
+  static/: **Vite 构建产物入库**（frontend/ Vue3+Vite+TS 工程 `npm run build` 产出，
+  含 `.build-stamp` 源码内容哈希，`scripts/check_frontend_fresh.py` 校验漂移；
+  2026-07-04 起替代旧「零构建前端」，勘校 2026-07-10）
 - **cli/**: `quant.py` 统一入口（commands/: data / backtest / compare / factor_test /
   dashboard / live / order / research + _data_wiring）；`auto_trade.py`（守护/单次循环）；
   run_backtest.py / compare_strategies.py（独立入口，与 quant backtest 共用

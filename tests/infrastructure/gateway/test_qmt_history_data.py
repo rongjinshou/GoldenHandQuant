@@ -91,8 +91,8 @@ class TestQmtHistoryDataFetcher:
         assert bars[0].close == 10.5
         assert bars[0].volume == 1000
 
-    def test_fetch_history_bars_with_cached_data_should_use_cache(self, fetcher, mock_xtdata):
-        """测试当本地缓存存在时使用缓存数据。"""
+    def test_fetch_history_bars_with_cached_data_should_use_cache(self, mock_xtdata):
+        """测试当本地缓存存在时使用缓存数据。(T2 后缓存为显式开关)"""
         # Arrange
         symbol = "000001.SZ"
         timeframe = Timeframe.DAY_1
@@ -112,6 +112,9 @@ class TestQmtHistoryDataFetcher:
         # Mock Path.exists() 返回 True，表示缓存存在
         with patch("src.infrastructure.gateway.qmt_history_data.Path") as mock_path:
             mock_path.return_value.exists.return_value = True
+            mock_path.return_value.__truediv__.return_value = mock_path.return_value
+            # fetcher 须在 patch 内构造(T2 后 __init__ 即实例化 data_dir Path)
+            fetcher = QmtHistoryDataFetcher(csv_cache=True)
 
             # Mock pd.read_csv 返回缓存数据
             with patch("pandas.read_csv", return_value=cached_df):
@@ -267,9 +270,10 @@ class TestQmtHistoryDataFetcher:
         first = min(b.timestamp for b in bars)
         assert first.year == 2020
 
-    def test_meta_prevents_refetch_for_late_listed_symbol(self, fetcher, mock_xtdata):
+    def test_meta_prevents_refetch_for_late_listed_symbol(self, mock_xtdata):
         """晚上市股票: 缓存起点=上市日(晚于请求 start), 但 meta 记录
         已按该 start 完整拉取过 -> 用缓存, 不应每次重拉(防风暴)。
+        (T2 后缓存为显式开关, 本用例即缓存路径回归)
         """
         symbol = "000001.SZ"
         timeframe = Timeframe.DAY_1
@@ -287,6 +291,8 @@ class TestQmtHistoryDataFetcher:
         with patch("src.infrastructure.gateway.qmt_history_data.Path") as mock_path:
             mock_path.return_value.exists.return_value = True
             mock_path.return_value.__truediv__.return_value = mock_path.return_value
+            # fetcher 须在 patch 内构造(避免吃到真实 data/ 目录状态)
+            fetcher = QmtHistoryDataFetcher(csv_cache=True)
             # meta: 该 symbol 已按 2020-06-15 起完整下载过
             mock_path.return_value.read_text.return_value = json.dumps(
                 {"000001.SZ_1d": "2020-06-15"}
@@ -304,9 +310,10 @@ class TestQmtHistoryDataFetcher:
         assert len(bars) == 3
         assert bars[0].close == 10.5
 
-    def test_meta_records_requested_start_after_download(self, fetcher, mock_xtdata):
+    def test_meta_records_requested_start_after_download(self, mock_xtdata):
         """重新下载后应把本次履约的 requested start 写入 meta,
         下次同样请求才不会再次重拉 (与防风暴测试闭环)。
+        (T2 后缓存为显式开关, 本用例即缓存路径回归)
         """
         symbol = "000001.SZ"
         timeframe = Timeframe.DAY_1
@@ -332,6 +339,7 @@ class TestQmtHistoryDataFetcher:
         with patch("src.infrastructure.gateway.qmt_history_data.Path") as mock_path:
             mock_path.return_value.exists.return_value = True
             mock_path.return_value.__truediv__.return_value = mock_path.return_value
+            fetcher = QmtHistoryDataFetcher(csv_cache=True)
             with patch("pandas.read_csv", return_value=cached_df):
                 with patch("pandas.DataFrame.to_csv"):
                     mock_xtdata.get_market_data_ex.side_effect = [
@@ -402,3 +410,60 @@ class TestQmtHistoryDataFetcher:
         assert "unadjusted close fetch failed" in captured.out
         assert len(bars) == 2
         assert bars[0].unadjusted_close == 0.0
+
+
+class TestCsvCacheRetirement:
+    """CSV 透明缓存退役（2026-07-11 六西格玛 T2, 台账 P6）。
+
+    默认不再读写 data/ 下每股 CSV 与 _fetch_meta.json——QMT 本地库 +
+    market.duckdb(fetch_meta) 已是两级存储, 第三份冗余账本会与 DuckDB
+    履约元数据各说各话(10 万行 NULL 固化事故的同族隐患)。
+    """
+
+    @pytest.fixture
+    def mock_xtdata(self):
+        with patch("src.infrastructure.gateway.qmt_history_data.xtdata") as mock:
+            yield mock
+
+    def _stub_market_data(self, mock_xtdata, symbol="000001.SZ"):
+        df = pd.DataFrame(
+            {"open": [10.0], "high": [11.0], "low": [9.0],
+             "close": [10.5], "volume": [1000]},
+            index=[_ms("2023-01-01")])
+        mock_xtdata.get_market_data_ex.return_value = {symbol: df}
+
+    def test_default_does_not_write_csv(self, mock_xtdata, tmp_path):
+        self._stub_market_data(mock_xtdata)
+        fetcher = QmtHistoryDataFetcher(data_dir=str(tmp_path))  # 默认 csv_cache=False
+
+        bars = fetcher.fetch_history_bars(
+            "000001.SZ", Timeframe.DAY_1, "2023-01-01", "2023-01-02")
+
+        assert len(bars) == 1
+        assert list(tmp_path.iterdir()) == []  # 不落 CSV 不落 _fetch_meta.json
+
+    def test_explicit_cache_still_writes(self, mock_xtdata, tmp_path):
+        self._stub_market_data(mock_xtdata)
+        fetcher = QmtHistoryDataFetcher(csv_cache=True, data_dir=str(tmp_path))
+
+        fetcher.fetch_history_bars(
+            "000001.SZ", Timeframe.DAY_1, "2023-01-01", "2023-01-02")
+
+        names = {p.name for p in tmp_path.iterdir()}
+        assert "000001.SZ_1d.csv" in names
+        assert "_fetch_meta.json" in names
+
+    def test_explicit_cache_roundtrip_hits(self, mock_xtdata, tmp_path):
+        self._stub_market_data(mock_xtdata)
+        fetcher = QmtHistoryDataFetcher(csv_cache=True, data_dir=str(tmp_path))
+        fetcher.fetch_history_bars(
+            "000001.SZ", Timeframe.DAY_1, "2023-01-01", "2023-01-01")
+        mock_xtdata.get_market_data_ex.reset_mock()
+
+        bars = fetcher.fetch_history_bars(
+            "000001.SZ", Timeframe.DAY_1, "2023-01-01", "2023-01-01")
+
+        assert len(bars) == 1
+        # 命中缓存: 前复权主查询不再发起(仅不复权收盘辅查询可能发生)
+        for call in mock_xtdata.get_market_data_ex.call_args_list:
+            assert call.kwargs.get("dividend_type") != "front"

@@ -153,6 +153,7 @@ class BacktestAppService:
                 risk_settings=self.risk_settings,
                 circuit_breaker=self.circuit_breaker,
                 feature_source=self.feature_source,
+                status_registry=self.status_registry,
             )
         else:
             return SingleStrategyRunner(

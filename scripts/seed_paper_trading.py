@@ -160,11 +160,28 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--strategy", default="dual_ma")
     p.add_argument("--symbols", default="", help="逗号分隔; 留空用内置低价主板组合")
     p.add_argument("--no-reset", action="store_true", help="不清空既有 trading.db")
+    p.add_argument("--yes", action="store_true",
+                   help="目标是生产留痕库 data/trading.db 且要清空时, 必须显式确认")
     return p.parse_args()
+
+
+PRODUCTION_DB = "data/trading.db"
 
 
 def main() -> None:
     args = parse_args()
+
+    # 清空生产实盘留痕库(审计/execution_records)不可恢复, 必须显式确认;
+    # 置于装载数据之前, 尽早失败
+    will_reset_production = (
+        not args.no_reset
+        and Path(args.db).resolve() == Path(PRODUCTION_DB).resolve()
+    )
+    if will_reset_production and not args.yes:
+        print("✗ 默认目标是生产实盘留痕库 data/trading.db, 清空它需要显式 --yes;\n"
+              "  或用 --db 指向演示库, 或 --no-reset 保留现有数据。")
+        sys.exit(2)
+
     symbols = ([s.strip() for s in args.symbols.split(",") if s.strip()]
                or DEFAULT_SYMBOLS)
 
@@ -193,7 +210,13 @@ def main() -> None:
     # 2) 离线替身 + 真实应用服务装配
     if not args.no_reset:
         _reset_db(args.db)
-    mock = MockTradeGateway(market_gateway=market, initial_capital=args.capital)
+    from src.infrastructure.persistence.status_registry_loader import (
+        build_status_registry_from_db,
+    )
+    status_registry = build_status_registry_from_db(
+        start=args.start, end=datetime.now().strftime("%Y-%m-%d"))
+    mock = MockTradeGateway(market_gateway=market, initial_capital=args.capital,
+                            stock_status_registry=status_registry)
     gateway = PaperFillGateway(mock, market)
     quotes = BarQuoteFetcher(market)
     signal_service = LiveSignalService(

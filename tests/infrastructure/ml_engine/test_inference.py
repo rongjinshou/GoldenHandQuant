@@ -1,5 +1,7 @@
-import numpy as np
 from unittest.mock import MagicMock
+
+import numpy as np
+
 from src.infrastructure.ml_engine.inference import InferenceEngine
 
 

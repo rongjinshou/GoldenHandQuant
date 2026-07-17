@@ -3,8 +3,8 @@
 from datetime import datetime
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
+from src.domain.strategy.factor_test.decay_analyzer import DecayAnalyzer
 from src.domain.strategy.factor_test.expressions import FactorRefExpr
-from src.infrastructure.factor_test.decay_analyzer import DecayAnalyzer
 
 
 def _make_snapshot(symbol: str, pe_ratio: float) -> StockSnapshot:

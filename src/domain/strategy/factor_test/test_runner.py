@@ -1,14 +1,14 @@
 """因子测试编排器：串联所有组件，完成完整因子测试。"""
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
+from src.domain.strategy.factor_test.decay_analyzer import DecayAnalyzer
 from src.domain.strategy.factor_test.evaluator import FactorExpressionEvaluator
+from src.domain.strategy.factor_test.ic_calculator import ICCalculator
+from src.domain.strategy.factor_test.layer_backtest import LayerBacktester
 from src.domain.strategy.factor_test.lexer import tokenize
 from src.domain.strategy.factor_test.parser import FactorExpressionParser
 from src.domain.strategy.factor_test.report import FactorTestReport, ScoredFactorTestReport
 from src.domain.strategy.factor_test.scorer import FactorScorer
-from src.infrastructure.factor_test.decay_analyzer import DecayAnalyzer
-from src.infrastructure.factor_test.ic_calculator import ICCalculator
-from src.infrastructure.factor_test.layer_backtest import LayerBacktester
 
 
 class FactorTestRunner:

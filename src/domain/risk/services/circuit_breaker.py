@@ -61,6 +61,14 @@ class CircuitBreaker:
         """设置初始资金（回测开始时调用）。"""
         self._initial_capital = amount
 
+    def restore_state(self, state: CircuitBreakerState) -> None:
+        """从持久层恢复状态机（T6 跨进程续命）。只装载状态, 不产生事件。
+
+        熔断保护的是账户而非进程: TRIGGERED/COOLDOWN 不因进程重启而归零,
+        否则 --once 模式下熔断形同虚设。
+        """
+        self._state = state
+
     def reset_daily(self, current_date: datetime, day_open_asset: float) -> None:
         """每日盘前重置。
 

@@ -38,16 +38,19 @@ TradingScheduler 槽位触发 (execution_times, 如 09:35/14:50)
    （超龄视为停牌/断连的陈旧快照）。
 4. **价格带**: 限价必须落在前收 ±10%（`PRICE_BAND`）内；限价构造
    `build_limit_price`——买贴卖一但不超 `last×1.002`，卖贴买一但不低于 `last×0.998`。
-5. **单笔金额**: ≤ `per_order_notional_cap`（配置 1500），硬顶
-   `MAX_NOTIONAL_CEILING=5000` 写死在代码里。
+5. **单笔金额**: ≤ `min(per_order_notional_cap, per_order_notional_ceiling)`。
+   注意（勘校 2026-07-10）: 旧文档称「硬顶 5000 写死在代码里」已失真——ceiling
+   现为**可配置项** `per_order_notional_ceiling`（settings 默认 5000，trading.yaml
+   当前覆盖为 10000），cap 当前配置 9000。改配置即可抬高上限，不再有代码级硬顶。
 6. **资金/持仓**: 买入校验可用资金（×`CASH_FEE_BUFFER=1.01` 费用缓冲），
    卖出校验可用持仓（允许零股清仓）。
 
 ### 第二层：预算闸（应用层 + trading.db 统计）
 
-- 单循环最多 `max_orders_per_cycle=3` 单。
-- 日累计申报金额 ≤ `daily_notional_cap=3000`；统计**跨 mode**（dry_run 与 live
-  共享额度，防切换钻空），CANCELED 也占预算（保守口径）。
+- 单循环最多 `max_orders_per_cycle` 单（trading.yaml 当前 48；旧文档值 3 已失真）。
+- 日累计申报金额 ≤ `daily_notional_cap`（trading.yaml 当前 320000；旧文档值 3000
+  已失真）；预算**分 mode 独立**（0704 live-prereqs 分 mode 预算落地，dry_run 与
+  live 各自额度；旧文档「跨 mode 共享」为落地前口径），CANCELED 也占预算（保守）。
 - 当日同标的同方向去重；循环内资金游标递减（BUY 提交后扣
   `notional × 1.01`），防同循环多单超资金。
 

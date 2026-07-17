@@ -20,6 +20,9 @@ from src.infrastructure.config.settings import load_backtest_config  # noqa: E40
 from src.infrastructure.gateway.duckdb_history_data import DuckDBHistoryDataFetcher  # noqa: E402
 from src.infrastructure.mock.mock_market import MockMarketGateway  # noqa: E402
 from src.infrastructure.mock.mock_trade import MockTradeGateway  # noqa: E402
+from src.infrastructure.persistence.status_registry_loader import (  # noqa: E402
+    build_status_registry_from_db,
+)
 from src.interfaces.cli._backtest_wiring import build_backtest_cross_section  # noqa: E402
 
 CONFIG = "resources/backtest.yaml"
@@ -43,13 +46,17 @@ def main() -> None:
         if (i + 1) % 1500 == 0:
             print(f"  bars 装载 {i + 1}/{len(universe)}")
 
+    status_registry = build_status_registry_from_db(start=start, end=end)
+
     def run(label: str):
-        trade = MockTradeGateway(market_gateway=mkt, initial_capital=cap)
+        trade = MockTradeGateway(market_gateway=mkt, initial_capital=cap,
+                                 stock_status_registry=status_registry)
         app = BacktestAppService(
             market_gateway=mkt, trade_gateway=trade,
             strategy=create_strategy("micro_value", {"top_n": TOP_N}),
             evaluator=PerformanceEvaluator(), sizer=EqualWeightSizer(n_symbols=TOP_N),
-            fundamental_registry=registry, risk_settings=s.risk)
+            fundamental_registry=registry, status_registry=status_registry,
+            risk_settings=s.risk)
         r = app.run_backtest(
             universe, start_date=datetime.strptime(start, "%Y-%m-%d"),
             end_date=datetime.strptime(end, "%Y-%m-%d"), base_timeframe=tf)[0]

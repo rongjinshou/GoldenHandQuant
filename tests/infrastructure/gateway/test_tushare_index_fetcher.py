@@ -1,6 +1,8 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
 import pandas as pd
+import pytest
+
 from src.infrastructure.gateway.tushare_index_fetcher import TushareIndexFetcher
 
 

@@ -10,11 +10,11 @@ import bisect
 import numpy as np
 import pandas as pd
 
-from src.domain.strategy.factor_test.panel import FactorPanel
-from src.infrastructure.factor_test.layer_backtest import (
+from src.domain.strategy.factor_test.layer_backtest import (
     LayerBacktester,
     LayerBacktestResult,
 )
+from src.domain.strategy.factor_test.panel import FactorPanel
 
 
 class VectorizedSeriesBuilder:

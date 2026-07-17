@@ -1,5 +1,4 @@
 """ComparisonReportService 单元测试。"""
-import pytest
 from datetime import datetime
 
 from src.domain.backtest.entities.backtest_report import BacktestReport

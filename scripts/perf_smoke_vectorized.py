@@ -12,7 +12,7 @@ sys.path.insert(0, os.getcwd())
 
 from src.domain.market.services.feature_engine import FEATURE_VERSION  # noqa: E402
 from src.domain.strategy.factor_test.panel import FactorPanel  # noqa: E402
-from src.infrastructure.factor_test.vectorized_runner import VectorizedRunner  # noqa: E402
+from src.domain.strategy.factor_test.vectorized_runner import VectorizedRunner  # noqa: E402
 from src.infrastructure.persistence.market_data_store import MarketDataStore  # noqa: E402
 
 START, END, SPLIT, SOURCE = "2021-01-01", "2026-06-13", "2024-06-30", "qmt"

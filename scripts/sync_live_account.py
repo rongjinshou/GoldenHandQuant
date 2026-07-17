@@ -50,6 +50,13 @@ def _fetch_last_prices(symbols: list[str]) -> dict[str, float]:
     return out
 
 
+def _derived_session_id(base: int) -> int:
+    """本脚本专属 session(0713 彩排实证): 固定 session 与 auto-trade/任务计划撞车
+    (xtquant 要求进程间 session 唯一, 残留释放有延迟) → 按时间派生, 与主链隔离。"""
+    import time
+    return int(base) + 500_000 + int(time.time()) % 100_000
+
+
 def sync_once(db_path: str, config_path: str) -> bool:
     """读真实账户 → 落一条快照。返回是否成功。"""
     settings = load_trading_config(config_path)
@@ -58,8 +65,9 @@ def sync_once(db_path: str, config_path: str) -> bool:
         print("✗ trading.yaml 未配置 qmt.userdata_path")
         return False
 
+    session_id = _derived_session_id(qmt.session_id)
     try:
-        account_id = resolve_account_id(qmt, qmt.userdata_path, qmt.session_id)
+        account_id = resolve_account_id(qmt, qmt.userdata_path, session_id)
     except Exception as e:  # noqa: BLE001
         print(f"✗ 账号解析失败: {e}")
         print("  → 请确认 QMT 交易端已以「极简模式」登录; 或设置环境变量 QMT_ACCOUNT_ID。")
@@ -67,7 +75,7 @@ def sync_once(db_path: str, config_path: str) -> bool:
 
     from src.infrastructure.gateway.qmt_trade import QmtTradeGateway
     gw = QmtTradeGateway(
-        path=qmt.userdata_path, session_id=qmt.session_id,
+        path=qmt.userdata_path, session_id=_derived_session_id(qmt.session_id),
         account_id=account_id, account_type=qmt.account_type,
     )
     asset = gw.get_asset()

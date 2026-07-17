@@ -1,9 +1,16 @@
+import logging
+
 from src.domain.account.entities.asset import Asset
 from src.domain.account.entities.position import Position
 from src.domain.portfolio.entities.order_target import OrderTarget
 from src.domain.portfolio.interfaces.position_sizer import IPositionSizer
 from src.domain.strategy.value_objects.signal import Signal
 from src.domain.trade.value_objects.order_direction import OrderDirection
+
+logger = logging.getLogger(__name__)
+
+# 防御性清仓(空目标池/不在目标池)找不到策略信号时的归因常量
+LIQUIDATION_STRATEGY_NAME = "liquidation"
 
 
 class EqualWeightSizer(IPositionSizer):
@@ -78,9 +85,10 @@ class EqualWeightSizer(IPositionSizer):
             # 目标池为空 → 清仓所有持仓，除了无法卖出的（已被冻结或无可用）
             for pos in positions:
                 if pos.available_volume > 0:
-                    p = prices.get(pos.ticker, pos.average_cost)
-                    # 确定 strategy_name
-                    s_name = next((s.strategy_name for s in sell_signals if s.symbol == pos.ticker), "EqualWeightSizer")
+                    p = self._liquidation_price(pos, prices)
+                    if p is None:
+                        continue
+                    s_name = self._liquidation_strategy_name(pos, sell_signals, signals)
                     targets.append(OrderTarget(
                         symbol=pos.ticker, direction=OrderDirection.SELL,
                         volume=pos.available_volume, price=p,
@@ -124,8 +132,10 @@ class EqualWeightSizer(IPositionSizer):
         # 不在目标池中的持仓 → 清仓
         for pos in positions:
             if pos.ticker not in target_symbols and pos.available_volume > 0:
-                price = prices.get(pos.ticker, pos.average_cost)
-                s_name = next((s.strategy_name for s in sell_signals if s.symbol == pos.ticker), "EqualWeightSizer")
+                price = self._liquidation_price(pos, prices)
+                if price is None:
+                    continue
+                s_name = self._liquidation_strategy_name(pos, sell_signals, signals)
                 targets.append(OrderTarget(
                     symbol=pos.ticker, direction=OrderDirection.SELL,
                     volume=pos.available_volume, price=price,
@@ -133,3 +143,35 @@ class EqualWeightSizer(IPositionSizer):
                 ))
 
         return targets
+
+    @staticmethod
+    def _liquidation_price(pos: Position, prices: dict[str, float]) -> float | None:
+        """清仓目标限价: 市价优先, 缺市价回退建仓成本; 非正价一律弃单。
+
+        QMT 真账户止盈摊薄后 average_cost 可为负(2026-06-30 dry-run 实证
+        000021.SZ = -0.32165), 负/零限价不可下单——买入分支早有 price<=0
+        守卫, 此处补齐清仓分支的同款防线。
+        """
+        p = prices.get(pos.ticker, pos.average_cost)
+        if p <= 0:
+            logger.warning(
+                "清仓目标 %s 无有效价格(市价缺失, 建仓成本=%.4f 非正), 跳过该目标",
+                pos.ticker, pos.average_cost,
+            )
+            return None
+        return p
+
+    @staticmethod
+    def _liquidation_strategy_name(
+        pos: Position, sell_signals: list[Signal], signals: list[Signal],
+    ) -> str:
+        """清仓目标的策略归因: 同标的 SELL 信号 > 本轮任一信号的策略名 > 语义常量。
+
+        同一轮扫描的信号全部来自同一策略, 故任一信号的策略名即本轮策略;
+        不得回退 sizer 类名(审计无法回溯策略, 2026-06-30 execution_records 实证)。
+        """
+        matched = next((s.strategy_name for s in sell_signals if s.symbol == pos.ticker), "")
+        if matched:
+            return matched
+        any_name = next((s.strategy_name for s in signals if s.strategy_name), "")
+        return any_name or LIQUIDATION_STRATEGY_NAME

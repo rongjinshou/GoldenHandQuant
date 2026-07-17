@@ -3,7 +3,6 @@
 from datetime import datetime
 
 from src.domain.account.entities.asset import Asset
-from src.domain.backtest.value_objects.daily_snapshot import DailySnapshot
 from src.domain.risk.services.circuit_breaker import CircuitBreaker
 from src.domain.risk.value_objects.circuit_breaker_state import BreakerStatus
 

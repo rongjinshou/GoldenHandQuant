@@ -1,5 +1,6 @@
 import pytest
-from src.domain.trade.exceptions import TradeError, MarketClosedError, OrderValidationError
+
+from src.domain.trade.exceptions import MarketClosedError, OrderValidationError
 
 
 def test_market_closed_error_with_ticker():

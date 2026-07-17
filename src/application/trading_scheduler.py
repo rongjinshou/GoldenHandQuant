@@ -23,9 +23,12 @@ class TradingScheduler:
         self,
         check_interval_seconds: int = 60,
         execution_times: list[str] | None = None,
+        calendar=None,
     ) -> None:
         self._check_interval_seconds = check_interval_seconds
         self._execution_times = set(execution_times or ["09:35", "14:50"])
+        # M7 交易日历(bars 推导): 已知休市日不触发周期; 未来日 unknown 照常
+        self._calendar = calendar
         self._running = threading.Event()
         self._thread: threading.Thread | None = None
         self._on_cycle: Callable[[datetime], object] | None = None
@@ -105,10 +108,13 @@ class TradingScheduler:
         )
 
     def _is_trading_hour(self, now: datetime) -> bool:
-        """检查是否在交易时段内（工作日 9:25-11:30, 13:00-15:00）。"""
+        """检查是否在交易时段内（工作日 9:25-11:30, 13:00-15:00, 非休市日）。"""
         from src.domain.trade.services.trading_sessions import is_scheduler_session
 
         if now.weekday() >= 5:
+            return False
+        if (self._calendar is not None
+                and self._calendar.is_trading_day(now.date()) is False):
             return False
         return is_scheduler_session(now)
 

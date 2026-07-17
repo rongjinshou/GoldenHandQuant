@@ -111,7 +111,13 @@ def main() -> None:
     fetcher = build_history_fetcher(history_fetcher_type, tushare_token)
 
     market_gateway = MockMarketGateway()
-    trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital)
+    # 0711-st-honesty: as-of ST 状态 → 撮合 ±5%/涨停破板/选股过滤(表空自动回退旧口径)
+    from src.infrastructure.persistence.status_registry_loader import (
+        build_status_registry_from_db,
+    )
+    status_registry = build_status_registry_from_db(start=start_date, end=end_date)
+    trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital,
+                                     stock_status_registry=status_registry)
     evaluator = PerformanceEvaluator()
 
     # 确定是否需要 fundamental_registry（任一策略为 cross_section 即需要）
@@ -143,6 +149,7 @@ def main() -> None:
         evaluator=evaluator,
         history_fetcher=fetcher,
         fundamental_registry=fundamental_registry,
+        status_registry=status_registry,
     )
 
     # 准备数据

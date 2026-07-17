@@ -1,6 +1,6 @@
 """DomainEvent 基类测试（纯标准库，零第三方依赖）。"""
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from src.domain.common.domain_event import DomainEvent
 

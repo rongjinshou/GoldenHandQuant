@@ -1,4 +1,4 @@
-from src.domain.market.value_objects.price_limit import calculate_price_limits, PriceLimit
+from src.domain.market.value_objects.price_limit import PriceLimit, calculate_price_limits
 
 
 def test_calculate_price_limits_main_board():

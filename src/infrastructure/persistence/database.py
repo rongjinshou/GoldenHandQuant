@@ -15,6 +15,9 @@ class Database:
         # WAL 下 NORMAL 仅在断电时丢最后事务、不损坏库; /mnt/c 上 FULL 的逐次 fsync 代价过高
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        # 跨进程写者(守护 auto-trade / sync_live_account --watch / 手动 --once)并存,
+        # 无等待窗时第二写者立即 'database is locked' 且上层 save_* 无重试
+        self._conn.execute("PRAGMA busy_timeout=5000")
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         return self._conn.execute(sql, params)

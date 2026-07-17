@@ -10,6 +10,9 @@ from src.domain.strategy.registry import create_strategy, get_strategy
 from src.infrastructure.config.settings import load_backtest_config
 from src.infrastructure.mock.mock_market import MockMarketGateway
 from src.infrastructure.mock.mock_trade import MockTradeGateway
+from src.infrastructure.persistence.status_registry_loader import (
+    build_status_registry_from_db,
+)
 
 
 def _print_report(report) -> None:
@@ -77,7 +80,10 @@ def run_backtest(args: argparse.Namespace) -> None:
     fetcher = build_history_fetcher(history_fetcher_type, tushare_token)
 
     market_gateway = MockMarketGateway()
-    trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital)
+    # 0711-st-honesty: as-of ST 状态 → 撮合 ±5%/涨停破板/选股过滤(表空自动回退旧口径)
+    status_registry = build_status_registry_from_db(start=start_date, end=end_date)
+    trade_gateway = MockTradeGateway(market_gateway=market_gateway, initial_capital=initial_capital,
+                                     stock_status_registry=status_registry)
 
     # 初始化策略
     try:
@@ -116,6 +122,7 @@ def run_backtest(args: argparse.Namespace) -> None:
         evaluator=evaluator,
         history_fetcher=fetcher,
         fundamental_registry=fundamental_registry,
+        status_registry=status_registry,
         risk_settings=settings.risk if settings else None,
     )
 

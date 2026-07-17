@@ -13,6 +13,11 @@ class LimitUpBreakPolicy(BaseRiskSignalPolicy):
     无条件触发清仓卖出信号。
     """
 
+    def __init__(self, is_st_fn=None) -> None:
+        # is_st_fn(symbol, timestamp) -> bool; None = 普通幅度(既有行为)。
+        # domain 纯净: 注入纯函数而非仓储(0711-st-honesty §4.3)。
+        self._is_st_fn = is_st_fn
+
     def evaluate_positions(
         self, positions: list[Position], bars: dict[str, Bar]
     ) -> list[Signal]:
@@ -21,7 +26,8 @@ class LimitUpBreakPolicy(BaseRiskSignalPolicy):
             bar = bars.get(pos.ticker)
             if bar is None or bar.volume <= 0 or bar.prev_close <= 0:
                 continue
-            ratio = get_price_limit_ratio(pos.ticker)
+            is_st = bool(self._is_st_fn and self._is_st_fn(pos.ticker, bar.timestamp))
+            ratio = get_price_limit_ratio(pos.ticker, is_st=is_st)
             price_limit = calculate_price_limits(bar.prev_close, ratio)
             if bar.high >= price_limit.limit_up and bar.close < price_limit.limit_up:
                 signals.append(Signal(

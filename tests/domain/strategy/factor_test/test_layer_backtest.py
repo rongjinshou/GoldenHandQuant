@@ -7,7 +7,7 @@ import pytest
 
 from src.domain.market.value_objects.stock_snapshot import StockSnapshot
 from src.domain.strategy.factor_test.expressions import FactorRefExpr
-from src.infrastructure.factor_test.layer_backtest import LayerBacktester
+from src.domain.strategy.factor_test.layer_backtest import LayerBacktester
 
 
 def _make_snapshot(symbol: str, pe_ratio: float) -> StockSnapshot:

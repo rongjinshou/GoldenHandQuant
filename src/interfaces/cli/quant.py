@@ -44,6 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_live.add_argument("--strategy", "-s", type=str, default=None, help="策略名称")
     p_live.add_argument("--symbols", type=str, default=None, help="标的列表 (逗号分隔)")
     p_live.add_argument("--config", type=str, default="resources/trading.yaml", help="配置文件")
+    p_live.add_argument("--review-mode", choices=["plain", "rich"], default="plain",
+                        help="审核界面: plain=纯文本确认; rich=审核台(ReviewStore 留痕)")
 
     # --- compare ---
     p_cmp = subparsers.add_parser("compare", help="多策略对比")
@@ -82,6 +84,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_data.add_argument("--end-date", type=str, default="2025-12-31", help="刷新结束日期")
     p_data.add_argument("--config", type=str, default="resources/backtest.yaml", help="配置文件")
     p_data.add_argument("--db", type=str, default="data/market.duckdb", help="数据库文件路径")
+    p_data.add_argument("--check", action="store_true",
+                        help="status 附带数据质量门禁(NULL固化哨兵/新鲜度/对齐), 有 FAIL 退出码 1")
+    p_data.add_argument("--max-staleness-days", type=int, default=10,
+                        help="--check 新鲜度 FAIL 阈值(自然日, 默认 10; WARN 固定 6)")
 
     # --- order ---
     p_ord = subparsers.add_parser("order", help="受控单笔下单 (实盘)")
@@ -134,6 +140,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_mon = subparsers.add_parser("monitor", help="系统监控")
     p_mon.add_argument("monitor_command", choices=["status", "stats", "pause", "resume"], help="监控子命令")
     p_mon.add_argument("--strategy", type=str, default=None, help="策略名称 (pause/resume)")
+
+    # --- shadow ---
+    p_sh = subparsers.add_parser("shadow", help="影子盘过程仪表 (采样台账/过闸判据)")
+    p_sh.add_argument("shadow_command", choices=["status"], help="子命令")
+    p_sh.add_argument("--gate", action="store_true", help="显示过闸判据 G1-G5 + 人工项")
+    p_sh.add_argument("--db", default="data/trading.db", help="交易留痕库")
+    p_sh.add_argument("--market-db", default="data/market.duckdb", help="市场数据库")
+    p_sh.add_argument("--checks-dir", default="data/shadow_checks", help="一致性比对结果目录")
 
     return parser
 
@@ -196,6 +210,10 @@ def main() -> None:
             from src.interfaces.cli.ml_evaluate import main as ml_evaluate_main
 
             ml_evaluate_main(args)
+        case "shadow":
+            from src.interfaces.cli.commands.shadow_cmd import run_shadow
+
+            run_shadow(args)
         case "monitor":
             from src.interfaces.cli.monitor import (
                 cmd_pause,

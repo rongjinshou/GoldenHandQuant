@@ -184,3 +184,108 @@ class TestAggregateGates:
             quote=_quote(), now=WED, max_notional=1500.0, available_volume=100,
         )
         assert not r2.passed
+
+
+class TestTradingCalendarGate:
+    """M7 交易日历闸（2026-07-10 六西格玛体检, 决策项 Q8 获批）。
+
+    旧时段闸只排周末: 法定节假日(工作日)会通过时段判定, 唯一兜底是报价
+    新鲜度 180s。日历从 bars 推导: 已知休市拒单, 未来日 unknown 放行。
+    """
+
+    def test_known_holiday_workday_rejected(self):
+        from datetime import date, datetime
+
+        from src.domain.trade.services.pre_trade_checks import check_trading_session
+        from src.domain.trade.services.trading_calendar import TradingCalendar
+
+        # 2026-06-10(周三)不在交易日集合 → 休市(如端午)
+        cal = TradingCalendar.from_dates([date(2026, 6, 9), date(2026, 6, 11)])
+
+        reason = check_trading_session(datetime(2026, 6, 10, 9, 35), cal)
+
+        assert reason is not None and "休市" in reason
+
+    def test_known_trading_day_passes(self):
+        from datetime import date, datetime
+
+        from src.domain.trade.services.pre_trade_checks import check_trading_session
+        from src.domain.trade.services.trading_calendar import TradingCalendar
+
+        cal = TradingCalendar.from_dates([date(2026, 6, 10)])
+
+        assert check_trading_session(datetime(2026, 6, 10, 9, 35), cal) is None
+
+    def test_future_unknown_day_falls_back_to_session_logic(self):
+        from datetime import date, datetime
+
+        from src.domain.trade.services.pre_trade_checks import check_trading_session
+        from src.domain.trade.services.trading_calendar import TradingCalendar
+
+        cal = TradingCalendar.from_dates([date(2026, 6, 10)])  # known_until=6/10
+
+        # 未来工作日盘中: 日历 unknown → 放行(新鲜度闸兜底)
+        assert check_trading_session(datetime(2026, 6, 17, 9, 35), cal) is None
+
+    def test_no_calendar_keeps_legacy_behavior(self):
+        from datetime import datetime
+
+        from src.domain.trade.services.pre_trade_checks import check_trading_session
+
+        assert check_trading_session(datetime(2026, 6, 10, 9, 35), None) is None
+
+
+class TestSellExitAsymmetry:
+    """买严卖畅(0713 彩排实证: 趋势闸清仓单被金额闸/白名单拦死, 防御性退出失效)。
+
+    先例: 实时 ST 闸 buy-only(0704 DD-3)。SELL 仍受: 时段/新鲜度/价格带/T+1 可用量/
+    同标的当日一次/日总额度——放宽的只是"为防错买设计"的两道闸。
+    """
+
+    def _quote(self, now):
+        from src.domain.market.value_objects.quote import Quote
+        return Quote(symbol="002284.SZ", last=9.0, bid1=8.99, ask1=9.01,
+                     prev_close=9.2, timestamp=now)
+
+    def test_sell_of_off_whitelist_holding_passes_scope(self):
+        from datetime import datetime
+
+        from src.domain.trade.services.pre_trade_checks import run_pre_trade_gates
+        from src.domain.trade.value_objects.order_direction import OrderDirection
+        now = datetime(2026, 7, 13, 10, 0, 0)
+        r = run_pre_trade_gates(symbol="002284.SZ", direction=OrderDirection.SELL,
+                                volume=3800, quote=self._quote(now), now=now,
+                                max_notional=9000.0, available_volume=3800)
+        assert r.passed, r.reject_reason  # 002 板持仓退出不受买入白名单约束
+
+    def test_sell_beyond_notional_cap_passes(self):
+        from datetime import datetime
+
+        from src.domain.market.value_objects.quote import Quote
+        from src.domain.trade.services.pre_trade_checks import run_pre_trade_gates
+        from src.domain.trade.value_objects.order_direction import OrderDirection
+        now = datetime(2026, 7, 13, 10, 0, 0)
+        q = Quote(symbol="000021.SZ", last=54.0, bid1=53.99, ask1=54.01,
+                  prev_close=57.9, timestamp=now)
+        r = run_pre_trade_gates(symbol="000021.SZ", direction=OrderDirection.SELL,
+                                volume=600, quote=q, now=now,
+                                max_notional=9000.0, available_volume=600)
+        assert r.passed, r.reject_reason  # ¥32k 卖单不再被 ¥9k 单笔闸拦死
+
+    def test_buy_still_gated_by_scope_and_cap(self):
+        from datetime import datetime
+
+        from src.domain.trade.services.pre_trade_checks import run_pre_trade_gates
+        from src.domain.trade.value_objects.order_direction import OrderDirection
+        now = datetime(2026, 7, 13, 10, 0, 0)
+        r1 = run_pre_trade_gates(symbol="002284.SZ", direction=OrderDirection.BUY,
+                                 volume=100, quote=self._quote(now), now=now,
+                                 max_notional=9000.0, available_cash=1e6)
+        assert not r1.passed and "允许范围" in r1.reject_reason
+        from src.domain.market.value_objects.quote import Quote
+        q = Quote(symbol="000021.SZ", last=54.0, bid1=53.99, ask1=54.01,
+                  prev_close=53.0, timestamp=now)
+        r2 = run_pre_trade_gates(symbol="000021.SZ", direction=OrderDirection.BUY,
+                                 volume=600, quote=q, now=now,
+                                 max_notional=9000.0, available_cash=1e6)
+        assert not r2.passed and "上限" in r2.reject_reason

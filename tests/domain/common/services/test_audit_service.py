@@ -1,6 +1,6 @@
 """审计领域服务测试（纯标准库 mock，无第三方依赖）。"""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from src.domain.common.services.audit_service import AuditService
 from src.domain.common.value_objects.audit_log_entry import AuditLogEntry
@@ -153,7 +153,7 @@ class TestAuditService:
         assert all(e.action == "place_order" for e in results)
 
     def test_query_by_date_range(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         yesterday = now - timedelta(days=1)
         last_week = now - timedelta(days=7)
 
@@ -229,7 +229,7 @@ class TestAuditService:
         assert self.service.count(action="place_order") == 1
 
     def test_count_by_date_range(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         yesterday = now - timedelta(days=1)
 
         self.service.log_action(

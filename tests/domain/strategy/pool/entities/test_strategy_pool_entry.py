@@ -1,5 +1,6 @@
-import pytest
 from datetime import datetime
+
+import pytest
 
 from src.domain.strategy.pool.entities.strategy_pool_entry import StrategyPoolEntry
 from src.domain.strategy.pool.value_objects.ml_model_version import MLModelVersion

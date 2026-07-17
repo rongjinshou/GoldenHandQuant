@@ -1,9 +1,10 @@
 import pytest
+
+from src.domain.account.entities.asset import Asset
+from src.domain.account.entities.position import Position
 from src.domain.portfolio.services.sizers.fixed_ratio_sizer import FixedRatioSizer
 from src.domain.strategy.value_objects.signal import Signal
 from src.domain.strategy.value_objects.signal_direction import SignalDirection
-from src.domain.account.entities.asset import Asset
-from src.domain.account.entities.position import Position
 
 
 class TestFixedRatioSizerRatioMode:
@@ -31,7 +32,8 @@ class TestFixedRatioSizerRatioMode:
     def test_sell_with_confidence_one_sells_all_available(self):
         sizer = FixedRatioSizer(ratio=0.2, mode="ratio")
         asset = Asset(account_id="TEST", total_asset=100000.0, available_cash=50000.0, frozen_cash=0.0)
-        position = Position(account_id="TEST", ticker="000001.SZ", total_volume=300, available_volume=300, average_cost=9.0)
+        position = Position(account_id="TEST", ticker="000001.SZ", total_volume=300,
+                            available_volume=300, average_cost=9.0)
         signal = Signal(symbol="000001.SZ", direction=SignalDirection.SELL, confidence_score=1.0)
 
         volume = sizer.calculate_target(signal, current_price=10.0, asset=asset, position=position)

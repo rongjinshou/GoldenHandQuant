@@ -152,3 +152,107 @@ class TestRefreshOnly:
 
         service.prepare(["000001.SZ"], "2024-01-10", "2024-01-30")
         assert compute_calls["n"] == 1  # bars 未变 + 特征区间命中 → 不重算
+
+
+class TestFulfillmentHonesty:
+    """mark_fulfilled 履约诚实性（2026-07-10 六西格玛体检 B1/B2）。
+
+    2025-11-25→2026-02-26 的 103,466 行特征 NULL 固化事故根因即「无条件履约」:
+    产出未经校验就标记 fulfilled, missing_ranges 从此为空, refresh 永久跳过。
+    """
+
+    FEAT_TABLE = f"stock_features:v{mda_module.FEATURE_VERSION}"
+
+    def _empty_service(self, store):
+        fetcher = _CountingHistoryFetcher({})  # 任何请求都返回空
+        fund = _StubFundamentalFetcher([])
+        return MarketDataAppService(store, fetcher, fund, source="qmt")
+
+    def test_empty_fetch_within_listing_window_not_fulfilled(self, store):
+        """confirmed-bug(P2): 上市窗口内缺口拉回空(QMT 瞬时抖动/断线)曾被无条件
+        标履约 → 永不重试, 数据洞永久固化。"""
+        store.upsert_instruments(
+            [{"symbol": "000001.SZ", "name": "平安银行",
+              "list_date": "2020-01-02", "delist_date": None}], "qmt")
+        service = self._empty_service(store)
+
+        refreshed = service.ensure_bars(["000001.SZ"], "2024-01-10", "2024-01-20")
+
+        assert refreshed == set()
+        assert store.missing_ranges(
+            "qmt", "bars", "000001.SZ", "2024-01-10", "2024-01-20"
+        )  # 缺口仍在 → 下轮重试
+
+    def test_empty_fetch_before_listing_is_fulfilled(self, store):
+        """上市前区间空返回合法, 必须照旧履约（防重拉风暴的原始动机保留）。"""
+        store.upsert_instruments(
+            [{"symbol": "301999.SZ", "name": "次新股",
+              "list_date": "2025-06-01", "delist_date": None}], "qmt")
+        service = self._empty_service(store)
+
+        service.ensure_bars(["301999.SZ"], "2024-01-10", "2024-01-20")
+
+        assert not store.missing_ranges(
+            "qmt", "bars", "301999.SZ", "2024-01-10", "2024-01-20")
+
+    def test_empty_fetch_after_delisting_is_fulfilled(self, store):
+        store.upsert_instruments(
+            [{"symbol": "600001.SH", "name": "已退",
+              "list_date": "2000-01-01", "delist_date": "2022-05-31"}], "qmt")
+        service = self._empty_service(store)
+
+        service.ensure_bars(["600001.SH"], "2024-01-10", "2024-01-20")
+
+        assert not store.missing_ranges(
+            "qmt", "bars", "600001.SH", "2024-01-10", "2024-01-20")
+
+    def test_empty_fetch_unknown_instrument_not_fulfilled(self, store):
+        """instruments 无登记 → 无从判定合法性 → 保守不履约。"""
+        service = self._empty_service(store)
+
+        service.ensure_bars(["999999.SZ"], "2024-01-10", "2024-01-20")
+
+        assert store.missing_ranges(
+            "qmt", "bars", "999999.SZ", "2024-01-10", "2024-01-20")
+
+    def test_features_recalc_without_warmup_not_fulfilled_nor_poisoned(
+        self, store, monkeypatch
+    ):
+        """confirmed-bug(P1): 重算被喂截断 bars(缺 200 天预热) → 整窗 NaN 曾被
+        照常入库+履约（事故模式）。修后: 预热充足区出现 NULL ma_20 的 symbol
+        既不入库(防 NaN 覆盖好数据)也不履约(留待重试)。"""
+        # 600 天史深: 库内首根 bar(含预热拉取)早于窗口 200+ 天 → 窗口全域属
+        # 「预热充足区」, 截断喂数产生的 NaN 必须被哨兵捕获
+        dates = _consecutive_dates("2023-01-01", 600)
+        closes = {d: 10.0 + i * 0.1 for i, d in enumerate(dates)}
+        service, _ = _build_service(closes, store)
+        refreshed = service.ensure_bars(["000001.SZ"], "2024-05-01", "2024-06-15")
+        assert refreshed == {"000001.SZ"}
+
+        real_load = store.load_bars_df
+
+        def truncated(symbols, start, end, source):
+            return real_load(symbols, "2024-05-01", end, source)  # 掐掉预热段
+
+        monkeypatch.setattr(store, "load_bars_df", truncated)
+
+        service.ensure_features(["000001.SZ"], "2024-05-01", "2024-06-15", refreshed)
+
+        assert store.missing_ranges(
+            "qmt", self.FEAT_TABLE, "000001.SZ", "2024-05-01", "2024-06-15"
+        )  # 未履约
+        feats = store.load_features_df(
+            ["000001.SZ"], "2024-05-01", "2024-06-15", mda_module.FEATURE_VERSION)
+        assert feats.empty  # 缺预热的 NaN 产出未入库
+
+    def test_features_new_listing_warmup_nulls_still_fulfilled(self, store):
+        """次新股全史不足 WARMUP: 窗口内 NULL 合法, 照常入库+履约（不误伤）。"""
+        dates = _consecutive_dates("2024-01-01", 30)
+        closes = {d: 10.0 + i * 0.1 for i, d in enumerate(dates)}
+        service, _ = _build_service(closes, store)
+        refreshed = service.ensure_bars(["000001.SZ"], "2024-01-01", "2024-01-30")
+
+        service.ensure_features(["000001.SZ"], "2024-01-01", "2024-01-30", refreshed)
+
+        assert not store.missing_ranges(
+            "qmt", self.FEAT_TABLE, "000001.SZ", "2024-01-01", "2024-01-30")
